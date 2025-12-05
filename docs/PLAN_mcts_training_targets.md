@@ -1,10 +1,12 @@
 # Implementation Plan: MCTS-Based Training Targets
 
+**STATUS: COMPLETE** - All phases implemented and working.
+
 ## Summary
 
 Upgrade the trainer to use proper AlphaZero supervision:
-- **Policy targets**: MCTS visit count distributions (already stored by actor)
-- **Value targets**: Final game outcomes propagated to all positions (needs implementation)
+- **Policy targets**: MCTS visit count distributions (already stored by actor) ✓
+- **Value targets**: Final game outcomes propagated to all positions ✓
 
 ## Current State
 
@@ -20,17 +22,17 @@ policy_probs BLOB,           -- f32[9] MCTS visit distribution (already populate
 mcts_value REAL DEFAULT 0.0, -- MCTS value estimate (already populated)
 ```
 
-### Trainer (needs update)
-The trainer currently:
-1. Ignores `policy_probs` column - uses one-hot of action taken
-2. Ignores `mcts_value` column - uses per-step `reward`
-3. Has outdated schema validation (missing new columns)
+### Trainer (COMPLETE)
+The trainer now:
+1. Uses `policy_probs` column as soft policy targets ✓
+2. Uses `game_outcome` column for value targets ✓
+3. Schema validation updated for new columns ✓
 
 ## Implementation Tasks
 
-### Phase 1: Trainer Updates (Python)
+### Phase 1: Trainer Updates (Python) ✓ COMPLETE
 
-#### Task 1.1: Update schema validation
+#### Task 1.1: Update schema validation ✓
 **File**: `trainer/src/trainer/replay.py`
 
 Add new columns to `EXPECTED_COLUMNS`:
@@ -42,7 +44,7 @@ EXPECTED_COLUMNS = [
 ]
 ```
 
-#### Task 1.2: Update Transition dataclass
+#### Task 1.2: Update Transition dataclass ✓
 **File**: `trainer/src/trainer/replay.py`
 
 ```python
@@ -53,7 +55,7 @@ class Transition:
     mcts_value: float      # MCTS value estimate at this position
 ```
 
-#### Task 1.3: Update sample query
+#### Task 1.3: Update sample query ✓
 **File**: `trainer/src/trainer/replay.py`
 
 Update `sample()` to fetch new columns:
@@ -66,7 +68,7 @@ ORDER BY RANDOM()
 LIMIT ?
 ```
 
-#### Task 1.4: Update sample_batch_tensors
+#### Task 1.4: Update sample_batch_tensors ✓
 **File**: `trainer/src/trainer/replay.py`
 
 Change from one-hot actions to MCTS policy:
@@ -98,7 +100,7 @@ def sample_batch_tensors(self, batch_size: int) -> tuple[...] | None:
     )
 ```
 
-#### Task 1.5: Update loss function
+#### Task 1.5: Update loss function ✓
 **File**: `trainer/src/trainer/network.py`
 
 Change policy loss from cross-entropy with class labels to KL divergence with soft targets:
@@ -127,7 +129,7 @@ class AlphaZeroLoss(nn.Module):
         return total_loss, {"loss/policy": policy_loss.item(), ...}
 ```
 
-#### Task 1.6: Update trainer._train_step
+#### Task 1.6: Update trainer._train_step ✓
 **File**: `trainer/src/trainer/trainer.py`
 
 ```python
@@ -137,12 +139,11 @@ def _train_step(self, observations, policies, values):  # policies instead of ac
     # ...
 ```
 
-### Phase 2: Game Outcome Propagation
+### Phase 2: Game Outcome Propagation ✓ COMPLETE
 
-The current `mcts_value` is the MCTS estimate at each position, not the final game outcome.
-For proper AlphaZero training, we need to propagate the final outcome back to all positions.
+The actor now backfills game outcomes to all positions after each episode completes.
 
-#### Option A: Post-episode backfill in actor (recommended)
+#### Option A: Post-episode backfill in actor (IMPLEMENTED) ✓
 
 **File**: `actor/src/actor.rs`
 
@@ -187,7 +188,7 @@ pub fn update_game_outcome(&self, episode_id: &str, outcome: f32) -> Result<()> 
 }
 ```
 
-#### Option B: Compute in trainer during sampling
+#### Option B: Compute in trainer during sampling (NOT USED)
 
 **File**: `trainer/src/trainer/replay.py`
 
@@ -237,17 +238,15 @@ def sample_batch_with_outcomes(self, batch_size: int) -> tuple[...]:
 
 **Recommendation**: Option A is cleaner - compute once at generation time rather than repeatedly at training time.
 
-### Phase 3: Update documentation
+### Phase 3: Update documentation ✓ COMPLETE
 
-#### Task 3.1: Update module docstrings
-Remove "MVP simplification" notes from:
-- `trainer/src/trainer/trainer.py`
-- `trainer/src/trainer/replay.py`
+#### Task 3.1: Update module docstrings ✓
+Docstrings updated to reflect MCTS policy targets and game outcome propagation.
 
-#### Task 3.2: Update README
+#### Task 3.2: Update README ✓
 **File**: `trainer/README.md`
 
-Document the training target semantics.
+Training target semantics documented. Evaluator tool documented.
 
 ## Schema Migration
 
@@ -276,9 +275,9 @@ The trainer should handle missing columns gracefully (fall back to one-hot/rewar
 
 ## Rollout Plan
 
-1. **Phase 1** (trainer reads MCTS policy): Can deploy immediately since actor already writes the data
-2. **Phase 2** (game outcome propagation): Requires actor update, then trainer update
-3. **Phase 3** (documentation): After both phases complete
+1. **Phase 1** (trainer reads MCTS policy): ✓ COMPLETE
+2. **Phase 2** (game outcome propagation): ✓ COMPLETE
+3. **Phase 3** (documentation): ✓ COMPLETE
 
 ## Risk Assessment
 

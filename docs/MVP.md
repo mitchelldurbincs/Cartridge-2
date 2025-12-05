@@ -51,14 +51,16 @@ I will reuse the engine-rust code, but refactor it from a Service into a Library
 
 ## Actor (The "Player")
 
-Currently in Rust
-Needs to import the Engine crate and ort (ONNX Runtime).
-TLDR: A long-running process that:
+**Status: COMPLETE**
 
-1. Watches `./data/models/latest.onnx` for updates.
+Rust binary importing the Engine crate and ort (ONNX Runtime).
+A long-running process that:
+
+1. Watches `./data/models/latest.onnx` for updates (hot-reload).
 2. Runs MCTS self-play loops using the Engine and ONNX model.
 3. Saves completed games to `./data/replay.db` (SQLite).
-4. Exposes an HTTP server so the **Web Frontend** can request moves.
+4. Stores MCTS visit distributions as policy targets.
+5. Backfills game outcomes to all positions in each episode.
     
 
 ## Engine (The "Rules")
@@ -82,37 +84,47 @@ let step = ctx.step(&reset.state, &action).unwrap();
 
 ## Replay
 
-**Implementation:** SQLite Database (`./data/replay.db`) **TLDR:** A single SQLite database file acting as a concurrent, persistent buffer. This replaces the folder of JSON files to prevent filesystem exhaustion and enable efficient random sampling.
+**Status: COMPLETE**
 
-- **Actor (Rust):** Connects to `replay.db` and executes a blocking `INSERT` to add a new row containing the compressed game binary/JSON and a timestamp after every episode.
-    
+SQLite Database (`./data/replay.db`) - A single SQLite database file acting as a concurrent, persistent buffer.
+
+- **Actor (Rust):** Connects to `replay.db` and inserts transitions with:
+  - Game state and observations
+  - MCTS policy distributions (visit counts normalized)
+  - Game outcomes backfilled after episode completion
+
 - **Learner (Python):**
-    
-    - **Sampling:** Executes `SELECT data FROM games ORDER BY RANDOM() LIMIT :batch_size` to generate training data.
-        
-    - **Window Management:** Periodically runs a cleanup query (e.g., `DELETE FROM games WHERE id NOT IN (SELECT id FROM games ORDER BY created_at DESC LIMIT :window_size)`) to keep the replay buffer from growing infinitely.
+    - **Sampling:** Fetches randomized batches of transitions with policy targets and game outcomes.
+    - **Window Management:** Periodically cleans up old transitions to bound buffer size.
 ## Weights
 
-Currently in Filesystem
+**Status: COMPLETE**
 
-TLDR: A single file: ./data/models/model.onnx
-- **Learner** exports this after every epoch.
+A single file: `./data/models/latest.onnx`
+- **Learner** exports this after every checkpoint interval.
 - **Actor** hot-reloads this when the timestamp changes.
+- Versioned checkpoints kept in `./data/models/model_step_NNNNNN.onnx`.
     
 
 ## Learner (The "Trainer")
-**Currently in Python** **TLDR:** A continuous loop that trains the network on data from SQLite and publishes versioned models safely.
+
+**Status: COMPLETE**
+
+Python training loop that trains the network on data from SQLite and publishes versioned models safely.
 
 **Process:**
-1. **Data Loading (SQLite):** Instead of scanning a folder of thousands of files, it runs a SQL query to fetch a randomized batch of games: `SELECT game_data FROM games ORDER BY RANDOM() LIMIT 1000;`
-2. **Training:** Updates the PyTorch model parameters θ to minimize the combined AlphaZero loss (Policy Cross-Entropy + Value MSE).
+1. **Data Loading (SQLite):** Runs SQL queries to fetch randomized batches of transitions with MCTS policy targets and game outcomes.
+2. **Training:** Updates the PyTorch model parameters θ to minimize the combined AlphaZero loss:
+   - Policy: Cross-entropy with soft MCTS visit distribution targets
+   - Value: MSE with propagated game outcomes
 3. **Checkpointing (Garbage Collection):** Saves a historical snapshot every N steps (e.g., `model_step_001000.onnx`).
-    - _Logic:_ Keep the last 10 checkpoints, and delete older ones (unless you want to keep "milestones" like every 10k steps for tournaments).
-4. **Atomic Publishing:** To prevents the "Half-Written Model" crash in Rust, it uses a **write-then-rename** pattern:
+    - _Logic:_ Keep the last 10 checkpoints, and delete older ones.
+4. **Atomic Publishing:** Prevents the "Half-Written Model" crash in Rust using **write-then-rename**:
     - Step A: Save to `temp_model.onnx`.
     - Step B: Execute `os.replace('temp_model.onnx', 'latest.onnx')`.
     - _Result:_ The Rust Actor only ever sees a fully written, valid file at `latest.onnx`.
-5. **Telemetry:** Writes `stats.json` (loss, win-rate, learning rate) for the Web Portal to poll.
+5. **Telemetry:** Writes `stats.json` (loss, learning rate, etc.) for the Web Portal to poll.
+6. **Evaluation:** Includes evaluator tool to measure model performance against random baseline.
 
 ---
 
