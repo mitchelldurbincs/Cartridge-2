@@ -121,7 +121,8 @@ src/trainer/
 |-- __main__.py    # CLI entrypoint
 |-- trainer.py     # Training loop, TrainerConfig
 |-- network.py     # Neural network architecture
-+-- replay.py      # SQLite replay buffer interface
+|-- replay.py      # SQLite replay buffer interface
++-- evaluator.py   # Model evaluation against baselines
 ```
 
 ## Development
@@ -142,6 +143,91 @@ ruff check .
 - `torch>=2.0.0` - Neural network training
 - `numpy>=1.24.0` - Numerical operations
 - `onnx>=1.14.0` - Model export
+- `onnxruntime>=1.15.0` - Model inference for evaluation
+
+## Evaluator
+
+The evaluator measures how well a trained model plays against random opponents.
+
+### Quick Start
+
+```bash
+# Basic evaluation (100 games)
+python -m trainer.evaluator --model ./data/models/latest.onnx --games 100
+
+# More games for statistical confidence
+python -m trainer.evaluator --model ./data/models/latest.onnx --games 500
+
+# Verbose mode to see individual game moves
+python -m trainer.evaluator --model ./data/models/latest.onnx --games 10 --verbose
+
+# Compare different checkpoints
+python -m trainer.evaluator --model ./data/models/model_step_000100.onnx --games 100
+```
+
+### CLI Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model` | `./data/models/latest.onnx` | Path to ONNX model file |
+| `--games` | 100 | Number of games to play |
+| `--temperature` | 0.0 | Sampling temperature (0 = greedy/argmax) |
+| `--verbose` | false | Print individual game moves |
+| `--log-level` | INFO | Logging level |
+
+### Output Example
+
+```
+==================================================
+Evaluation Results: ONNX(latest.onnx) vs Random
+==================================================
+Games played: 100
+
+ONNX(latest.onnx):
+  Wins: 72 (72.0%)
+    As X (first): 45
+    As O (second): 27
+
+Random:
+  Wins: 12 (12.0%)
+    As X (first): 8
+    As O (second): 4
+
+Draws: 16 (16.0%)
+Average game length: 6.8 moves
+==================================================
+
+✓ Model is significantly better than random play!
+```
+
+### Interpreting Results
+
+| Win Rate | Interpretation |
+|----------|----------------|
+| >70% | Model is significantly better than random |
+| 50-70% | Model is slightly better than random |
+| 30-50% | Model is roughly equivalent to random |
+| <30% | Model is worse than random |
+
+For TicTacToe specifically:
+- A well-trained model should achieve **70%+ win rate** vs random
+- High draw rates (>50%) indicate strong defensive play
+- First-player (X) advantage is expected - watch for parity between X and O performance
+
+### Evaluating Training Progress
+
+Compare checkpoints to see learning progress:
+
+```bash
+# Early checkpoint
+python -m trainer.evaluator --model ./data/models/model_step_000100.onnx --games 100
+
+# Mid checkpoint
+python -m trainer.evaluator --model ./data/models/model_step_000500.onnx --games 100
+
+# Final model
+python -m trainer.evaluator --model ./data/models/latest.onnx --games 100
+```
 
 ## Integration with Actor
 

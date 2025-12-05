@@ -61,7 +61,15 @@ cargo run -- --env-id tictactoe --max-episodes 1000
 cd trainer
 pip install -e .
 python -m trainer --db ../data/replay.db --steps 1000
-# Exports model to ./data/models/model.onnx
+# Exports model to ./data/models/latest.onnx
+```
+
+### Evaluate the Model
+
+```bash
+cd trainer
+python -m trainer.evaluator --model ../data/models/latest.onnx --games 100
+# Plays 100 games against random, reports win rate
 ```
 
 ## Project Structure
@@ -102,7 +110,8 @@ cartridge2/
 |       |-- __main__.py        # CLI entrypoint
 |       |-- trainer.py         # Training loop
 |       |-- network.py         # Neural network
-|       +-- replay.py          # SQLite interface
+|       |-- replay.py          # SQLite interface
+|       +-- evaluator.py       # Model evaluation
 |
 |-- data/                      # Runtime data (gitignored)
 |   |-- replay.db              # SQLite replay buffer
@@ -145,9 +154,11 @@ let step = ctx.step(&reset.state, &action).unwrap();
 Self-play episode generator:
 
 - Runs game simulations using `EngineContext`
+- MCTS with ONNX neural network evaluation
+- Hot-reloads model when `latest.onnx` changes
 - Stores transitions in SQLite replay buffer
-- Configurable via CLI arguments
-- Ready for MCTS and neural network policy integration
+- MCTS visit distributions saved as policy targets
+- Game outcomes backfilled to all positions
 
 ```bash
 cargo run -- \
@@ -175,9 +186,13 @@ PyTorch training loop:
 
 - Reads transitions from SQLite replay buffer
 - AlphaZero-style loss (policy cross-entropy + value MSE)
+- MCTS visit distributions as soft policy targets
+- Game outcomes propagated as value targets
 - Exports ONNX models with atomic write-then-rename
-- Fixed learning rate (schedule TBD)
+- Cosine annealing LR schedule
+- Gradient clipping for stability
 - Checkpoint management
+- Model evaluation against random baseline
 
 ## Adding a New Game
 
@@ -250,12 +265,13 @@ cd web && cargo fmt && cargo clippy
 - [x] Engine core abstractions (Game trait, adapter, registry)
 - [x] EngineContext high-level API
 - [x] TicTacToe game implementation
-- [x] Actor (episode runner, SQLite replay)
+- [x] Actor (episode runner, SQLite replay, MCTS + ONNX)
 - [x] MCTS implementation
 - [x] Web server (Axum, game API)
 - [x] Web frontend (Svelte, play UI, stats)
 - [x] Python trainer (PyTorch, ONNX export)
-- [ ] ONNX model integration in actor
+- [x] MCTS policy targets + game outcome propagation
+- [x] Model evaluation against random baseline
 - [ ] Connect 4 game
 - [ ] Othello game
 

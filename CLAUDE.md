@@ -40,13 +40,15 @@ Pure game logic library. No network I/O. Library-only design (no gRPC).
 - `mcts/` - Monte Carlo Tree Search implementation (21 tests)
 
 ### Actor (Rust Binary) - `actor/`
-**Status: CORE COMPLETE (30 tests)**
+**Status: COMPLETE (30 tests)**
 
 Self-play episode runner using engine-core directly:
 - Uses `EngineContext` for game simulation (no gRPC)
 - Stores transitions in SQLite (`./data/replay.db`)
-- Random policy for action selection
-- Ready for MCTS and ONNX integration
+- MCTS policy with ONNX neural network evaluation
+- Hot-reloads model when `latest.onnx` changes
+- Stores MCTS visit distributions as policy targets
+- Game outcome backfill for value targets
 
 ### Web Server (Rust Binary) - `web/`
 **Status: COMPLETE (4 tests)**
@@ -68,11 +70,18 @@ Svelte 5 frontend with Vite:
 - Live training stats polling
 - Responsive dark-mode UI
 
-### Learner (Python) - To Be Built
-- PyTorch training loop
-- Reads from SQLite replay buffer
+### Trainer (Python) - `trainer/`
+**Status: COMPLETE**
+
+PyTorch training loop with AlphaZero-style learning:
+- Reads transitions from SQLite replay buffer
+- MCTS policy distributions as soft targets
+- Game outcome propagation for value targets
 - Exports ONNX models with atomic write-then-rename
 - Writes `stats.json` telemetry
+- Cosine annealing LR schedule
+- Gradient clipping for stability
+- Model evaluation against random baseline
 
 ## Directory Structure
 
@@ -104,6 +113,13 @@ cartridge2/
 │   │   │   └── Stats.svelte
 │   │   └── vite.config.ts
 │   └── README.md          # Run commands
+├── trainer/               # Python training
+│   └── src/trainer/
+│       ├── __main__.py    # CLI entrypoint
+│       ├── trainer.py     # Training loop
+│       ├── network.py     # Neural network
+│       ├── replay.py      # SQLite interface
+│       └── evaluator.py   # Model evaluation
 ├── docs/
 │   └── MVP.md             # Design document
 ├── data/                  # Runtime data (gitignored)
@@ -161,6 +177,15 @@ cd web && cargo run
 
 # Start frontend dev server
 cd web/frontend && npm run dev
+
+# Run self-play to generate training data
+cd actor && cargo run -- --env-id tictactoe --max-episodes 1000
+
+# Train the model
+cd trainer && python3 -m trainer --db ../data/replay.db --steps 1000
+
+# Evaluate model against random play
+cd trainer && python3 -m trainer.evaluator --model ../data/models/latest.onnx --games 100
 ```
 
 ## Current Status
@@ -170,11 +195,12 @@ cd web/frontend && npm run dev
 - [x] TicTacToe game implementation - 15 tests
 - [x] Removed gRPC/proto dependencies (library-only)
 - [x] Actor core (episode runner, SQLite replay) - 30 tests
+- [x] MCTS integration in actor with ONNX evaluation
 - [x] Web server (Axum, game API) - 4 tests
 - [x] Web frontend (Svelte, play UI, stats)
 - [x] MCTS implementation - 21 tests
-- [ ] ONNX model integration
-- [ ] Python trainer
+- [x] Python trainer (PyTorch, ONNX export, evaluator)
+- [x] MCTS policy targets + game outcome propagation
 - [ ] Connect 4 game
 - [ ] Othello game
 

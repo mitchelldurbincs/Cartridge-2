@@ -7,10 +7,11 @@ Self-play episode runner for Cartridge2. Generates game experience data by runni
 The Actor is a long-running Rust binary that:
 
 1. Runs game episodes using the engine-core library directly (no gRPC)
-2. Selects actions using a configurable policy (currently random)
-3. Stores all transitions (state, action, reward, next_state) in SQLite
-4. Supports graceful shutdown via Ctrl+C
-5. Can run multiple instances in parallel for faster data generation
+2. Selects actions using MCTS with ONNX neural network evaluation
+3. Hot-reloads the model when `latest.onnx` changes
+4. Stores transitions with MCTS policy distributions and game outcomes in SQLite
+5. Supports graceful shutdown via Ctrl+C
+6. Can run multiple instances in parallel for faster data generation
 
 ## Quick Start
 
@@ -92,7 +93,7 @@ impl Actor {
 }
 ```
 
-### Policy (`src/policy.rs`)
+### Policy (`src/policy.rs`, `src/mcts_policy.rs`)
 
 Trait for action selection strategies:
 
@@ -102,7 +103,14 @@ pub trait Policy: Send + Sync {
 }
 ```
 
-Currently implements `RandomPolicy`. Future policies (MCTS, ONNX neural network) will implement this trait.
+Implements:
+- **MctsPolicy** - MCTS with ONNX neural network evaluation (default)
+- **RandomPolicy** - Uniform random for testing/fallback
+
+The MCTS policy:
+- Watches `./data/models/latest.onnx` for updates
+- Falls back to random if no model is available
+- Returns visit count distributions as policy targets
 
 Supported action spaces:
 - **Discrete(n)** - Single integer 0..n (encoded as 4-byte u32)
@@ -146,6 +154,9 @@ pub struct Transition {
     pub reward: f32,
     pub done: bool,
     pub timestamp: u64,
+    pub policy_probs: Vec<u8>,   // MCTS visit distribution (f32 array)
+    pub mcts_value: f32,         // MCTS value estimate
+    pub game_outcome: Option<f32>, // Final outcome (+1/-1/0), backfilled
 }
 ```
 
@@ -165,7 +176,10 @@ CREATE TABLE transitions (
     reward REAL NOT NULL,
     done INTEGER NOT NULL,
     timestamp INTEGER NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    policy_probs BLOB,           -- f32[num_actions] MCTS visit distribution
+    mcts_value REAL DEFAULT 0.0, -- MCTS value estimate
+    game_outcome REAL            -- Final outcome, backfilled after episode
 );
 
 CREATE INDEX idx_transitions_timestamp ON transitions(timestamp);
@@ -244,11 +258,14 @@ cargo bench
 |-------|---------|
 | `engine-core` | Game simulation API |
 | `games-tictactoe` | TicTacToe game |
+| `mcts` | Monte Carlo Tree Search |
+| `ort` | ONNX Runtime bindings |
 | `tokio` | Async runtime |
 | `clap` | CLI argument parsing |
 | `rusqlite` | SQLite interface |
 | `rand_chacha` | Deterministic RNG |
 | `tracing` | Structured logging |
+| `notify` | File watching for model hot-reload |
 
 ## Performance
 
@@ -273,8 +290,8 @@ RUST_LOG=debug cargo run -- --log-level debug
 
 ## Future Work
 
-- [ ] MCTS policy implementation
-- [ ] ONNX neural network policy
-- [ ] Model hot-reload via file watching
+- [x] MCTS policy implementation
+- [x] ONNX neural network policy
+- [x] Model hot-reload via file watching
 - [ ] Distributed actor coordination
 - [ ] Priority experience replay
