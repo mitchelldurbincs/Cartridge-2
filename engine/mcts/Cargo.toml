@@ -1,0 +1,32 @@
+[package]
+name = "mcts"
+version = "0.1.0"
+edition = "2021"
+description = "Monte Carlo Tree Search implementation for AlphaZero-style game playing"
+
+[features]
+default = []
+onnx = ["ort", "ndarray"]
+
+[dependencies]
+# Engine core for game abstraction
+engine-core = { path = "../engine-core" }
+
+# Randomness (workspace)
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+rand_distr = "0.4"
+
+# Error handling (workspace)
+thiserror = { workspace = true }
+
+# Tracing (workspace)
+tracing = { workspace = true }
+
+# ONNX Runtime (optional)
+ort = { version = "2.0.0-rc.10", optional = true }
+ndarray = { version = "0.16", optional = true }
+
+[dev-dependencies]
+# For testing with actual games
+games-tictactoe = { path = "../games-tictactoe" }

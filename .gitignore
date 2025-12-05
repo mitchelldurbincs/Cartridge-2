@@ -1,0 +1,61 @@
+# Rust build artifacts
+/engine/target/
+/actor/target/
+/web/target/
+target/
+Cargo.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime data
+/data/
+
+# ONNX models (generated)
+*.onnx
+
+# Node.js / Frontend
+node_modules/
+/web/frontend/dist/
+/web/frontend/.svelte-kit/
+.npm
+.pnpm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.bak
+
+# Logs
+*.log
+logs/
+
+# Environment files (may contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+tmp/
+temp/
+*.tmp
