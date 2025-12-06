@@ -7,11 +7,15 @@ edition = "2021"
 name = "web"
 path = "src/main.rs"
 
+[features]
+default = ["onnx"]
+onnx = ["mcts/onnx"]
+
 [dependencies]
 # Engine library
 engine-core = { path = "../engine/engine-core" }
 games-tictactoe = { path = "../engine/games-tictactoe" }
-mcts = { path = "../engine/mcts", features = ["onnx"] }
+mcts = { path = "../engine/mcts" }
 
 # Web framework
 axum = { version = "0.7", features = ["macros"] }
@@ -39,3 +43,6 @@ rand_chacha = "0.3"
 notify = "6.1"
 
 [dev-dependencies]
+# Testing
+http-body-util = "0.1"
+hyper = { version = "1.0", features = ["full"] }

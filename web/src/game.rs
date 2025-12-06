@@ -4,18 +4,23 @@
 
 use anyhow::{anyhow, Result};
 use engine_core::EngineContext;
+#[cfg(feature = "onnx")]
 use mcts::{run_mcts, MctsConfig, OnnxEvaluator};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+#[cfg(feature = "onnx")]
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(feature = "onnx")]
 use tracing::{debug, info};
 
 use crate::GameStateResponse;
+#[cfg(not(feature = "onnx"))]
+use crate::OnnxEvaluator;
 
 /// TicTacToe constants (obs_size used when loading ONNX models)
-#[allow(dead_code)]
+#[cfg(feature = "onnx")]
 const TICTACTOE_OBS_SIZE: usize = 29;
 
 /// A game session tracking current state
@@ -34,11 +39,18 @@ pub struct GameSession {
     /// RNG for bot moves
     rng: ChaCha20Rng,
     /// Shared evaluator for MCTS (loaded from model file)
+    #[cfg(feature = "onnx")]
+    evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
+    /// Stub evaluator when ONNX is disabled
+    #[cfg(not(feature = "onnx"))]
+    #[allow(dead_code)]
     evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
     /// MCTS configuration for bot play
+    #[cfg(feature = "onnx")]
     mcts_config: MctsConfig,
     /// Reusable simulation context for MCTS (avoids repeated registry lookups)
     /// Separate from `ctx` because MCTS needs its own context for simulations
+    #[cfg(feature = "onnx")]
     mcts_sim_ctx: Option<EngineContext>,
 }
 
@@ -51,6 +63,7 @@ impl GameSession {
     }
 
     /// Create a new game session with a shared evaluator (for hot-reloading)
+    #[cfg(feature = "onnx")]
     pub fn with_evaluator(
         env_id: &str,
         evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
@@ -90,7 +103,39 @@ impl GameSession {
         })
     }
 
+    /// Create a new game session with a shared evaluator (stub when ONNX disabled)
+    #[cfg(not(feature = "onnx"))]
+    pub fn with_evaluator(
+        env_id: &str,
+        evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
+    ) -> Result<Self> {
+        let mut ctx = EngineContext::new(env_id)
+            .ok_or_else(|| anyhow!("Game '{}' not registered", env_id))?;
+
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
+        let reset = ctx.reset(seed, &[])?;
+
+        // Parse the state (11 bytes: 9 board + current_player + winner)
+        let (board, current_player, winner) = Self::parse_state(&reset.state)?;
+
+        Ok(Self {
+            ctx,
+            state: reset.state,
+            obs: reset.obs,
+            board,
+            current_player,
+            winner,
+            rng: ChaCha20Rng::seed_from_u64(seed),
+            evaluator,
+        })
+    }
+
     /// Load an ONNX model for the bot (for future model hot-reloading)
+    #[cfg(feature = "onnx")]
     #[allow(dead_code)]
     pub fn load_model<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let path_ref = path.as_ref();
@@ -110,6 +155,7 @@ impl GameSession {
     }
 
     /// Check if a model is loaded (for future use)
+    #[cfg(feature = "onnx")]
     #[allow(dead_code)]
     pub fn has_model(&self) -> bool {
         self.evaluator
@@ -119,6 +165,7 @@ impl GameSession {
     }
 
     /// Get the shared evaluator reference (for future model hot-reloading)
+    #[cfg(feature = "onnx")]
     #[allow(dead_code)]
     pub fn evaluator_ref(&self) -> Arc<RwLock<Option<OnnxEvaluator>>> {
         Arc::clone(&self.evaluator)
@@ -173,6 +220,7 @@ impl GameSession {
     }
 
     /// Make a bot move using MCTS if model is available, otherwise random
+    #[cfg(feature = "onnx")]
     pub fn bot_move(&mut self) -> Result<u8> {
         let legal = self.legal_moves();
         if legal.is_empty() {
@@ -232,6 +280,22 @@ impl GameSession {
             use rand::seq::SliceRandom;
             *legal.choose(&mut self.rng).unwrap()
         };
+
+        self.make_move(position)?;
+        Ok(position)
+    }
+
+    /// Make a bot move using random selection (when ONNX is disabled)
+    #[cfg(not(feature = "onnx"))]
+    pub fn bot_move(&mut self) -> Result<u8> {
+        let legal = self.legal_moves();
+        if legal.is_empty() {
+            return Err(anyhow!("No legal moves available"));
+        }
+
+        // Random move selection
+        use rand::seq::SliceRandom;
+        let position = *legal.choose(&mut self.rng).unwrap();
 
         self.make_move(position)?;
         Ok(position)
