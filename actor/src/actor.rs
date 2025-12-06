@@ -245,7 +245,7 @@ impl Actor {
 
         // Reset the game and get max_horizon for step limit
         let (reset_result, max_horizon) = {
-            let mut engine = self.engine.lock().unwrap();
+            let mut engine = self.engine.lock().expect("engine lock poisoned");
             let caps = engine.capabilities();
             let reset = engine.reset(seed, &[])?;
             (reset, caps.max_horizon)
@@ -312,13 +312,13 @@ impl Actor {
 
             // Select action using MCTS policy
             let policy_result = {
-                let mut policy = self.mcts_policy.lock().unwrap();
+                let mut policy = self.mcts_policy.lock().expect("mcts_policy lock poisoned");
                 policy.select_action(&current_state, &current_obs, current_legal_mask)?
             };
 
             // Take step in environment
             let step_result = {
-                let mut engine = self.engine.lock().unwrap();
+                let mut engine = self.engine.lock().expect("engine lock poisoned");
                 engine.step(&current_state, &policy_result.action)?
             };
 
@@ -384,7 +384,7 @@ impl Actor {
                 // Batch store all transitions in a single transaction
                 // This dramatically reduces fsync overhead (1 fsync vs N fsyncs)
                 {
-                    let replay = self.replay.lock().unwrap();
+                    let replay = self.replay.lock().expect("replay lock poisoned");
                     if let Err(e) = replay.store_batch(&transitions) {
                         error!(
                             "Failed to store transitions for episode {}: {}",
@@ -491,7 +491,7 @@ mod tests {
         actor.run_episode().unwrap();
 
         // Check that transitions were stored
-        let replay = actor.replay.lock().unwrap();
+        let replay = actor.replay.lock().expect("replay lock poisoned");
         let count = replay.count().unwrap();
         assert!(count > 0, "Should have stored some transitions");
 
