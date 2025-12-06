@@ -13,8 +13,8 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
 use crate::mcts_policy::MctsPolicy;
-use crate::model_watcher::ModelWatcher;
 use crate::replay::{ReplayBuffer, Transition};
+use model_watcher::ModelWatcher;
 
 /// TicTacToe constants
 const TICTACTOE_NUM_ACTIONS: usize = 9;

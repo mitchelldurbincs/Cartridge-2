@@ -24,7 +24,6 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
 
 mod game;
-mod model_watcher;
 
 use game::GameSession;
 use model_watcher::{ModelInfo, ModelWatcher};
