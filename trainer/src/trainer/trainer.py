@@ -30,7 +30,7 @@ import torch.nn.utils as nn_utils
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from .network import AlphaZeroLoss, TicTacToeNet, create_network
+from .network import AlphaZeroLoss, PolicyValueNetwork, create_network
 from .replay import ReplayBuffer
 
 logger = logging.getLogger(__name__)

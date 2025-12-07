@@ -2,20 +2,23 @@
 //!
 //! Minimal HTTP server exposing game API for the Svelte frontend.
 //! Endpoints:
-//! - GET  /health     - Health check
-//! - POST /move       - Make a move (player action + bot response)
-//! - GET  /stats      - Read training stats from data/stats.json
-//! - GET  /model      - Get info about currently loaded model
-//! - POST /selfplay   - Start/stop self-play actor (placeholder)
-//! - POST /game/new   - Start a new game
-//! - GET  /game/state - Get current game state
+//! - GET  /health        - Health check
+//! - GET  /games         - List available games
+//! - GET  /game-info/:id  - Get metadata for a specific game
+//! - POST /move          - Make a move (player action + bot response)
+//! - GET  /stats         - Read training stats from data/stats.json
+//! - GET  /model         - Get info about currently loaded model
+//! - POST /selfplay      - Start/stop self-play actor (placeholder)
+//! - POST /game/new      - Start a new game
+//! - GET  /game/state    - Get current game state
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
+use engine_core::{create_game, list_registered_games, GameMetadata};
 #[cfg(feature = "onnx")]
 use mcts::OnnxEvaluator;
 use serde::{Deserialize, Serialize};
@@ -77,6 +80,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 
     Router::new()
         .route("/health", get(health))
+        .route("/games", get(list_games))
+        .route("/game-info/:id", get(get_game_info))
         .route("/move", post(make_move))
         .route("/stats", get(get_stats))
         .route("/model", get(get_model_info))
@@ -207,20 +212,83 @@ async fn health() -> Json<HealthResponse> {
 }
 
 // ============================================================================
+// Games List and Info
+// ============================================================================
+
+#[derive(Serialize, Deserialize)]
+struct GamesListResponse {
+    games: Vec<String>,
+}
+
+async fn list_games() -> Json<GamesListResponse> {
+    Json(GamesListResponse {
+        games: list_registered_games(),
+    })
+}
+
+#[derive(Serialize, Deserialize)]
+struct GameInfoResponse {
+    env_id: String,
+    display_name: String,
+    board_width: usize,
+    board_height: usize,
+    num_actions: usize,
+    obs_size: usize,
+    legal_mask_offset: usize,
+    player_count: usize,
+    player_names: Vec<String>,
+    player_symbols: Vec<char>,
+    description: String,
+}
+
+impl From<GameMetadata> for GameInfoResponse {
+    fn from(meta: GameMetadata) -> Self {
+        Self {
+            env_id: meta.env_id,
+            display_name: meta.display_name,
+            board_width: meta.board_width,
+            board_height: meta.board_height,
+            num_actions: meta.num_actions,
+            obs_size: meta.obs_size,
+            legal_mask_offset: meta.legal_mask_offset,
+            player_count: meta.player_count,
+            player_names: meta.player_names,
+            player_symbols: meta.player_symbols,
+            description: meta.description,
+        }
+    }
+}
+
+async fn get_game_info(
+    Path(id): Path<String>,
+) -> Result<Json<GameInfoResponse>, (StatusCode, String)> {
+    let game = create_game(&id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Game not found: {}. Use /games to list available games.", id),
+        )
+    })?;
+
+    let metadata = game.metadata();
+    Ok(Json(metadata.into()))
+}
+
+// ============================================================================
 // Game State
 // ============================================================================
 
 #[derive(Serialize, Deserialize)]
 struct GameStateResponse {
-    /// Board as 9 cells: 0=empty, 1=X (player), 2=O (bot)
-    board: [u8; 9],
+    /// Board cells: 0=empty, 1=X (player), 2=O (bot)
+    /// Length depends on game (e.g., 9 for TicTacToe, 42 for Connect 4)
+    board: Vec<u8>,
     /// Current player: 1=X, 2=O
     current_player: u8,
     /// Winner: 0=ongoing, 1=X wins, 2=O wins, 3=draw
     winner: u8,
     /// Is the game over?
     game_over: bool,
-    /// Legal moves (positions 0-8)
+    /// Legal moves (positions)
     legal_moves: Vec<u8>,
     /// Status message
     message: String,
@@ -559,7 +627,7 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         let response: GameStateResponse = serde_json::from_str(&body).unwrap();
-        assert_eq!(response.board, [0; 9], "Initial board should be empty");
+        assert_eq!(response.board, vec![0u8; 9], "Initial board should be empty");
         assert_eq!(response.current_player, 1, "Player X should go first");
         assert_eq!(response.winner, 0, "No winner yet");
         assert!(!response.game_over);
@@ -576,7 +644,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let response: GameStateResponse = serde_json::from_str(&body).unwrap();
         assert_eq!(
-            response.board, [0; 9],
+            response.board, vec![0u8; 9],
             "Board should be empty when player goes first"
         );
         assert_eq!(response.current_player, 1);
@@ -613,7 +681,7 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         let response: GameStateResponse = serde_json::from_str(&body).unwrap();
-        assert_eq!(response.board, [0; 9], "Board should be empty with default");
+        assert_eq!(response.board, vec![0u8; 9], "Board should be empty with default");
     }
 
     #[tokio::test]
@@ -744,7 +812,7 @@ mod tests {
             get(app, "/game/state").await
         };
         let initial: GameStateResponse = serde_json::from_str(&initial_body).unwrap();
-        assert_eq!(initial.board, [0; 9]);
+        assert_eq!(initial.board, vec![0u8; 9]);
 
         // Make a move
         {
@@ -761,7 +829,7 @@ mod tests {
         let updated: GameStateResponse = serde_json::from_str(&updated_body).unwrap();
 
         // Verify board changed
-        assert_ne!(updated.board, [0; 9], "Board should have changed");
+        assert_ne!(updated.board, vec![0u8; 9], "Board should have changed");
         assert_eq!(updated.board[0], 1, "Player X should be at position 0");
     }
 
@@ -781,7 +849,7 @@ mod tests {
             get(app, "/game/state").await
         };
         let mid_game: GameStateResponse = serde_json::from_str(&body).unwrap();
-        assert_ne!(mid_game.board, [0; 9], "Board should have moves");
+        assert_ne!(mid_game.board, vec![0u8; 9], "Board should have moves");
 
         // Start new game
         {
@@ -795,7 +863,7 @@ mod tests {
             get(app, "/game/state").await
         };
         let new_game: GameStateResponse = serde_json::from_str(&body).unwrap();
-        assert_eq!(new_game.board, [0; 9], "Board should be reset");
+        assert_eq!(new_game.board, vec![0u8; 9], "Board should be reset");
         assert_eq!(new_game.current_player, 1);
         assert_eq!(new_game.winner, 0);
     }
@@ -832,5 +900,45 @@ mod tests {
             !after_move.legal_moves.contains(&0),
             "Position 0 should not be legal"
         );
+    }
+
+    #[tokio::test]
+    async fn test_list_games() {
+        let state = create_test_state();
+        let app = create_app(state);
+
+        let (status, body) = get(app, "/games").await;
+
+        assert_eq!(status, StatusCode::OK);
+        let response: GamesListResponse = serde_json::from_str(&body).unwrap();
+        assert!(response.games.contains(&"tictactoe".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_game_info_tictactoe() {
+        let state = create_test_state();
+        let app = create_app(state);
+
+        let (status, body) = get(app, "/game-info/tictactoe").await;
+
+        assert_eq!(status, StatusCode::OK);
+        let response: GameInfoResponse = serde_json::from_str(&body).unwrap();
+        assert_eq!(response.env_id, "tictactoe");
+        assert_eq!(response.display_name, "Tic-Tac-Toe");
+        assert_eq!(response.board_width, 3);
+        assert_eq!(response.board_height, 3);
+        assert_eq!(response.num_actions, 9);
+        assert_eq!(response.player_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_get_game_info_not_found() {
+        let state = create_test_state();
+        let app = create_app(state);
+
+        let (status, body) = get(app, "/game-info/nonexistent").await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body.contains("Game not found"));
     }
 }

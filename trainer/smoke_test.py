@@ -16,7 +16,7 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from trainer.network import TicTacToeNet, create_network
+from trainer.network import PolicyValueNetwork, create_network
 from trainer.replay import create_empty_db, insert_test_transitions, ReplayBuffer
 from trainer.trainer import Trainer, TrainerConfig
 
@@ -26,7 +26,7 @@ def test_network():
     import torch
 
     print("Testing network...")
-    net = TicTacToeNet()
+    net = create_network("tictactoe")
 
     # Test forward pass
     batch = torch.randn(4, 29)

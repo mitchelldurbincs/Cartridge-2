@@ -12,30 +12,24 @@ use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
+use crate::game_config::{get_config, GameConfig};
 use crate::mcts_policy::MctsPolicy;
 use crate::model_watcher::ModelWatcher;
 use crate::replay::{ReplayBuffer, Transition};
 
-/// TicTacToe constants
-const TICTACTOE_NUM_ACTIONS: usize = 9;
-const TICTACTOE_OBS_SIZE: usize = 29; // 9 X + 9 O + 9 legal + current_player + result
-
-/// Index where legal moves start in the observation (for TicTacToe: indices 18-26)
-const TICTACTOE_LEGAL_MOVES_START: usize = 18;
-
 /// Extract a legal moves mask from the observation bytes.
 ///
-/// For TicTacToe, the observation contains 29 f32 values where indices 18-26
+/// The observation contains f32 values where indices starting at `legal_mask_offset`
 /// are the legal moves (1.0 = legal, 0.0 = illegal). This function extracts
 /// those values and packs them into a u64 bitmask.
 ///
 /// This is more robust than hardcoding the initial mask, as it works for:
 /// - Any initial state (including non-empty boards if reset from saved state)
 /// - Any game that encodes legal moves in the observation
-fn extract_legal_mask_from_obs(obs: &[u8]) -> u64 {
-    // Each f32 is 4 bytes, legal moves start at index 18
-    let legal_start_byte = TICTACTOE_LEGAL_MOVES_START * 4;
-    let legal_end_byte = legal_start_byte + TICTACTOE_NUM_ACTIONS * 4;
+fn extract_legal_mask_from_obs(obs: &[u8], config: &GameConfig) -> u64 {
+    // Each f32 is 4 bytes
+    let legal_start_byte = config.legal_mask_offset * 4;
+    let legal_end_byte = legal_start_byte + config.num_actions * 4;
 
     if obs.len() < legal_end_byte {
         // Fallback: if observation is too short, assume all legal (shouldn't happen)
@@ -44,11 +38,11 @@ fn extract_legal_mask_from_obs(obs: &[u8]) -> u64 {
             obs.len(),
             legal_end_byte
         );
-        return (1u64 << TICTACTOE_NUM_ACTIONS) - 1;
+        return config.legal_mask_bits();
     }
 
     let mut mask = 0u64;
-    for i in 0..TICTACTOE_NUM_ACTIONS {
+    for i in 0..config.num_actions {
         let byte_offset = legal_start_byte + i * 4;
         let value = f32::from_le_bytes([
             obs[byte_offset],
@@ -66,6 +60,7 @@ fn extract_legal_mask_from_obs(obs: &[u8]) -> u64 {
 
 pub struct Actor {
     config: Config,
+    game_config: GameConfig,
     engine: Mutex<EngineContext>,
     mcts_policy: Mutex<MctsPolicy>,
     replay: Mutex<ReplayBuffer>,
@@ -78,6 +73,13 @@ impl Actor {
     pub fn new(config: Config) -> Result<Self> {
         // Register the tictactoe game
         games_tictactoe::register_tictactoe();
+
+        // Get game configuration from registry
+        let game_config = get_config(&config.env_id)?;
+        info!(
+            "Loaded game config for {}: {} actions, {} obs size",
+            game_config.env_id, game_config.num_actions, game_config.obs_size
+        );
 
         // Create engine context for the specified game
         let engine = EngineContext::new(&config.env_id)
@@ -93,14 +95,8 @@ impl Actor {
             caps.max_horizon, caps.preferred_batch
         );
 
-        // Determine game parameters based on env_id
-        let (num_actions, obs_size) = match config.env_id.as_str() {
-            "tictactoe" => (TICTACTOE_NUM_ACTIONS, TICTACTOE_OBS_SIZE),
-            _ => {
-                warn!("Unknown game '{}', using TicTacToe defaults", config.env_id);
-                (TICTACTOE_NUM_ACTIONS, TICTACTOE_OBS_SIZE)
-            }
-        };
+        let num_actions = game_config.num_actions;
+        let obs_size = game_config.obs_size;
 
         // Create MCTS policy with training configuration
         let mcts_config = MctsConfig::for_training()
@@ -134,6 +130,7 @@ impl Actor {
 
         Ok(Self {
             config,
+            game_config,
             engine: Mutex::new(engine),
             mcts_policy: Mutex::new(mcts_policy),
             replay: Mutex::new(replay),
@@ -262,12 +259,12 @@ impl Actor {
         let mut transitions: Vec<Transition> = Vec::with_capacity(12);
 
         // Extract initial legal moves mask from the observation.
-        // For TicTacToe, the observation is 29 f32 values:
-        //   - board_view: 18 floats (indices 0-17)
-        //   - legal_moves: 9 floats (indices 18-26), 1.0 = legal, 0.0 = illegal
-        //   - current_player: 2 floats (indices 27-28)
+        // The observation format is game-specific:
+        //   - board_view: N floats (indices 0 to legal_mask_offset-1)
+        //   - legal_moves: num_actions floats (1.0 = legal, 0.0 = illegal)
+        //   - other game-specific data
         // This approach works for any game that encodes legal moves in the observation.
-        let mut current_legal_mask = extract_legal_mask_from_obs(&current_obs);
+        let mut current_legal_mask = extract_legal_mask_from_obs(&current_obs, &self.game_config);
 
         // Timeout tracking
         let episode_start = Instant::now();

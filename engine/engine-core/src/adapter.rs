@@ -8,6 +8,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
 use crate::erased::{ErasedGame, ErasedGameError};
+use crate::metadata::GameMetadata;
 use crate::typed::{Capabilities, EngineId, Game};
 
 /// Adapter that converts typed games to erased interface
@@ -55,6 +56,10 @@ use crate::typed::{Capabilities, EngineId, Game};
 /// #             action_space: ActionSpace::Discrete(1),
 /// #             preferred_batch: 1,
 /// #         }
+/// #     }
+/// #
+/// #     fn metadata(&self) -> engine_core::GameMetadata {
+/// #         engine_core::GameMetadata::new("example", "Example")
 /// #     }
 /// #
 /// #     fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {
@@ -144,6 +149,10 @@ impl<T: Game> ErasedGame for GameAdapter<T> {
 
     fn capabilities(&self) -> Capabilities {
         self.game.capabilities()
+    }
+
+    fn metadata(&self) -> GameMetadata {
+        self.game.metadata()
     }
 
     fn reset(
@@ -250,6 +259,13 @@ mod tests {
                 action_space: ActionSpace::Discrete(4),
                 preferred_batch: 32,
             }
+        }
+
+        fn metadata(&self) -> GameMetadata {
+            GameMetadata::new("test", "Test Game")
+                .with_board(2, 2)
+                .with_actions(4)
+                .with_observation(2, 0)
         }
 
         fn reset(&mut self, rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {
@@ -554,6 +570,13 @@ mod tests {
             }
         }
 
+        fn metadata(&self) -> GameMetadata {
+            GameMetadata::new("counter", "Counter Game")
+                .with_board(1, 1)
+                .with_actions(8)
+                .with_observation(8, 0)
+        }
+
         fn reset(&mut self, rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {
             let value = rng.next_u64();
             (value, value.to_le_bytes())
@@ -701,6 +724,13 @@ mod tests {
             }
         }
 
+        fn metadata(&self) -> GameMetadata {
+            GameMetadata::new("reset_fail", "Reset Fail Game")
+                .with_board(1, 1)
+                .with_actions(1)
+                .with_observation(0, 0)
+        }
+
         fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {
             ((), ())
         }
@@ -778,6 +808,13 @@ mod tests {
                 action_space: ActionSpace::Discrete(1),
                 preferred_batch: 1,
             }
+        }
+
+        fn metadata(&self) -> GameMetadata {
+            GameMetadata::new("step_fail", "Step Fail Game")
+                .with_board(1, 1)
+                .with_actions(1)
+                .with_observation(1, 0)
         }
 
         fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {

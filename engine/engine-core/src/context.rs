@@ -4,6 +4,7 @@
 //! game simulations without dealing with raw bytes and registry lookups.
 
 use crate::erased::{ErasedGame, ErasedGameError};
+use crate::metadata::GameMetadata;
 use crate::registry::create_game;
 use crate::typed::{ActionSpace, Capabilities, EngineId};
 
@@ -100,6 +101,11 @@ impl EngineContext {
     /// Get the action space for this game
     pub fn action_space(&self) -> ActionSpace {
         self.game.capabilities().action_space
+    }
+
+    /// Get the metadata for this game
+    pub fn metadata(&self) -> GameMetadata {
+        self.game.metadata()
     }
 
     /// Reset the game to initial state
@@ -232,6 +238,13 @@ mod tests {
                 action_space: ActionSpace::Discrete(4),
                 preferred_batch: 1,
             }
+        }
+
+        fn metadata(&self) -> GameMetadata {
+            GameMetadata::new("simple", "Simple Game")
+                .with_board(2, 2)
+                .with_actions(4)
+                .with_observation(1, 0)
         }
 
         fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {

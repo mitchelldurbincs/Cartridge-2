@@ -20,7 +20,7 @@
 use engine_core::typed::{
     ActionSpace, Capabilities, DecodeError, EncodeError, Encoding, EngineId, Game,
 };
-use engine_core::{register_game, GameAdapter};
+use engine_core::{register_game, GameAdapter, GameMetadata};
 use rand_chacha::ChaCha20Rng;
 
 /// Register TicTacToe with the global game registry
@@ -306,6 +306,19 @@ impl Game for TicTacToe {
             action_space: ActionSpace::Discrete(9), // 9 possible positions
             preferred_batch: 64,
         }
+    }
+
+    fn metadata(&self) -> GameMetadata {
+        GameMetadata::new("tictactoe", "Tic-Tac-Toe")
+            .with_board(3, 3)
+            .with_actions(9)
+            .with_observation(29, 18) // 29 floats, legal mask starts at index 18
+            .with_players(
+                2,
+                vec!["X".to_string(), "O".to_string()],
+                vec!['X', 'O'],
+            )
+            .with_description("Get three in a row to win!")
     }
 
     fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {

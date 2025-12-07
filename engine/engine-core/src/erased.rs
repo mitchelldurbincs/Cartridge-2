@@ -4,6 +4,7 @@
 //! without generics. All typed games are converted to this interface via the
 //! adapter layer, enabling dynamic dispatch in the registry system.
 
+use crate::metadata::GameMetadata;
 use crate::typed::{Capabilities, EngineId};
 
 /// Runtime error for erased game operations
@@ -66,6 +67,9 @@ pub trait ErasedGame: Send + Sync + std::fmt::Debug + 'static {
 
     /// Get game capabilities and configuration
     fn capabilities(&self) -> Capabilities;
+
+    /// Get game metadata for UI and configuration
+    fn metadata(&self) -> GameMetadata;
 
     /// Reset the game to initial state
     ///
@@ -153,6 +157,13 @@ mod tests {
                 action_space: ActionSpace::Discrete(2),
                 preferred_batch: 16,
             }
+        }
+
+        fn metadata(&self) -> GameMetadata {
+            GameMetadata::new("mock", "Mock Game")
+                .with_board(1, 1)
+                .with_actions(2)
+                .with_observation(1, 0)
         }
 
         fn reset(
