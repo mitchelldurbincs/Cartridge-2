@@ -6,7 +6,8 @@
       "Bash(cargo clippy:*)",
       "Bash(cargo fmt:*)",
       "Bash(pip install:*)",
-      "Bash(python3 -m pytest:*)"
+      "Bash(python3 -m pytest:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

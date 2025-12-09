@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Board from './Board.svelte';
+  import Connect4Board from './Connect4Board.svelte';
   import Stats from './Stats.svelte';
   import { getGameState, newGame, makeMove, getHealth, getGameInfo, getGames, type GameState, type MoveResponse, type GameInfo } from './lib/api';
 
@@ -38,7 +39,7 @@
     lastBotMove = null;
     try {
       gameInfo = await getGameInfo(selectedGame);
-      gameState = await newGame('player');
+      gameState = await newGame('player', selectedGame);
     } catch (e) {
       error = String(e);
     }
@@ -50,7 +51,7 @@
     error = null;
     lastBotMove = null;
     try {
-      gameState = await newGame(first);
+      gameState = await newGame(first, selectedGame);
     } catch (e) {
       error = String(e);
     }
@@ -103,16 +104,26 @@
     <div class="game-container">
       <div class="game-section">
         {#if gameState && gameInfo}
-          <Board
-            board={gameState.board}
-            legalMoves={gameState.legal_moves}
-            gameOver={gameState.game_over}
-            {lastBotMove}
-            onCellClick={handleCellClick}
-            width={gameInfo.board_width}
-            height={gameInfo.board_height}
-            playerSymbols={gameInfo.player_symbols}
-          />
+          {#if selectedGame === 'connect4'}
+            <Connect4Board
+              board={gameState.board}
+              legalMoves={gameState.legal_moves}
+              gameOver={gameState.game_over}
+              {lastBotMove}
+              onColumnClick={handleCellClick}
+            />
+          {:else}
+            <Board
+              board={gameState.board}
+              legalMoves={gameState.legal_moves}
+              gameOver={gameState.game_over}
+              {lastBotMove}
+              onCellClick={handleCellClick}
+              width={gameInfo.board_width}
+              height={gameInfo.board_height}
+              playerSymbols={gameInfo.player_symbols}
+            />
+          {/if}
 
           <div class="status" class:winner={gameState.winner === 1} class:loser={gameState.winner === 2}>
             {gameState.message}

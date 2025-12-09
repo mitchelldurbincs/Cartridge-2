@@ -11,6 +11,7 @@ path = "src/main.rs"
 # Engine library (local)
 engine-core = { path = "../engine/engine-core" }
 games-tictactoe = { path = "../engine/games-tictactoe" }
+games-connect4 = { path = "../engine/games-connect4" }
 mcts = { path = "../engine/mcts", features = ["onnx"] }
 
 # Core dependencies

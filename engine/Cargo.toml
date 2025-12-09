@@ -2,6 +2,7 @@
 members = [
     "engine-core",
     "games-tictactoe",
+    "games-connect4",
     "mcts"
 ]
 resolver = "2"

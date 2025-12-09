@@ -61,6 +61,8 @@ const TICTACTOE_OBS_SIZE: usize = 29;
 pub struct AppState {
     /// Current game session
     session: Mutex<GameSession>,
+    /// Current game ID (for creating new sessions)
+    current_game: RwLock<String>,
     /// Data directory for stats.json
     data_dir: String,
     /// Shared evaluator for MCTS (hot-reloaded)
@@ -96,6 +98,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 #[cfg(test)]
 pub fn create_test_state() -> Arc<AppState> {
     games_tictactoe::register_tictactoe();
+    games_connect4::register_connect4();
     let evaluator: Arc<RwLock<Option<OnnxEvaluator>>> = Arc::new(RwLock::new(None));
     let model_info = Arc::new(RwLock::new(ModelInfo::default()));
     let session = GameSession::with_evaluator("tictactoe", Arc::clone(&evaluator))
@@ -103,6 +106,7 @@ pub fn create_test_state() -> Arc<AppState> {
 
     Arc::new(AppState {
         session: Mutex::new(session),
+        current_game: RwLock::new("tictactoe".to_string()),
         data_dir: "./test_data".to_string(),
         evaluator,
         model_info,
@@ -121,7 +125,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Register games
     games_tictactoe::register_tictactoe();
-    info!("Registered tictactoe game");
+    games_connect4::register_connect4();
+    info!("Registered tictactoe and connect4 games");
 
     // Set up shared evaluator for model hot-reloading
     let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string());
@@ -177,6 +182,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState {
         session: Mutex::new(session),
+        current_game: RwLock::new("tictactoe".to_string()),
         data_dir,
         evaluator,
         model_info,
@@ -310,6 +316,9 @@ struct NewGameRequest {
     /// Who plays first: "player" or "bot"
     #[serde(default = "default_first")]
     first: String,
+    /// Game to play (e.g., "tictactoe", "connect4")
+    #[serde(default)]
+    game: Option<String>,
 }
 
 fn default_first() -> String {
@@ -322,12 +331,28 @@ async fn new_game(
 ) -> Result<Json<GameStateResponse>, (StatusCode, String)> {
     let mut session = state.session.lock().await;
 
+    // Determine which game to use
+    let game_id = if let Some(ref game) = req.game {
+        // Update current game if specified
+        if let Ok(mut current) = state.current_game.write() {
+            *current = game.clone();
+        }
+        game.clone()
+    } else {
+        // Use current game
+        state
+            .current_game
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_else(|_| "tictactoe".to_string())
+    };
+
     // Reset the game with shared evaluator (for hot-reloading)
     *session =
-        GameSession::with_evaluator("tictactoe", Arc::clone(&state.evaluator)).map_err(|e| {
+        GameSession::with_evaluator(&game_id, Arc::clone(&state.evaluator)).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to create game: {}", e),
+                format!("Failed to create game '{}': {}", game_id, e),
             )
         })?;
 
@@ -369,26 +394,21 @@ async fn make_move(
 ) -> Result<Json<MoveResponse>, (StatusCode, String)> {
     let mut session = state.session.lock().await;
 
-    // Validate position
-    if req.position >= 9 {
-        return Err((StatusCode::BAD_REQUEST, "Position must be 0-8".to_string()));
-    }
-
     // Check if game is over
     if session.is_game_over() {
         return Err((StatusCode::BAD_REQUEST, "Game is already over".to_string()));
     }
 
-    // Check if it's player's turn (player is always X = 1)
+    // Check if it's player's turn (player is always 1)
     if session.current_player() != 1 {
         return Err((StatusCode::BAD_REQUEST, "Not your turn".to_string()));
     }
 
-    // Check if move is legal
+    // Check if move is legal (this handles position validation based on game type)
     if !session.is_legal_move(req.position) {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!("Illegal move: position {} is occupied", req.position),
+            format!("Illegal move: position/column {} is not valid", req.position),
         ));
     }
 
@@ -708,11 +728,11 @@ mod tests {
         let state = create_test_state();
         let app = create_app(state);
 
-        // Position 9 is out of bounds
+        // Position 9 is out of bounds for TicTacToe
         let (status, body) = post_json(app, "/move", r#"{"position": 9}"#).await;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(body.contains("Position must be 0-8"));
+        assert!(body.contains("Illegal move") || body.contains("not valid"));
     }
 
     #[tokio::test]

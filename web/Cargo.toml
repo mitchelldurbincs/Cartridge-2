@@ -15,6 +15,7 @@ onnx = ["mcts/onnx"]
 # Engine library
 engine-core = { path = "../engine/engine-core" }
 games-tictactoe = { path = "../engine/games-tictactoe" }
+games-connect4 = { path = "../engine/games-connect4" }
 mcts = { path = "../engine/mcts" }
 
 # Web framework

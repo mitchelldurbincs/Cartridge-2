@@ -23,9 +23,9 @@
 
   // Calculate cell size based on board dimensions (max container size 400px)
   const MAX_BOARD_SIZE = 400;
-  $: cellSize = Math.floor(Math.min(MAX_BOARD_SIZE / width, MAX_BOARD_SIZE / height));
-  $: gridStyle = `grid-template-columns: repeat(${width}, ${cellSize}px)`;
-  $: fontSize = Math.max(1, Math.floor(cellSize / 32));
+  let cellSize = $derived(Math.floor(Math.min(MAX_BOARD_SIZE / width, MAX_BOARD_SIZE / height)));
+  let gridStyle = $derived(`grid-template-columns: repeat(${width}, ${cellSize}px)`);
+  let fontSize = $derived(Math.max(1, Math.floor(cellSize / 32)));
 
   function getCellSymbol(value: number): string {
     if (value === 0) return '';
