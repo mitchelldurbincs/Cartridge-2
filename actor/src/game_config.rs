@@ -44,8 +44,10 @@ impl GameConfig {
 /// Returns the GameConfig for the specified game, or an error if unknown.
 pub fn get_config(env_id: &str) -> Result<GameConfig> {
     match env_id {
+        // TicTacToe: 9 actions, obs = 18 (board) + 9 (legal) + 2 (player) = 29
         "tictactoe" => Ok(GameConfig::new(9, 29, 18)),
-        "connect4" => Ok(GameConfig::new(7, 100, 86)),  // Placeholder values
+        // Connect4: 7 actions, obs = 84 (board) + 7 (legal) + 2 (player) = 93
+        "connect4" => Ok(GameConfig::new(7, 93, 84)),
         "othello" => Ok(GameConfig::new(64, 195, 129)), // Placeholder values
         _ => Err(anyhow!("Unknown game: {}. Please add configuration for this game.", env_id)),
     }

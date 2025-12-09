@@ -67,11 +67,15 @@ export async function getGameState(): Promise<GameState> {
   return res.json();
 }
 
-export async function newGame(first: 'player' | 'bot' = 'player'): Promise<GameState> {
+export async function newGame(first: 'player' | 'bot' = 'player', game?: string): Promise<GameState> {
+  const body: { first: string; game?: string } = { first };
+  if (game) {
+    body.game = game;
+  }
   const res = await fetch(`${API_BASE}/game/new`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ first }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text();

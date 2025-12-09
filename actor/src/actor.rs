@@ -71,8 +71,9 @@ pub struct Actor {
 
 impl Actor {
     pub fn new(config: Config) -> Result<Self> {
-        // Register the tictactoe game
+        // Register games
         games_tictactoe::register_tictactoe();
+        games_connect4::register_connect4();
 
         // Get game configuration from registry
         let game_config = get_config(&config.env_id)?;
