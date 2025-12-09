@@ -203,16 +203,44 @@ impl GameSession {
             return Vec::new();
         }
 
-        let board_size = self.metadata.board_size();
-        (0..board_size as u8)
-            .filter(|&pos| self.board[pos as usize] == 0)
-            .collect()
+        if self.metadata.env_id == "connect4" {
+            let width = self.metadata.board_width;
+            let height = self.metadata.board_height;
+
+            (0..width as u8)
+                .filter(|&col| {
+                    let top_idx = (height - 1) * width + col as usize;
+                    self.board[top_idx] == 0
+                })
+                .collect()
+        } else {
+            let board_size = self.metadata.board_size();
+            (0..board_size as u8)
+                .filter(|&pos| self.board[pos as usize] == 0)
+                .collect()
+        }
     }
 
     /// Check if a move is legal
     pub fn is_legal_move(&self, position: u8) -> bool {
-        let board_size = self.metadata.board_size();
-        (position as usize) < board_size && self.board[position as usize] == 0 && self.winner == 0
+        if self.winner != 0 {
+            return false;
+        }
+
+        if self.metadata.env_id == "connect4" {
+            let width = self.metadata.board_width;
+            let height = self.metadata.board_height;
+
+            if (position as usize) >= width {
+                return false;
+            }
+
+            let top_idx = (height - 1) * width + position as usize;
+            self.board[top_idx] == 0
+        } else {
+            let board_size = self.metadata.board_size();
+            (position as usize) < board_size && self.board[position as usize] == 0
+        }
     }
 
     /// Check if game is over
