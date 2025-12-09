@@ -1,18 +1,16 @@
 """AlphaZero-style neural network for game agents.
 
-This module provides a simple policy-value network suitable for small games
-like TicTacToe. The architecture follows AlphaZero conventions:
+This module provides a simple policy-value network suitable for board games.
+The architecture follows AlphaZero conventions:
 - Shared representation layers
 - Policy head (action probabilities)
 - Value head (expected outcome)
 
-Input for TicTacToe (29 f32 values):
-    - board_view: 18 floats (one-hot encoding for X and O positions)
-    - legal_moves: 9 floats (1.0 = legal, 0.0 = illegal)
-    - current_player: 2 floats (one-hot)
+Input:
+    - Observation vector (size depends on game)
 
 Output:
-    - policy: 9 logits (one per board position)
+    - policy: logits (one per possible action)
     - value: scalar in [-1, 1]
 """
 
@@ -20,17 +18,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .game_config import get_config
 
-class TicTacToeNet(nn.Module):
-    """Simple policy-value network for TicTacToe.
+
+class PolicyValueNetwork(nn.Module):
+    """Policy-value network for board games.
 
     Architecture:
-        Input (29) -> FC(128) -> ReLU -> FC(64) -> ReLU
-            -> Policy head: FC(9)
-            -> Value head: FC(32) -> ReLU -> FC(1) -> Tanh
+        Input (obs_size) -> FC(hidden) -> ReLU -> FC(hidden/2) -> ReLU
+            -> Policy head: FC(num_actions)
+            -> Value head: FC(hidden/4) -> ReLU -> FC(1) -> Tanh
     """
 
-    def __init__(self, obs_size: int = 29, action_size: int = 9, hidden_size: int = 128):
+    def __init__(self, obs_size: int, action_size: int, hidden_size: int = 128):
         super().__init__()
 
         self.obs_size = obs_size
@@ -164,9 +164,21 @@ class AlphaZeroLoss:
         return total_loss, metrics
 
 
-def create_network(env_id: str = "tictactoe") -> TicTacToeNet:
-    """Factory function to create a network for the specified environment."""
-    if env_id == "tictactoe":
-        return TicTacToeNet(obs_size=29, action_size=9, hidden_size=128)
-    else:
-        raise ValueError(f"Unknown environment: {env_id}")
+def create_network(env_id: str = "tictactoe") -> PolicyValueNetwork:
+    """Factory function to create a network for the specified environment.
+
+    Args:
+        env_id: Environment identifier (e.g., "tictactoe", "connect4")
+
+    Returns:
+        PolicyValueNetwork configured for the specified game.
+
+    Raises:
+        ValueError: If the game is not registered.
+    """
+    config = get_config(env_id)
+    return PolicyValueNetwork(
+        obs_size=config.obs_size,
+        action_size=config.num_actions,
+        hidden_size=config.hidden_size,
+    )

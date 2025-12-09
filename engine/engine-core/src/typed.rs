@@ -3,6 +3,7 @@
 //! This trait allows game implementations to work with strongly-typed state,
 //! action, and observation types while maintaining compile-time type safety.
 
+use crate::metadata::GameMetadata;
 use rand_chacha::ChaCha20Rng;
 
 /// Engine identification information
@@ -89,6 +90,7 @@ pub struct Capabilities {
 ///     // Implementation methods...
 /// #   fn engine_id(&self) -> EngineId { todo!() }
 /// #   fn capabilities(&self) -> Capabilities { todo!() }
+/// #   fn metadata(&self) -> engine_core::GameMetadata { todo!() }
 /// #   fn reset(&mut self, rng: &mut ChaCha20Rng, hint: &[u8]) -> (Self::State, Self::Obs) { todo!() }
 /// #   fn step(
 /// #       &mut self,
@@ -118,6 +120,12 @@ pub trait Game: Send + Sync + std::fmt::Debug + 'static {
 
     /// Get game capabilities and configuration
     fn capabilities(&self) -> Capabilities;
+
+    /// Get game metadata for UI and configuration
+    ///
+    /// Returns display-oriented metadata about the game including board dimensions,
+    /// player information, and observation format details needed by actors and trainers.
+    fn metadata(&self) -> GameMetadata;
 
     /// Reset the game to initial state
     ///
@@ -234,6 +242,13 @@ mod tests {
                 action_space: ActionSpace::Discrete(4),
                 preferred_batch: 32,
             }
+        }
+
+        fn metadata(&self) -> GameMetadata {
+            GameMetadata::new("test", "Test Game")
+                .with_board(2, 2)
+                .with_actions(4)
+                .with_observation(2, 0)
         }
 
         fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {
@@ -373,6 +388,13 @@ mod tests {
             }
         }
 
+        fn metadata(&self) -> GameMetadata {
+            GameMetadata::new("multi_discrete_test", "Multi Discrete Test")
+                .with_board(3, 1)
+                .with_actions(12)
+                .with_observation(1, 0)
+        }
+
         fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {
             (0, vec![0.0])
         }
@@ -497,6 +519,13 @@ mod tests {
                 },
                 preferred_batch: 64,
             }
+        }
+
+        fn metadata(&self) -> GameMetadata {
+            GameMetadata::new("continuous_test", "Continuous Test")
+                .with_board(1, 1)
+                .with_actions(2)
+                .with_observation(2, 0)
         }
 
         fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {

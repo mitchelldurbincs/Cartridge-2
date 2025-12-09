@@ -9,6 +9,22 @@ export interface GameState {
   message: string;
 }
 
+export interface GameInfo {
+  env_id: string;
+  display_name: string;
+  board_width: number;
+  board_height: number;
+  num_actions: number;
+  player_count: number;
+  player_names: string[];
+  player_symbols: string[];
+  description: string;
+}
+
+export interface GamesListResponse {
+  games: string[];
+}
+
 export interface MoveResponse extends GameState {
   bot_move: number | null;
 }
@@ -86,5 +102,18 @@ export async function getStats(): Promise<TrainingStats> {
 export async function getModelInfo(): Promise<ModelInfo> {
   const res = await fetch(`${API_BASE}/model`);
   if (!res.ok) throw new Error('Failed to get model info');
+  return res.json();
+}
+
+export async function getGames(): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/games`);
+  if (!res.ok) throw new Error('Failed to get games list');
+  const data: GamesListResponse = await res.json();
+  return data.games;
+}
+
+export async function getGameInfo(envId: string): Promise<GameInfo> {
+  const res = await fetch(`${API_BASE}/game-info/${envId}`);
+  if (!res.ok) throw new Error(`Failed to get game info for ${envId}`);
   return res.json();
 }

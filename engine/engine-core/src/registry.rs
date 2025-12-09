@@ -66,6 +66,10 @@ static REGISTRY: Lazy<Mutex<HashMap<String, GameFactory>>> =
 /// #         }
 /// #     }
 /// #
+/// #     fn metadata(&self) -> engine_core::GameMetadata {
+/// #         engine_core::GameMetadata::new("example", "Example")
+/// #     }
+/// #
 /// #     fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {
 /// #         ((), ())
 /// #     }
@@ -253,6 +257,13 @@ mod tests {
             }
         }
 
+        fn metadata(&self) -> crate::metadata::GameMetadata {
+            crate::metadata::GameMetadata::new(&self.name, "Test Game")
+                .with_board(2, 2)
+                .with_actions(4)
+                .with_observation(1, 0)
+        }
+
         fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {
             (0, vec![0.0])
         }
@@ -348,6 +359,13 @@ mod tests {
                 action_space: ActionSpace::Discrete(2),
                 preferred_batch: 1,
             }
+        }
+
+        fn metadata(&self) -> crate::metadata::GameMetadata {
+            crate::metadata::GameMetadata::new(self.env_id, "Override Test Game")
+                .with_board(1, 1)
+                .with_actions(2)
+                .with_observation(0, 0)
         }
 
         fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {

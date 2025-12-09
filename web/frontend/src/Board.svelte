@@ -5,30 +5,50 @@
     gameOver: boolean;
     lastBotMove: number | null;
     onCellClick: (position: number) => void;
+    width?: number;
+    height?: number;
+    playerSymbols?: string[];
   }
 
-  let { board, legalMoves, gameOver, lastBotMove, onCellClick }: Props = $props();
+  let {
+    board,
+    legalMoves,
+    gameOver,
+    lastBotMove,
+    onCellClick,
+    width = 3,
+    height = 3,
+    playerSymbols = ['X', 'O']
+  }: Props = $props();
+
+  // Calculate cell size based on board dimensions (max container size 400px)
+  const MAX_BOARD_SIZE = 400;
+  $: cellSize = Math.floor(Math.min(MAX_BOARD_SIZE / width, MAX_BOARD_SIZE / height));
+  $: gridStyle = `grid-template-columns: repeat(${width}, ${cellSize}px)`;
+  $: fontSize = Math.max(1, Math.floor(cellSize / 32));
 
   function getCellSymbol(value: number): string {
-    if (value === 1) return 'X';
-    if (value === 2) return 'O';
-    return '';
+    if (value === 0) return '';
+    // value 1 = player 1, value 2 = player 2, etc.
+    const playerIndex = value - 1;
+    return playerSymbols[playerIndex] || String(value);
   }
 
   function getCellClass(index: number, value: number): string {
     let classes = 'cell';
-    if (value === 1) classes += ' x';
-    if (value === 2) classes += ' o';
+    if (value === 1) classes += ' player1';
+    if (value === 2) classes += ' player2';
     if (value === 0 && legalMoves.includes(index) && !gameOver) classes += ' clickable';
     if (index === lastBotMove) classes += ' last-bot-move';
     return classes;
   }
 </script>
 
-<div class="board">
+<div class="board" style={gridStyle}>
   {#each board as cell, i}
     <button
       class={getCellClass(i, cell)}
+      style="width: {cellSize}px; height: {cellSize}px; font-size: {fontSize}rem;"
       onclick={() => onCellClick(i)}
       disabled={cell !== 0 || gameOver || !legalMoves.includes(i)}
     >
@@ -40,17 +60,13 @@
 <style>
   .board {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: 4px;
     padding: 8px;
     background: #2a2a4a;
     border-radius: 12px;
   }
 
   .cell {
-    width: 80px;
-    height: 80px;
-    font-size: 2.5rem;
     font-weight: bold;
     background: #3a3a5a;
     border: 2px solid transparent;
@@ -62,11 +78,11 @@
     justify-content: center;
   }
 
-  .cell.x {
+  .cell.player1 {
     color: #00d9ff;
   }
 
-  .cell.o {
+  .cell.player2 {
     color: #ff6b6b;
   }
 

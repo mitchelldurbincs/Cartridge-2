@@ -1,9 +1,9 @@
-//! Game session management for TicTacToe
+//! Game session management
 //!
 //! Wraps the EngineContext to provide a convenient API for the web server.
 
 use anyhow::{anyhow, Result};
-use engine_core::EngineContext;
+use engine_core::{EngineContext, GameMetadata};
 #[cfg(feature = "onnx")]
 use mcts::{run_mcts, MctsConfig, OnnxEvaluator};
 use rand::SeedableRng;
@@ -19,19 +19,17 @@ use crate::GameStateResponse;
 #[cfg(not(feature = "onnx"))]
 use crate::OnnxEvaluator;
 
-/// TicTacToe constants (obs_size used when loading ONNX models)
-#[cfg(feature = "onnx")]
-const TICTACTOE_OBS_SIZE: usize = 29;
-
 /// A game session tracking current state
 pub struct GameSession {
     ctx: EngineContext,
+    /// Game metadata (board size, num_actions, etc.)
+    metadata: GameMetadata,
     /// Current encoded state
     state: Vec<u8>,
     /// Current observation
     obs: Vec<u8>,
-    /// Decoded board for easy access
-    board: [u8; 9],
+    /// Decoded board for easy access (length = board_width * board_height)
+    board: Vec<u8>,
     /// Current player (1=X, 2=O)
     current_player: u8,
     /// Winner (0=ongoing, 1=X, 2=O, 3=draw)
@@ -71,6 +69,10 @@ impl GameSession {
         let mut ctx = EngineContext::new(env_id)
             .ok_or_else(|| anyhow!("Game '{}' not registered", env_id))?;
 
+        // Get game metadata
+        let metadata = ctx.metadata();
+        let board_size = metadata.board_size();
+
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -78,8 +80,8 @@ impl GameSession {
 
         let reset = ctx.reset(seed, &[])?;
 
-        // Parse the state (11 bytes: 9 board + current_player + winner)
-        let (board, current_player, winner) = Self::parse_state(&reset.state)?;
+        // Parse the state (board_size + current_player + winner bytes)
+        let (board, current_player, winner) = Self::parse_state(&reset.state, board_size)?;
 
         // Configure MCTS for playing (less exploration than training)
         let mcts_config = MctsConfig::for_evaluation()
@@ -91,6 +93,7 @@ impl GameSession {
 
         Ok(Self {
             ctx,
+            metadata,
             state: reset.state,
             obs: reset.obs,
             board,
@@ -112,6 +115,10 @@ impl GameSession {
         let mut ctx = EngineContext::new(env_id)
             .ok_or_else(|| anyhow!("Game '{}' not registered", env_id))?;
 
+        // Get game metadata
+        let metadata = ctx.metadata();
+        let board_size = metadata.board_size();
+
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -119,11 +126,12 @@ impl GameSession {
 
         let reset = ctx.reset(seed, &[])?;
 
-        // Parse the state (11 bytes: 9 board + current_player + winner)
-        let (board, current_player, winner) = Self::parse_state(&reset.state)?;
+        // Parse the state (board_size + current_player + winner bytes)
+        let (board, current_player, winner) = Self::parse_state(&reset.state, board_size)?;
 
         Ok(Self {
             ctx,
+            metadata,
             state: reset.state,
             obs: reset.obs,
             board,
@@ -141,7 +149,7 @@ impl GameSession {
         let path_ref = path.as_ref();
         info!("Loading ONNX model from {:?}", path_ref);
 
-        let new_evaluator = OnnxEvaluator::load(path_ref, TICTACTOE_OBS_SIZE)
+        let new_evaluator = OnnxEvaluator::load(path_ref, self.metadata.obs_size)
             .map_err(|e| anyhow!("Failed to load model: {}", e))?;
 
         let mut guard = self
@@ -172,18 +180,19 @@ impl GameSession {
     }
 
     /// Parse state bytes into board, current_player, winner
-    fn parse_state(state: &[u8]) -> Result<([u8; 9], u8, u8)> {
-        if state.len() != 11 {
+    fn parse_state(state: &[u8], board_size: usize) -> Result<(Vec<u8>, u8, u8)> {
+        let expected_len = board_size + 2; // board + current_player + winner
+        if state.len() != expected_len {
             return Err(anyhow!(
-                "Invalid state length: expected 11, got {}",
+                "Invalid state length: expected {}, got {}",
+                expected_len,
                 state.len()
             ));
         }
 
-        let mut board = [0u8; 9];
-        board.copy_from_slice(&state[0..9]);
-        let current_player = state[9];
-        let winner = state[10];
+        let board = state[0..board_size].to_vec();
+        let current_player = state[board_size];
+        let winner = state[board_size + 1];
 
         Ok((board, current_player, winner))
     }
@@ -194,14 +203,16 @@ impl GameSession {
             return Vec::new();
         }
 
-        (0..9u8)
+        let board_size = self.metadata.board_size();
+        (0..board_size as u8)
             .filter(|&pos| self.board[pos as usize] == 0)
             .collect()
     }
 
     /// Check if a move is legal
     pub fn is_legal_move(&self, position: u8) -> bool {
-        position < 9 && self.board[position as usize] == 0 && self.winner == 0
+        let board_size = self.metadata.board_size();
+        (position as usize) < board_size && self.board[position as usize] == 0 && self.winner == 0
     }
 
     /// Check if game is over
@@ -311,7 +322,8 @@ impl GameSession {
         // Update state and observation
         self.state = step.state;
         self.obs = step.obs;
-        let (board, current_player, winner) = Self::parse_state(&self.state)?;
+        let board_size = self.metadata.board_size();
+        let (board, current_player, winner) = Self::parse_state(&self.state, board_size)?;
         self.board = board;
         self.current_player = current_player;
         self.winner = winner;
@@ -324,9 +336,9 @@ impl GameSession {
         let message = match self.winner {
             0 => {
                 if self.current_player == 1 {
-                    "Your turn (X)".to_string()
+                    format!("Your turn ({})", self.metadata.player_symbols[0])
                 } else {
-                    "Bot's turn (O)".to_string()
+                    format!("Bot's turn ({})", self.metadata.player_symbols[1])
                 }
             }
             1 => "You win!".to_string(),
@@ -336,13 +348,18 @@ impl GameSession {
         };
 
         GameStateResponse {
-            board: self.board,
+            board: self.board.clone(),
             current_player: self.current_player,
             winner: self.winner,
             game_over: self.is_game_over(),
             legal_moves: self.legal_moves(),
             message,
         }
+    }
+
+    /// Get game metadata
+    pub fn metadata(&self) -> &GameMetadata {
+        &self.metadata
     }
 }
 
@@ -356,7 +373,7 @@ mod tests {
 
         let session = GameSession::new("tictactoe").unwrap();
 
-        assert_eq!(session.board, [0; 9]);
+        assert_eq!(session.board, vec![0u8; 9]);
         assert_eq!(session.current_player, 1);
         assert_eq!(session.winner, 0);
         assert_eq!(session.legal_moves().len(), 9);

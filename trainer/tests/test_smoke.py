@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 import torch
 
-from trainer.network import AlphaZeroLoss, TicTacToeNet, create_network
+from trainer.network import AlphaZeroLoss, PolicyValueNetwork, create_network
 from trainer.replay import ReplayBuffer, SchemaError, create_empty_db, insert_test_transitions
 from trainer.trainer import Trainer, TrainerConfig, WaitTimeout
 
@@ -23,12 +23,12 @@ class TestNetwork:
     """Tests for the neural network."""
 
     def test_network_creation(self):
-        net = TicTacToeNet()
+        net = create_network("tictactoe")
         assert net.obs_size == 29
         assert net.action_size == 9
 
     def test_network_forward(self):
-        net = TicTacToeNet()
+        net = create_network("tictactoe")
         batch = torch.randn(8, 29)
 
         policy_logits, value = net(batch)
@@ -39,7 +39,7 @@ class TestNetwork:
         assert (value >= -1).all() and (value <= 1).all()
 
     def test_network_predict_with_mask(self):
-        net = TicTacToeNet()
+        net = create_network("tictactoe")
         batch = torch.randn(4, 29)
         # Mask out positions 0, 1, 2 as illegal
         legal_mask = torch.ones(4, 9)
@@ -55,7 +55,7 @@ class TestNetwork:
 
     def test_create_network(self):
         net = create_network("tictactoe")
-        assert isinstance(net, TicTacToeNet)
+        assert isinstance(net, PolicyValueNetwork)
 
         with pytest.raises(ValueError):
             create_network("unknown_game")
