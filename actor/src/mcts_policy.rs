@@ -211,9 +211,9 @@ impl MctsPolicy {
         let mut policy = vec![0.0; self.num_actions];
         let mut legal_actions = Vec::new();
 
-        for i in 0..self.num_actions {
+        for (i, p) in policy.iter_mut().enumerate().take(self.num_actions) {
             if (legal_moves_mask >> i) & 1 == 1 {
-                policy[i] = 1.0 / num_legal;
+                *p = 1.0 / num_legal;
                 legal_actions.push(i);
             }
         }

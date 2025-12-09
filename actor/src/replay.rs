@@ -283,7 +283,7 @@ impl ReplayBuffer {
     /// # Arguments
     /// * `episode_id` - The episode to update
     /// * `final_outcome` - The outcome from the perspective of the player who moved last
-    ///                     (+1.0 for win, -1.0 for loss, 0.0 for draw)
+    ///   (+1.0 for win, -1.0 for loss, 0.0 for draw)
     /// * `total_steps` - Total number of steps in the episode (used to compute perspective)
     #[allow(dead_code)]
     pub fn update_episode_outcomes(

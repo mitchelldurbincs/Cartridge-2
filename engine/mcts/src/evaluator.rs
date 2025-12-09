@@ -101,9 +101,9 @@ impl Evaluator for UniformEvaluator {
 
         // Uniform distribution over legal moves
         let prob = 1.0 / num_legal;
-        for i in 0..num_actions {
+        for (i, p) in policy.iter_mut().enumerate().take(num_actions) {
             if (legal_moves_mask >> i) & 1 == 1 {
-                policy[i] = prob;
+                *p = prob;
             }
         }
 

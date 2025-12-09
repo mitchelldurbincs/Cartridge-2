@@ -90,6 +90,7 @@ impl MctsTree {
 
     /// Add a child to a parent node.
     /// Returns the new child's NodeId.
+    #[allow(clippy::too_many_arguments)]
     pub fn add_child(
         &mut self,
         parent_id: NodeId,
@@ -336,8 +337,8 @@ mod tests {
         let policy = tree.root_policy(9, 1.0);
         assert!((policy[0] - 0.3).abs() < 1e-6);
         assert!((policy[1] - 0.7).abs() < 1e-6);
-        for i in 2..9 {
-            assert!(policy[i].abs() < 1e-6);
+        for p in policy.iter().take(9).skip(2) {
+            assert!(p.abs() < 1e-6);
         }
 
         // Temperature 0.0: greedy

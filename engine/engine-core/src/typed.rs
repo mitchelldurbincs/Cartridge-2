@@ -568,7 +568,7 @@ mod tests {
         }
 
         fn decode_action(buf: &[u8]) -> Result<Self::Action, DecodeError> {
-            if buf.len() % 4 != 0 {
+            if !buf.len().is_multiple_of(4) {
                 return Err(DecodeError::InvalidLength {
                     expected: 0, // Multiple of 4
                     actual: buf.len(),
@@ -648,7 +648,7 @@ mod tests {
 
     #[test]
     fn test_continuous_state_encoding() {
-        let state = 3.14159;
+        let state = std::f32::consts::PI;
         let mut buf = Vec::new();
 
         ContinuousGame::encode_state(&state, &mut buf).unwrap();

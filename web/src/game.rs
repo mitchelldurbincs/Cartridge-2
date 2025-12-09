@@ -358,6 +358,7 @@ impl GameSession {
     }
 
     /// Get game metadata
+    #[allow(dead_code)]
     pub fn metadata(&self) -> &GameMetadata {
         &self.metadata
     }

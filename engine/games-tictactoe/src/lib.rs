@@ -918,9 +918,9 @@ mod tests {
             assert_eq!(decoded_floats.len(), 29);
 
             // Verify board_view
-            for i in 0..18 {
+            for (i, &decoded_val) in decoded_floats.iter().enumerate().take(18) {
                 assert_eq!(
-                    decoded_floats[i], obs.board_view[i],
+                    decoded_val, obs.board_view[i],
                     "board_view[{}] mismatch",
                     i
                 );

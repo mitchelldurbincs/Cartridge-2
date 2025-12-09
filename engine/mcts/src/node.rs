@@ -82,6 +82,7 @@ impl MctsNode {
     }
 
     /// Create a new child node.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_child(
         parent: NodeId,
         action: u8,

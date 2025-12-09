@@ -24,7 +24,7 @@ fn bench_step(c: &mut Criterion) {
     group.bench_function("step_center", |b| {
         let mut game = TicTacToe::new();
         let mut rng = ChaCha20Rng::seed_from_u64(7);
-        let (mut base_state, _) = game.reset(&mut rng, &[]);
+        let (base_state, _) = game.reset(&mut rng, &[]);
         b.iter_batched(
             || base_state,
             |mut state| {

@@ -574,7 +574,7 @@ mod tests {
         let policy = vec![0.0, 0.5, 0.3, 0.2, 0.0];
 
         // Sample many times and check distribution
-        let mut counts = vec![0u32; 5];
+        let mut counts = [0u32; 5];
         for _ in 0..1000 {
             let action = sample_action(&policy, &mut rng).unwrap();
             counts[action as usize] += 1;

@@ -78,7 +78,7 @@ impl Actor {
         let game_config = get_config(&config.env_id)?;
         info!(
             "Loaded game config for {}: {} actions, {} obs size",
-            game_config.env_id, game_config.num_actions, game_config.obs_size
+            config.env_id, game_config.num_actions, game_config.obs_size
         );
 
         // Create engine context for the specified game
@@ -199,7 +199,7 @@ impl Actor {
                                 duration,
                                 "Episode completed"
                             );
-                            if self.config.log_interval > 0 && new_count % self.config.log_interval == 0 {
+                            if self.config.log_interval > 0 && new_count.is_multiple_of(self.config.log_interval) {
                                 info!("Completed {} episodes", new_count);
                             }
                         }
@@ -271,7 +271,7 @@ impl Actor {
         let timeout = Duration::from_secs(self.config.episode_timeout_secs);
         // Step limit: use 10x max_horizon as a generous upper bound
         // This protects against infinite loops in buggy game implementations
-        let max_steps = max_horizon.saturating_mul(10).max(1000) as u32;
+        let max_steps = max_horizon.saturating_mul(10).max(1000);
 
         debug!(
             "Started episode {} (timeout={}s, max_steps={})",
@@ -387,7 +387,7 @@ impl Actor {
                             "Failed to store transitions for episode {}: {}",
                             episode_id, e
                         );
-                        return Err(e.into());
+                        return Err(e);
                     }
                     debug!(
                         "Stored {} transitions with game_outcome={} for episode {}",
@@ -473,7 +473,13 @@ mod tests {
         let result = Actor::new(config);
         assert!(result.is_err());
         let err = result.err().unwrap();
-        assert!(err.to_string().contains("not registered"));
+        // Could fail at game_config lookup or engine context creation
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("Unknown game") || err_msg.contains("not registered"),
+            "Expected error about unknown/unregistered game, got: {}",
+            err_msg
+        );
     }
 
     #[test]
