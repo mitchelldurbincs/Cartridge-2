@@ -313,7 +313,7 @@ impl GameSession {
             let sim_ctx = self
                 .mcts_sim_ctx
                 .as_mut()
-                .ok_or_else(|| anyhow!("TicTacToe not registered"))?;
+                .ok_or_else(|| anyhow!("Simulation context not available"))?;
 
             let result = run_mcts(
                 sim_ctx,

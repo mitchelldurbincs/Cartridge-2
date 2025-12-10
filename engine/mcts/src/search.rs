@@ -31,6 +31,9 @@ pub enum SearchError {
 
     #[error("Invalid state: {0}")]
     InvalidState(String),
+
+    #[error("MCTS only supports discrete action spaces")]
+    UnsupportedActionSpace,
 }
 
 /// Result of an MCTS search.
@@ -67,21 +70,21 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
         state: Vec<u8>,
         obs: Vec<u8>,
         legal_moves_mask: u64,
-    ) -> Self {
+    ) -> Result<Self, SearchError> {
         let num_actions = match ctx.action_space() {
             ActionSpace::Discrete(n) => n as usize,
-            _ => panic!("MCTS only supports discrete action spaces"),
+            _ => return Err(SearchError::UnsupportedActionSpace),
         };
 
         let tree = MctsTree::new(state, obs, legal_moves_mask);
 
-        Self {
+        Ok(Self {
             tree,
             ctx,
             evaluator,
             config,
             num_actions,
-        }
+        })
     }
 
     /// Run the MCTS search for the configured number of simulations.
@@ -350,7 +353,7 @@ pub fn run_mcts<E: Evaluator>(
     legal_moves_mask: u64,
     rng: &mut ChaCha20Rng,
 ) -> Result<SearchResult, SearchError> {
-    let mut search = MctsSearch::new(ctx, evaluator, config, state, obs, legal_moves_mask);
+    let mut search = MctsSearch::new(ctx, evaluator, config, state, obs, legal_moves_mask)?;
     search.run(rng)
 }
 
@@ -492,7 +495,7 @@ mod tests {
         );
 
         let mut rng = ChaCha20Rng::seed_from_u64(42);
-        let mut search = MctsSearch::new(&mut ctx, &evaluator, config, state, obs, legal_mask);
+        let mut search = MctsSearch::new(&mut ctx, &evaluator, config, state, obs, legal_mask).unwrap();
         let result = search.run(&mut rng).unwrap();
 
         // Check the tree directly
