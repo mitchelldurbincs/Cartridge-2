@@ -3,6 +3,7 @@
 export interface GameState {
   board: number[];
   current_player: number;
+  human_player: number;
   winner: number;
   game_over: boolean;
   legal_moves: number[];
