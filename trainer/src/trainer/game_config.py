@@ -2,6 +2,10 @@
 
 This module provides game-specific configuration that the trainer needs
 for neural network architecture and observation parsing.
+
+IMPORTANT: The preferred way to get configuration is from the replay database
+via ReplayBuffer.get_metadata(). The hardcoded values here are fallbacks
+for backward compatibility with databases that don't have metadata.
 """
 
 from dataclasses import dataclass
@@ -38,8 +42,14 @@ class GameConfig:
         """Bitmask for extracting legal moves from info bits."""
         return (1 << self.num_actions) - 1
 
+    @property
+    def legal_mask_end(self) -> int:
+        """End index of legal mask in observation."""
+        return self.legal_mask_offset + self.num_actions
 
-# Game configuration registry
+
+# Game configuration registry (fallback values - prefer reading from DB)
+# These values MUST match the Rust engine implementations exactly.
 GAME_CONFIGS: Dict[str, GameConfig] = {
     "tictactoe": GameConfig(
         env_id="tictactoe",
@@ -47,7 +57,7 @@ GAME_CONFIGS: Dict[str, GameConfig] = {
         board_width=3,
         board_height=3,
         num_actions=9,
-        obs_size=29,
+        obs_size=29,  # 18 (board) + 9 (legal) + 2 (player)
         legal_mask_offset=18,
         hidden_size=128,
     ),
@@ -67,8 +77,8 @@ GAME_CONFIGS: Dict[str, GameConfig] = {
         board_width=8,
         board_height=8,
         num_actions=64,
-        obs_size=195,  # Placeholder - will be updated
-        legal_mask_offset=129,  # Placeholder - will be updated
+        obs_size=195,  # 128 (board: 64*2) + 64 (legal) + 3 (player + pass)
+        legal_mask_offset=128,
         hidden_size=512,
     ),
 }

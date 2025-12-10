@@ -30,9 +30,9 @@ import torch.nn.utils as nn_utils
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from .game_config import get_config
+from .game_config import GameConfig, get_config
 from .network import AlphaZeroLoss, PolicyValueNetwork, create_network
-from .replay import ReplayBuffer
+from .replay import GameMetadata, ReplayBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +253,26 @@ class Trainer:
 
         with ReplayBuffer(self.config.db_path) as replay:
             env_id = self.config.env_id
+
+            # Try to get game metadata from database (preferred, self-describing)
+            db_metadata = replay.get_metadata(env_id)
+            if db_metadata:
+                logger.info(f"Using game metadata from database for {env_id}")
+                # Override game_config with values from database
+                self.game_config = GameConfig(
+                    env_id=db_metadata.env_id,
+                    display_name=db_metadata.display_name,
+                    board_width=db_metadata.board_width,
+                    board_height=db_metadata.board_height,
+                    num_actions=db_metadata.num_actions,
+                    obs_size=db_metadata.obs_size,
+                    legal_mask_offset=db_metadata.legal_mask_offset,
+                )
+            else:
+                logger.warning(
+                    f"No metadata in database for {env_id}, using fallback config"
+                )
+
             buffer_size = replay.count(env_id=env_id)
             logger.info(f"Replay buffer contains {buffer_size} transitions for {env_id}")
 

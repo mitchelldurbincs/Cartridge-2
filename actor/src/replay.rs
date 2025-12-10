@@ -3,10 +3,42 @@
 //! This module provides a SQLite-backed replay buffer for storing
 //! game transitions. It replaces the gRPC replay service with a
 //! simple file-based approach for the MVP.
+//!
+//! Also stores game metadata to make the database self-describing,
+//! allowing the trainer to read configuration without hardcoding.
 
 use anyhow::Result;
+use engine_core::GameMetadata;
 use rusqlite::{params, Connection};
 use std::path::Path;
+
+/// Stored game metadata for self-describing replay databases
+#[derive(Debug, Clone)]
+pub struct StoredGameMetadata {
+    pub env_id: String,
+    pub display_name: String,
+    pub board_width: usize,
+    pub board_height: usize,
+    pub num_actions: usize,
+    pub obs_size: usize,
+    pub legal_mask_offset: usize,
+    pub player_count: usize,
+}
+
+impl From<&GameMetadata> for StoredGameMetadata {
+    fn from(meta: &GameMetadata) -> Self {
+        Self {
+            env_id: meta.env_id.clone(),
+            display_name: meta.display_name.clone(),
+            board_width: meta.board_width,
+            board_height: meta.board_height,
+            num_actions: meta.num_actions,
+            obs_size: meta.obs_size,
+            legal_mask_offset: meta.legal_mask_offset,
+            player_count: meta.player_count,
+        }
+    }
+}
 
 /// A single transition from one game state to the next
 #[derive(Debug, Clone)]
@@ -79,6 +111,22 @@ impl ReplayBuffer {
         // Create index for episode queries
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_transitions_episode ON transitions(episode_id)",
+            [],
+        )?;
+
+        // Create game_metadata table to make database self-describing
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS game_metadata (
+                env_id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                board_width INTEGER NOT NULL,
+                board_height INTEGER NOT NULL,
+                num_actions INTEGER NOT NULL,
+                obs_size INTEGER NOT NULL,
+                legal_mask_offset INTEGER NOT NULL,
+                player_count INTEGER NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
             [],
         )?;
 
@@ -268,6 +316,86 @@ impl ReplayBuffer {
     pub fn clear(&self) -> Result<()> {
         self.conn.execute("DELETE FROM transitions", [])?;
         Ok(())
+    }
+
+    /// Store or update game metadata (upsert)
+    ///
+    /// This makes the replay database self-describing, allowing the trainer
+    /// to read configuration without hardcoding values.
+    pub fn store_metadata(&self, metadata: &GameMetadata) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO game_metadata
+             (env_id, display_name, board_width, board_height, num_actions,
+              obs_size, legal_mask_offset, player_count, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)",
+            params![
+                metadata.env_id,
+                metadata.display_name,
+                metadata.board_width,
+                metadata.board_height,
+                metadata.num_actions,
+                metadata.obs_size,
+                metadata.legal_mask_offset,
+                metadata.player_count,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get metadata for a specific game
+    #[allow(dead_code)]
+    pub fn get_metadata(&self, env_id: &str) -> Result<Option<StoredGameMetadata>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT env_id, display_name, board_width, board_height, num_actions,
+                    obs_size, legal_mask_offset, player_count
+             FROM game_metadata WHERE env_id = ?1",
+        )?;
+
+        let result = stmt.query_row([env_id], |row| {
+            Ok(StoredGameMetadata {
+                env_id: row.get(0)?,
+                display_name: row.get(1)?,
+                board_width: row.get::<_, i64>(2)? as usize,
+                board_height: row.get::<_, i64>(3)? as usize,
+                num_actions: row.get::<_, i64>(4)? as usize,
+                obs_size: row.get::<_, i64>(5)? as usize,
+                legal_mask_offset: row.get::<_, i64>(6)? as usize,
+                player_count: row.get::<_, i64>(7)? as usize,
+            })
+        });
+
+        match result {
+            Ok(meta) => Ok(Some(meta)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Get all stored game metadata
+    #[allow(dead_code)]
+    pub fn list_metadata(&self) -> Result<Vec<StoredGameMetadata>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT env_id, display_name, board_width, board_height, num_actions,
+                    obs_size, legal_mask_offset, player_count
+             FROM game_metadata",
+        )?;
+
+        let metadata = stmt
+            .query_map([], |row| {
+                Ok(StoredGameMetadata {
+                    env_id: row.get(0)?,
+                    display_name: row.get(1)?,
+                    board_width: row.get::<_, i64>(2)? as usize,
+                    board_height: row.get::<_, i64>(3)? as usize,
+                    num_actions: row.get::<_, i64>(4)? as usize,
+                    obs_size: row.get::<_, i64>(5)? as usize,
+                    legal_mask_offset: row.get::<_, i64>(6)? as usize,
+                    player_count: row.get::<_, i64>(7)? as usize,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(metadata)
     }
 
     /// Update game_outcome for all transitions in an episode.

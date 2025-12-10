@@ -129,6 +129,14 @@ impl Actor {
         let replay = ReplayBuffer::new(&config.replay_db_path)?;
         info!("Replay buffer initialized at {}", config.replay_db_path);
 
+        // Store game metadata in database (makes it self-describing for trainer)
+        let metadata = engine.metadata();
+        replay.store_metadata(&metadata)?;
+        info!(
+            "Stored game metadata: {} actions, {} obs_size, legal_mask_offset={}",
+            metadata.num_actions, metadata.obs_size, metadata.legal_mask_offset
+        );
+
         Ok(Self {
             config,
             game_config,
@@ -324,8 +332,8 @@ impl Actor {
             steps_taken += 1;
 
             // Extract legal moves mask from info for next step
-            // TicTacToe packs legal_moves_mask in lower 9 bits of info
-            let next_legal_mask = step_result.info & 0x1FF;
+            // Games pack legal_moves_mask in lower N bits of info (N = num_actions)
+            let next_legal_mask = step_result.info & self.game_config.legal_mask_bits();
 
             // Convert policy to bytes for storage
             let policy_bytes: Vec<u8> = policy_result
