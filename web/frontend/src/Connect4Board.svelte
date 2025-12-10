@@ -20,6 +20,8 @@
   const CELL_SIZE = 60;
   const HOLE_SIZE = 48;
   const GAP = 4;
+  const BOARD_FRAME_PADDING = 12;
+  const BOARD_GRID_PADDING = 8;
 
   // Track dropping pieces for animation
   let droppingPiece: { column: number; row: number; player: number } | null = $state(null);
@@ -102,7 +104,15 @@
   function getDropEndY(row: number): number {
     // Convert row to visual position (row 0 is at bottom, but CSS row 0 is at top)
     const visualRow = ROWS - 1 - row;
-    return visualRow * (CELL_SIZE + GAP) + (CELL_SIZE - HOLE_SIZE) / 2;
+    // Account for board-frame padding (12px) + board-grid padding (8px)
+    const paddingOffset = BOARD_FRAME_PADDING + BOARD_GRID_PADDING;
+    return paddingOffset + visualRow * (CELL_SIZE + GAP) + (CELL_SIZE - HOLE_SIZE) / 2;
+  }
+
+  function getDropX(col: number): number {
+    // Account for board-frame padding (12px) + board-grid padding (8px)
+    const paddingOffset = BOARD_FRAME_PADDING + BOARD_GRID_PADDING;
+    return paddingOffset + col * (CELL_SIZE + GAP) + (CELL_SIZE - HOLE_SIZE) / 2;
   }
 </script>
 
@@ -131,7 +141,7 @@
       <div
         class="dropping-piece player1"
         style="
-          left: {droppingPiece.column * (CELL_SIZE + GAP) + (CELL_SIZE - HOLE_SIZE) / 2}px;
+          left: {getDropX(droppingPiece.column)}px;
           --drop-start: {getDropStartY()}px;
           --drop-end: {getDropEndY(droppingPiece.row)}px;
         "
@@ -175,6 +185,9 @@
     gap: 4px;
     margin-bottom: 8px;
     height: 50px;
+    /* Align with board grid: board-frame padding (12px) + board-grid padding (8px) */
+    padding-left: 20px;
+    padding-right: 20px;
   }
 
   .column-indicator {

@@ -30,6 +30,7 @@ import torch.nn.utils as nn_utils
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
+from .game_config import get_config
 from .network import AlphaZeroLoss, PolicyValueNetwork, create_network
 from .replay import ReplayBuffer
 
@@ -136,6 +137,9 @@ class Trainer:
     def __init__(self, config: TrainerConfig):
         self.config = config
         self.device = torch.device(config.device)
+
+        # Get game configuration
+        self.game_config = get_config(config.env_id)
 
         # Create model directory
         Path(config.model_dir).mkdir(parents=True, exist_ok=True)
@@ -248,17 +252,18 @@ class Trainer:
             logger.info("Replay database found, opening connection")
 
         with ReplayBuffer(self.config.db_path) as replay:
-            buffer_size = replay.count()
-            logger.info(f"Replay buffer contains {buffer_size} transitions")
+            env_id = self.config.env_id
+            buffer_size = replay.count(env_id=env_id)
+            logger.info(f"Replay buffer contains {buffer_size} transitions for {env_id}")
 
             # Wait for enough data with proper backoff
             if buffer_size < self.config.batch_size:
                 self._wait_with_backoff(
-                    lambda: replay.count() >= self.config.batch_size,
-                    f"sufficient data ({self.config.batch_size} samples)",
+                    lambda: replay.count(env_id=env_id) >= self.config.batch_size,
+                    f"sufficient data ({self.config.batch_size} samples for {env_id})",
                 )
-                buffer_size = replay.count()
-                logger.info(f"Replay buffer now has {buffer_size} transitions")
+                buffer_size = replay.count(env_id=env_id)
+                logger.info(f"Replay buffer now has {buffer_size} transitions for {env_id}")
 
             self.stats.replay_buffer_size = buffer_size
 
@@ -267,8 +272,12 @@ class Trainer:
             for step in range(1, self.config.total_steps + 1):
                 self.stats.step = step
 
-                # Sample batch
-                batch = replay.sample_batch_tensors(self.config.batch_size)
+                # Sample batch (filter by env_id and use correct num_actions)
+                batch = replay.sample_batch_tensors(
+                    self.config.batch_size,
+                    num_actions=self.game_config.num_actions,
+                    env_id=env_id,
+                )
                 if batch is None:
                     consecutive_skips += 1
                     if consecutive_skips % LOG_EVERY_N_WAITS == 1:
@@ -297,7 +306,7 @@ class Trainer:
                 self.stats.learning_rate = self.optimizer.param_groups[0]["lr"]
                 self.stats.samples_seen = self.samples_seen
                 self.stats.timestamp = time.time()
-                self.stats.replay_buffer_size = replay.count()
+                self.stats.replay_buffer_size = replay.count(env_id=env_id)
 
                 # Track recent losses for rolling average
                 self._recent_losses.append({
@@ -371,8 +380,10 @@ class Trainer:
         policy_targets_t = torch.from_numpy(policy_targets).to(self.device)
         value_targets_t = torch.from_numpy(value_targets).to(self.device)
 
-        # Extract legal mask from observations (indices 18-27)
-        legal_mask = obs_t[:, 18:27]
+        # Extract legal mask from observations using game-specific offsets
+        mask_start = self.game_config.legal_mask_offset
+        mask_end = mask_start + self.game_config.num_actions
+        legal_mask = obs_t[:, mask_start:mask_end]
 
         # Forward pass
         policy_logits, value_pred = self.network(obs_t)

@@ -161,27 +161,54 @@ class ReplayBuffer:
                 f"Column type mismatches in transitions table: {type_mismatches}"
             )
 
-    def count(self) -> int:
-        """Get total number of transitions in the buffer."""
-        cursor = self._conn.execute("SELECT COUNT(*) FROM transitions")
+    def count(self, env_id: str | None = None) -> int:
+        """Get total number of transitions in the buffer.
+
+        Args:
+            env_id: Optional environment ID to filter by. If None, counts all transitions.
+        """
+        if env_id is not None:
+            cursor = self._conn.execute(
+                "SELECT COUNT(*) FROM transitions WHERE env_id = ?", (env_id,)
+            )
+        else:
+            cursor = self._conn.execute("SELECT COUNT(*) FROM transitions")
         return cursor.fetchone()[0]
 
-    def sample(self, batch_size: int) -> list[Transition]:
+    def sample(self, batch_size: int, env_id: str | None = None) -> list[Transition]:
         """Sample random transitions for training.
 
         Uses SQLite ORDER BY RANDOM() for uniform sampling.
+
+        Args:
+            batch_size: Number of transitions to sample.
+            env_id: Optional environment ID to filter by. If None, samples from all games.
         """
-        cursor = self._conn.execute(
-            """
-            SELECT id, env_id, episode_id, step_number, state, action, next_state,
-                   observation, next_observation, reward, done, timestamp,
-                   policy_probs, mcts_value, game_outcome
-            FROM transitions
-            ORDER BY RANDOM()
-            LIMIT ?
-            """,
-            (batch_size,),
-        )
+        if env_id is not None:
+            cursor = self._conn.execute(
+                """
+                SELECT id, env_id, episode_id, step_number, state, action, next_state,
+                       observation, next_observation, reward, done, timestamp,
+                       policy_probs, mcts_value, game_outcome
+                FROM transitions
+                WHERE env_id = ?
+                ORDER BY RANDOM()
+                LIMIT ?
+                """,
+                (env_id, batch_size),
+            )
+        else:
+            cursor = self._conn.execute(
+                """
+                SELECT id, env_id, episode_id, step_number, state, action, next_state,
+                       observation, next_observation, reward, done, timestamp,
+                       policy_probs, mcts_value, game_outcome
+                FROM transitions
+                ORDER BY RANDOM()
+                LIMIT ?
+                """,
+                (batch_size,),
+            )
 
         return [
             Transition(
@@ -205,9 +232,14 @@ class ReplayBuffer:
         ]
 
     def sample_batch_tensors(
-        self, batch_size: int, num_actions: int = 9
+        self, batch_size: int, num_actions: int = 9, env_id: str | None = None
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
         """Sample transitions and return as numpy arrays ready for training.
+
+        Args:
+            batch_size: Number of transitions to sample.
+            num_actions: Number of actions in the game's action space.
+            env_id: Optional environment ID to filter by. If None, samples from all games.
 
         Returns:
             Tuple of (observations, policy_targets, value_targets) as numpy arrays,
@@ -216,13 +248,8 @@ class ReplayBuffer:
             - observations: Shape (batch, obs_size) - game observations
             - policy_targets: Shape (batch, num_actions) - MCTS visit distributions
             - value_targets: Shape (batch,) - game outcomes (+1/-1/0) from player's perspective
-
-        For TicTacToe observations (29 f32 values):
-            - board_view: 18 floats (one-hot for X and O positions)
-            - legal_moves: 9 floats
-            - current_player: 2 floats
         """
-        transitions = self.sample(batch_size)
+        transitions = self.sample(batch_size, env_id=env_id)
         if len(transitions) < batch_size:
             return None
 
@@ -266,9 +293,19 @@ class ReplayBuffer:
         )
 
     def iter_batches(
-        self, batch_size: int, max_batches: int | None = None
+        self,
+        batch_size: int,
+        max_batches: int | None = None,
+        num_actions: int = 9,
+        env_id: str | None = None,
     ) -> Iterator[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """Iterate through random batches.
+
+        Args:
+            batch_size: Number of transitions per batch.
+            max_batches: Maximum number of batches to yield.
+            num_actions: Number of actions in the game's action space.
+            env_id: Optional environment ID to filter by. If None, samples from all games.
 
         Yields batches until max_batches is reached or buffer is exhausted.
         """
@@ -277,7 +314,7 @@ class ReplayBuffer:
             if max_batches is not None and batches_yielded >= max_batches:
                 break
 
-            batch = self.sample_batch_tensors(batch_size)
+            batch = self.sample_batch_tensors(batch_size, num_actions=num_actions, env_id=env_id)
             if batch is None:
                 break
 

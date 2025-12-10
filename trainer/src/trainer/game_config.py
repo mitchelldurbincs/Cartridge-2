@@ -57,8 +57,8 @@ GAME_CONFIGS: Dict[str, GameConfig] = {
         board_width=7,
         board_height=6,
         num_actions=7,
-        obs_size=100,  # Placeholder - will be updated
-        legal_mask_offset=86,  # Placeholder - will be updated
+        obs_size=93,  # 42 (Red) + 42 (Yellow) + 7 (legal) + 2 (player) = 93
+        legal_mask_offset=84,  # Board views end at 42*2 = 84
         hidden_size=256,
     ),
     "othello": GameConfig(
