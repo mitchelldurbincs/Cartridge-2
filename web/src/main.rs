@@ -53,9 +53,6 @@ pub struct ModelInfo {
     pub training_step: Option<u32>,
 }
 
-/// TicTacToe constants
-#[cfg(feature = "onnx")]
-const TICTACTOE_OBS_SIZE: usize = 29;
 
 /// Shared application state
 pub struct AppState {
@@ -134,14 +131,23 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(feature = "onnx")]
     let model_info = {
+        use engine_core::EngineContext;
         use tracing::warn;
         let model_dir = format!("{}/models", data_dir);
+
+        // Get obs_size from the default game's metadata
+        // TODO: Support switching games dynamically (would need to reload model watcher)
+        let default_game = std::env::var("DEFAULT_GAME").unwrap_or_else(|_| "tictactoe".to_string());
+        let obs_size = EngineContext::new(&default_game)
+            .map(|ctx| ctx.metadata().obs_size)
+            .unwrap_or(29); // Fallback to TicTacToe's obs_size if game not found
+        info!("Model watcher using obs_size={} from game '{}'", obs_size, default_game);
 
         // Create model watcher
         let model_watcher = ModelWatcher::new(
             &model_dir,
             "latest.onnx",
-            TICTACTOE_OBS_SIZE,
+            obs_size,
             Arc::clone(&evaluator),
         );
 
@@ -375,7 +381,7 @@ async fn new_game(
 
 #[derive(Deserialize)]
 struct MoveRequest {
-    /// Position to place (0-8)
+    /// Position or column to play (game-specific: 0-8 for TicTacToe, 0-6 for Connect4)
     position: u8,
 }
 

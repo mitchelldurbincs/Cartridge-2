@@ -30,8 +30,9 @@ import torch.nn.utils as nn_utils
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
+from .game_config import GameConfig, get_config
 from .network import AlphaZeroLoss, PolicyValueNetwork, create_network
-from .replay import ReplayBuffer
+from .replay import GameMetadata, ReplayBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,9 @@ class Trainer:
         # Create model directory
         Path(config.model_dir).mkdir(parents=True, exist_ok=True)
         Path(config.stats_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Get game configuration (will be updated from DB metadata if available)
+        self.game_config: GameConfig = get_config(config.env_id)
 
         # Initialize network
         self.network = create_network(config.env_id)
@@ -251,6 +255,30 @@ class Trainer:
             buffer_size = replay.count()
             logger.info(f"Replay buffer contains {buffer_size} transitions")
 
+            # Try to load game metadata from database (preferred over hardcoded config)
+            db_metadata = replay.get_metadata(self.config.env_id)
+            if db_metadata:
+                logger.info(
+                    f"Loaded game metadata from DB: {db_metadata.display_name} "
+                    f"(obs_size={db_metadata.obs_size}, num_actions={db_metadata.num_actions}, "
+                    f"legal_mask_offset={db_metadata.legal_mask_offset})"
+                )
+                # Update game_config with values from database
+                self.game_config = GameConfig(
+                    env_id=db_metadata.env_id,
+                    display_name=db_metadata.display_name,
+                    board_width=db_metadata.board_width,
+                    board_height=db_metadata.board_height,
+                    num_actions=db_metadata.num_actions,
+                    obs_size=db_metadata.obs_size,
+                    legal_mask_offset=db_metadata.legal_mask_offset,
+                    hidden_size=self.game_config.hidden_size,  # Keep the network size hint
+                )
+            else:
+                logger.warning(
+                    f"No game metadata in database, using hardcoded config for {self.config.env_id}"
+                )
+
             # Wait for enough data with proper backoff
             if buffer_size < self.config.batch_size:
                 self._wait_with_backoff(
@@ -267,8 +295,10 @@ class Trainer:
             for step in range(1, self.config.total_steps + 1):
                 self.stats.step = step
 
-                # Sample batch
-                batch = replay.sample_batch_tensors(self.config.batch_size)
+                # Sample batch with game-specific num_actions
+                batch = replay.sample_batch_tensors(
+                    self.config.batch_size, self.game_config.num_actions
+                )
                 if batch is None:
                     consecutive_skips += 1
                     if consecutive_skips % LOG_EVERY_N_WAITS == 1:
@@ -371,8 +401,10 @@ class Trainer:
         policy_targets_t = torch.from_numpy(policy_targets).to(self.device)
         value_targets_t = torch.from_numpy(value_targets).to(self.device)
 
-        # Extract legal mask from observations (indices 18-27)
-        legal_mask = obs_t[:, 18:27]
+        # Extract legal mask from observations using game-specific offsets
+        mask_start = self.game_config.legal_mask_offset
+        mask_end = self.game_config.legal_mask_end
+        legal_mask = obs_t[:, mask_start:mask_end]
 
         # Forward pass
         policy_logits, value_pred = self.network(obs_t)

@@ -66,6 +66,34 @@ class SchemaError(Exception):
 
 
 @dataclass
+class GameMetadata:
+    """Game metadata stored in the replay database by the actor.
+
+    This makes the database self-describing, allowing the trainer to
+    dynamically configure itself based on the game being trained.
+    """
+
+    env_id: str
+    display_name: str
+    board_width: int
+    board_height: int
+    num_actions: int
+    obs_size: int
+    legal_mask_offset: int
+    player_count: int
+
+    @property
+    def board_size(self) -> int:
+        """Total number of board cells."""
+        return self.board_width * self.board_height
+
+    @property
+    def legal_mask_end(self) -> int:
+        """End index of legal mask in observation."""
+        return self.legal_mask_offset + self.num_actions
+
+
+@dataclass
 class Transition:
     """A single transition from the replay buffer."""
 
@@ -166,6 +194,81 @@ class ReplayBuffer:
         cursor = self._conn.execute("SELECT COUNT(*) FROM transitions")
         return cursor.fetchone()[0]
 
+    def get_metadata(self, env_id: str | None = None) -> GameMetadata | None:
+        """Get game metadata from the database.
+
+        Args:
+            env_id: Specific game to get metadata for. If None, returns metadata
+                    for the first game found (useful when DB has only one game).
+
+        Returns:
+            GameMetadata if found, None otherwise.
+        """
+        # Check if game_metadata table exists
+        cursor = self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='game_metadata'"
+        )
+        if cursor.fetchone() is None:
+            return None
+
+        if env_id:
+            cursor = self._conn.execute(
+                """SELECT env_id, display_name, board_width, board_height,
+                          num_actions, obs_size, legal_mask_offset, player_count
+                   FROM game_metadata WHERE env_id = ?""",
+                (env_id,),
+            )
+        else:
+            cursor = self._conn.execute(
+                """SELECT env_id, display_name, board_width, board_height,
+                          num_actions, obs_size, legal_mask_offset, player_count
+                   FROM game_metadata LIMIT 1"""
+            )
+
+        row = cursor.fetchone()
+        if row is None:
+            return None
+
+        return GameMetadata(
+            env_id=row[0],
+            display_name=row[1],
+            board_width=row[2],
+            board_height=row[3],
+            num_actions=row[4],
+            obs_size=row[5],
+            legal_mask_offset=row[6],
+            player_count=row[7],
+        )
+
+    def list_metadata(self) -> list[GameMetadata]:
+        """List all game metadata in the database."""
+        # Check if game_metadata table exists
+        cursor = self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='game_metadata'"
+        )
+        if cursor.fetchone() is None:
+            return []
+
+        cursor = self._conn.execute(
+            """SELECT env_id, display_name, board_width, board_height,
+                      num_actions, obs_size, legal_mask_offset, player_count
+               FROM game_metadata"""
+        )
+
+        return [
+            GameMetadata(
+                env_id=row[0],
+                display_name=row[1],
+                board_width=row[2],
+                board_height=row[3],
+                num_actions=row[4],
+                obs_size=row[5],
+                legal_mask_offset=row[6],
+                player_count=row[7],
+            )
+            for row in cursor.fetchall()
+        ]
+
     def sample(self, batch_size: int) -> list[Transition]:
         """Sample random transitions for training.
 
@@ -205,9 +308,14 @@ class ReplayBuffer:
         ]
 
     def sample_batch_tensors(
-        self, batch_size: int, num_actions: int = 9
+        self, batch_size: int, num_actions: int
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
         """Sample transitions and return as numpy arrays ready for training.
+
+        Args:
+            batch_size: Number of transitions to sample.
+            num_actions: Number of actions for the game (e.g., 9 for TicTacToe, 7 for Connect4).
+                         Get this from GameMetadata.num_actions.
 
         Returns:
             Tuple of (observations, policy_targets, value_targets) as numpy arrays,
@@ -216,11 +324,6 @@ class ReplayBuffer:
             - observations: Shape (batch, obs_size) - game observations
             - policy_targets: Shape (batch, num_actions) - MCTS visit distributions
             - value_targets: Shape (batch,) - game outcomes (+1/-1/0) from player's perspective
-
-        For TicTacToe observations (29 f32 values):
-            - board_view: 18 floats (one-hot for X and O positions)
-            - legal_moves: 9 floats
-            - current_player: 2 floats
         """
         transitions = self.sample(batch_size)
         if len(transitions) < batch_size:
@@ -231,7 +334,7 @@ class ReplayBuffer:
         value_targets = []
 
         for t in transitions:
-            # Parse observation (29 f32 values = 116 bytes)
+            # Parse observation (game-specific size, determined by metadata)
             obs = np.frombuffer(t.observation, dtype=np.float32)
             observations.append(obs)
 
@@ -266,9 +369,14 @@ class ReplayBuffer:
         )
 
     def iter_batches(
-        self, batch_size: int, max_batches: int | None = None
+        self, batch_size: int, num_actions: int, max_batches: int | None = None
     ) -> Iterator[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """Iterate through random batches.
+
+        Args:
+            batch_size: Number of transitions per batch.
+            num_actions: Number of actions for the game.
+            max_batches: Maximum number of batches to yield.
 
         Yields batches until max_batches is reached or buffer is exhausted.
         """
@@ -277,7 +385,7 @@ class ReplayBuffer:
             if max_batches is not None and batches_yielded >= max_batches:
                 break
 
-            batch = self.sample_batch_tensors(batch_size)
+            batch = self.sample_batch_tensors(batch_size, num_actions)
             if batch is None:
                 break
 
