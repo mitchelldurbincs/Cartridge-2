@@ -60,7 +60,7 @@
 
   async function handleCellClick(position: number) {
     if (loading || !gameState || gameState.game_over) return;
-    if (gameState.current_player !== 1) return; // Not player's turn
+    if (gameState.current_player !== gameState.human_player) return; // Not player's turn
     if (!gameState.legal_moves.includes(position)) return; // Illegal move
 
     loading = true;

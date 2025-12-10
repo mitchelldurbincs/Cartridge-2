@@ -34,6 +34,8 @@ pub struct GameSession {
     current_player: u8,
     /// Winner (0=ongoing, 1=X, 2=O, 3=draw)
     winner: u8,
+    /// Which player the human is (1 or 2). Set when game starts based on who goes first.
+    human_player: u8,
     /// RNG for bot moves
     rng: ChaCha20Rng,
     /// Shared evaluator for MCTS (loaded from model file)
@@ -99,6 +101,7 @@ impl GameSession {
             board,
             current_player,
             winner,
+            human_player: 1, // Default: human goes first (will be updated by set_human_player)
             rng: ChaCha20Rng::seed_from_u64(seed),
             evaluator,
             mcts_config,
@@ -137,6 +140,7 @@ impl GameSession {
             board,
             current_player,
             winner,
+            human_player: 1, // Default: human goes first (will be updated by set_human_player)
             rng: ChaCha20Rng::seed_from_u64(seed),
             evaluator,
         })
@@ -249,8 +253,25 @@ impl GameSession {
     }
 
     /// Get current player
+    #[allow(dead_code)]
     pub fn current_player(&self) -> u8 {
         self.current_player
+    }
+
+    /// Get which player the human is (1 or 2)
+    #[allow(dead_code)]
+    pub fn human_player(&self) -> u8 {
+        self.human_player
+    }
+
+    /// Set which player the human is (called when game starts)
+    pub fn set_human_player(&mut self, player: u8) {
+        self.human_player = player;
+    }
+
+    /// Check if it's the human's turn
+    pub fn is_human_turn(&self) -> bool {
+        self.current_player == self.human_player
     }
 
     /// Make a player move
@@ -292,7 +313,7 @@ impl GameSession {
             let sim_ctx = self
                 .mcts_sim_ctx
                 .as_mut()
-                .ok_or_else(|| anyhow!("Game '{}' not registered", self.metadata.env_id))?;
+                .ok_or_else(|| anyhow!("Simulation context not available"))?;
 
             let result = run_mcts(
                 sim_ctx,
@@ -361,23 +382,26 @@ impl GameSession {
 
     /// Convert to API response
     pub fn to_response(&self) -> GameStateResponse {
+        let human_symbol = self.metadata.player_symbols[(self.human_player - 1) as usize];
+        let bot_symbol = self.metadata.player_symbols[(2 - self.human_player) as usize];
+
         let message = match self.winner {
             0 => {
-                if self.current_player == 1 {
-                    format!("Your turn ({})", self.metadata.player_symbols[0])
+                if self.is_human_turn() {
+                    format!("Your turn ({})", human_symbol)
                 } else {
-                    format!("Bot's turn ({})", self.metadata.player_symbols[1])
+                    format!("Bot's turn ({})", bot_symbol)
                 }
             }
-            1 => "You win!".to_string(),
-            2 => "Bot wins!".to_string(),
+            w if w == self.human_player => "You win!".to_string(),
             3 => "It's a draw!".to_string(),
-            _ => "Unknown state".to_string(),
+            _ => "Bot wins!".to_string(),
         };
 
         GameStateResponse {
             board: self.board.clone(),
             current_player: self.current_player,
+            human_player: self.human_player,
             winner: self.winner,
             game_over: self.is_game_over(),
             legal_moves: self.legal_moves(),

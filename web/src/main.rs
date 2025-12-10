@@ -296,6 +296,8 @@ struct GameStateResponse {
     board: Vec<u8>,
     /// Current player: 1=X, 2=O
     current_player: u8,
+    /// Which player the human is: 1 or 2 (depends on who went first)
+    human_player: u8,
     /// Winner: 0=ongoing, 1=X wins, 2=O wins, 3=draw
     winner: u8,
     /// Is the game over?
@@ -362,14 +364,18 @@ async fn new_game(
             )
         })?;
 
-    // If bot goes first, make a move
+    // If bot goes first, bot is player 1, human is player 2
+    // If player goes first, human is player 1, bot is player 2
     if req.first == "bot" {
+        session.set_human_player(2); // Human plays as O (player 2)
         session.bot_move().map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Bot move failed: {}", e),
             )
         })?;
+    } else {
+        session.set_human_player(1); // Human plays as X (player 1) - default
     }
 
     Ok(Json(session.to_response()))
@@ -405,8 +411,8 @@ async fn make_move(
         return Err((StatusCode::BAD_REQUEST, "Game is already over".to_string()));
     }
 
-    // Check if it's player's turn (player is always 1)
-    if session.current_player() != 1 {
+    // Check if it's the human's turn
+    if !session.is_human_turn() {
         return Err((StatusCode::BAD_REQUEST, "Not your turn".to_string()));
     }
 

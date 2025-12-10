@@ -20,10 +20,8 @@
   const CELL_SIZE = 60;
   const HOLE_SIZE = 48;
   const GAP = 4;
-  // Padding offsets for animation positioning (board-frame: 12px + board-grid: 8px)
-  const FRAME_PADDING = 12;
-  const GRID_PADDING = 8;
-  const TOTAL_PADDING = FRAME_PADDING + GRID_PADDING;
+  const BOARD_FRAME_PADDING = 12;
+  const BOARD_GRID_PADDING = 8;
 
   // Track dropping pieces for animation
   let droppingPiece: { column: number; row: number; player: number } | null = $state(null);
@@ -106,13 +104,15 @@
   function getDropEndY(row: number): number {
     // Convert row to visual position (row 0 is at bottom, but CSS row 0 is at top)
     const visualRow = ROWS - 1 - row;
-    // Account for grid padding (piece is positioned relative to board-frame)
-    return GRID_PADDING + visualRow * (CELL_SIZE + GAP) + (CELL_SIZE - HOLE_SIZE) / 2;
+    // Account for board-frame padding (12px) + board-grid padding (8px)
+    const paddingOffset = BOARD_FRAME_PADDING + BOARD_GRID_PADDING;
+    return paddingOffset + visualRow * (CELL_SIZE + GAP) + (CELL_SIZE - HOLE_SIZE) / 2;
   }
 
   function getDropX(col: number): number {
-    // Account for grid padding (piece is positioned relative to board-frame)
-    return GRID_PADDING + col * (CELL_SIZE + GAP) + (CELL_SIZE - HOLE_SIZE) / 2;
+    // Account for board-frame padding (12px) + board-grid padding (8px)
+    const paddingOffset = BOARD_FRAME_PADDING + BOARD_GRID_PADDING;
+    return paddingOffset + col * (CELL_SIZE + GAP) + (CELL_SIZE - HOLE_SIZE) / 2;
   }
 </script>
 
@@ -185,7 +185,7 @@
     gap: 4px;
     margin-bottom: 8px;
     height: 50px;
-    /* Align with the board grid: frame padding (12px) + grid padding (8px) */
+    /* Align with board grid: board-frame padding (12px) + board-grid padding (8px) */
     padding-left: 20px;
     padding-right: 20px;
   }

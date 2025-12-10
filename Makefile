@@ -18,7 +18,8 @@ VENV_PYTHON      := $(VENV)/bin/python
 # Number of AlphaZero iterations (actor + trainer cycles)
 ITERATIONS       ?= 5
 
-.PHONY: data actor trainer web-backend frontend-dev full-loop train-loop trainer-install venv clean-data clean-models clean-all
+.PHONY: data actor trainer web-backend frontend-dev full-loop train-loop trainer-install venv clean-data clean-models clean-all \
+        actor-tictactoe actor-connect4 train-loop-tictactoe train-loop-connect4
 
 data:
 	mkdir -p data data/models
@@ -41,6 +42,13 @@ $(VENV):
 actor: data
 	cd actor && $(CARGO) run -- --env-id $(ENV_ID) --max-episodes $(ACTOR_EPISODES) --log-interval $(ACTOR_LOG_INTERVAL) --replay-db-path ../data/replay.db --data-dir ../data
 
+# Game-specific actor shortcuts
+actor-tictactoe: data
+	$(MAKE) actor ENV_ID=tictactoe
+
+actor-connect4: data
+	$(MAKE) actor ENV_ID=connect4
+
 # Install trainer dependencies once (editable mode) - creates venv if needed
 # don't do this shit on wsl, hella slow
 trainer-install: $(VENV)
@@ -48,7 +56,7 @@ trainer-install: $(VENV)
 
 # Train a small model and write stats/model artifacts
 trainer: data
-	$(VENV_PYTHON) -m trainer --db data/replay.db --model-dir data/models --stats data/stats.json --steps $(TRAIN_STEPS) --batch-size $(TRAIN_BATCH) --device $(TRAIN_DEVICE)
+	$(VENV_PYTHON) -m trainer --db data/replay.db --model-dir data/models --stats data/stats.json --steps $(TRAIN_STEPS) --batch-size $(TRAIN_BATCH) --device $(TRAIN_DEVICE) --env-id $(ENV_ID)
 
 # Start the Rust backend (Axum). Blocks until stopped.
 web-backend: data
@@ -73,3 +81,10 @@ train-loop: data
 	done
 	@echo ""
 	@echo "=== Training complete: $(ITERATIONS) iterations ==="
+
+# Game-specific training loop shortcuts
+train-loop-tictactoe: data
+	$(MAKE) train-loop ENV_ID=tictactoe
+
+train-loop-connect4: data
+	$(MAKE) train-loop ENV_ID=connect4

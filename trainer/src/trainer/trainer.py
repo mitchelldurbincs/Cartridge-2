@@ -138,12 +138,12 @@ class Trainer:
         self.config = config
         self.device = torch.device(config.device)
 
+        # Get game configuration
+        self.game_config = get_config(config.env_id)
+
         # Create model directory
         Path(config.model_dir).mkdir(parents=True, exist_ok=True)
         Path(config.stats_path).parent.mkdir(parents=True, exist_ok=True)
-
-        # Get game configuration (will be updated from DB metadata if available)
-        self.game_config: GameConfig = get_config(config.env_id)
 
         # Initialize network
         self.network = create_network(config.env_id)
@@ -252,18 +252,13 @@ class Trainer:
             logger.info("Replay database found, opening connection")
 
         with ReplayBuffer(self.config.db_path) as replay:
-            buffer_size = replay.count()
-            logger.info(f"Replay buffer contains {buffer_size} transitions")
+            env_id = self.config.env_id
 
-            # Try to load game metadata from database (preferred over hardcoded config)
-            db_metadata = replay.get_metadata(self.config.env_id)
+            # Try to get game metadata from database (preferred, self-describing)
+            db_metadata = replay.get_metadata(env_id)
             if db_metadata:
-                logger.info(
-                    f"Loaded game metadata from DB: {db_metadata.display_name} "
-                    f"(obs_size={db_metadata.obs_size}, num_actions={db_metadata.num_actions}, "
-                    f"legal_mask_offset={db_metadata.legal_mask_offset})"
-                )
-                # Update game_config with values from database
+                logger.info(f"Using game metadata from database for {env_id}")
+                # Override game_config with values from database
                 self.game_config = GameConfig(
                     env_id=db_metadata.env_id,
                     display_name=db_metadata.display_name,
@@ -272,21 +267,23 @@ class Trainer:
                     num_actions=db_metadata.num_actions,
                     obs_size=db_metadata.obs_size,
                     legal_mask_offset=db_metadata.legal_mask_offset,
-                    hidden_size=self.game_config.hidden_size,  # Keep the network size hint
                 )
             else:
                 logger.warning(
-                    f"No game metadata in database, using hardcoded config for {self.config.env_id}"
+                    f"No metadata in database for {env_id}, using fallback config"
                 )
+
+            buffer_size = replay.count(env_id=env_id)
+            logger.info(f"Replay buffer contains {buffer_size} transitions for {env_id}")
 
             # Wait for enough data with proper backoff
             if buffer_size < self.config.batch_size:
                 self._wait_with_backoff(
-                    lambda: replay.count() >= self.config.batch_size,
-                    f"sufficient data ({self.config.batch_size} samples)",
+                    lambda: replay.count(env_id=env_id) >= self.config.batch_size,
+                    f"sufficient data ({self.config.batch_size} samples for {env_id})",
                 )
-                buffer_size = replay.count()
-                logger.info(f"Replay buffer now has {buffer_size} transitions")
+                buffer_size = replay.count(env_id=env_id)
+                logger.info(f"Replay buffer now has {buffer_size} transitions for {env_id}")
 
             self.stats.replay_buffer_size = buffer_size
 
@@ -295,9 +292,11 @@ class Trainer:
             for step in range(1, self.config.total_steps + 1):
                 self.stats.step = step
 
-                # Sample batch with game-specific num_actions
+                # Sample batch (filter by env_id and use correct num_actions)
                 batch = replay.sample_batch_tensors(
-                    self.config.batch_size, self.game_config.num_actions
+                    self.config.batch_size,
+                    num_actions=self.game_config.num_actions,
+                    env_id=env_id,
                 )
                 if batch is None:
                     consecutive_skips += 1
@@ -327,7 +326,7 @@ class Trainer:
                 self.stats.learning_rate = self.optimizer.param_groups[0]["lr"]
                 self.stats.samples_seen = self.samples_seen
                 self.stats.timestamp = time.time()
-                self.stats.replay_buffer_size = replay.count()
+                self.stats.replay_buffer_size = replay.count(env_id=env_id)
 
                 # Track recent losses for rolling average
                 self._recent_losses.append({
@@ -403,7 +402,7 @@ class Trainer:
 
         # Extract legal mask from observations using game-specific offsets
         mask_start = self.game_config.legal_mask_offset
-        mask_end = self.game_config.legal_mask_end
+        mask_end = mask_start + self.game_config.num_actions
         legal_mask = obs_t[:, mask_start:mask_end]
 
         # Forward pass
