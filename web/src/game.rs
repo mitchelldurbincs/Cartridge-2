@@ -201,49 +201,57 @@ impl GameSession {
         Ok((board, current_player, winner))
     }
 
-    /// Get legal moves
+    /// Get legal moves by extracting from observation using metadata
     pub fn legal_moves(&self) -> Vec<u8> {
         if self.winner != 0 {
             return Vec::new();
         }
 
-        if self.metadata.env_id == "connect4" {
-            let width = self.metadata.board_width;
-            let height = self.metadata.board_height;
+        let Some(mask_bytes) = self.legal_mask_bytes() else {
+            return Vec::new();
+        };
 
-            (0..width as u8)
-                .filter(|&col| {
-                    let top_idx = (height - 1) * width + col as usize;
-                    self.board[top_idx] == 0
-                })
-                .collect()
-        } else {
-            let board_size = self.metadata.board_size();
-            (0..board_size as u8)
-                .filter(|&pos| self.board[pos as usize] == 0)
-                .collect()
-        }
+        mask_bytes
+            .chunks_exact(4)
+            .enumerate()
+            .filter_map(|(action, bytes)| {
+                let value = f32::from_le_bytes(bytes.try_into().unwrap());
+                (value > 0.5).then_some(action as u8)
+            })
+            .collect()
     }
 
-    /// Check if a move is legal
+    /// Check if a move is legal by extracting from observation using metadata
     pub fn is_legal_move(&self, position: u8) -> bool {
         if self.winner != 0 {
             return false;
         }
 
-        if self.metadata.env_id == "connect4" {
-            let width = self.metadata.board_width;
-            let height = self.metadata.board_height;
+        let action = position as usize;
+        if action >= self.metadata.num_actions {
+            return false;
+        }
 
-            if (position as usize) >= width {
-                return false;
-            }
+        let Some(mask_bytes) = self.legal_mask_bytes() else {
+            return false;
+        };
 
-            let top_idx = (height - 1) * width + position as usize;
-            self.board[top_idx] == 0
+        let start = action * 4;
+        let bytes: [u8; 4] = mask_bytes[start..start + 4].try_into().unwrap();
+        let value = f32::from_le_bytes(bytes);
+        value > 0.5
+    }
+
+    /// Extract the legal moves slice from the observation buffer
+    fn legal_mask_bytes(&self) -> Option<&[u8]> {
+        let start = self.metadata.legal_mask_offset.checked_mul(4)?;
+        let len = self.metadata.num_actions.checked_mul(4)?;
+        let end = start.checked_add(len)?;
+
+        if end <= self.obs.len() {
+            Some(&self.obs[start..end])
         } else {
-            let board_size = self.metadata.board_size();
-            (position as usize) < board_size && self.board[position as usize] == 0
+            None
         }
     }
 
@@ -480,5 +488,17 @@ mod tests {
 
         // Position 4 is now occupied
         assert!(!session.is_legal_move(4));
+    }
+
+    #[test]
+    fn test_legal_moves_handles_short_obs() {
+        games_tictactoe::register_tictactoe();
+
+        let mut session = GameSession::new("tictactoe").unwrap();
+        // Corrupt the observation buffer to simulate a mismatch with metadata
+        session.obs.truncate(4);
+
+        assert_eq!(session.legal_moves(), Vec::<u8>::new());
+        assert!(!session.is_legal_move(0));
     }
 }
