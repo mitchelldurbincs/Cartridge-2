@@ -31,6 +31,7 @@
 //! let reset = ctx.reset(42, &[]).unwrap();
 //! ```
 
+use engine_core::game_utils::{calculate_reward, encode_f32_slices, info_bits};
 use engine_core::typed::{
     ActionSpace, Capabilities, DecodeError, EncodeError, Encoding, EngineId, Game,
 };
@@ -297,49 +298,21 @@ impl Connect4 {
         Self
     }
 
-    /// Calculate reward for the current state
-    fn calculate_reward(state: &State, previous_player: u8) -> f32 {
-        match state.winner {
-            0 => 0.0, // Game ongoing
-            1 => {
-                if previous_player == 1 {
-                    1.0
-                } else {
-                    -1.0
-                }
-            } // Red wins
-            2 => {
-                if previous_player == 2 {
-                    1.0
-                } else {
-                    -1.0
-                }
-            } // Yellow wins
-            3 => 0.0, // Draw
-            _ => 0.0, // Shouldn't happen
-        }
-    }
-
     /// Pack auxiliary information about the state into a u64 bit-field.
     ///
-    /// Layout (little endian bit numbering):
+    /// Uses the standard layout from `engine_core::game_utils::info_bits`:
     /// * Bits 0-6  : Legal move mask (7 columns)
     /// * Bits 16-19: Current player (1 = Red, 2 = Yellow)
     /// * Bits 20-23: Winner (0 = none, 1 = Red, 2 = Yellow, 3 = draw)
     /// * Bits 24-31: Moves played so far (0-42)
     fn compute_info_bits(state: &State) -> u64 {
-        const CURRENT_PLAYER_SHIFT: u32 = 16;
-        const WINNER_SHIFT: u32 = 20;
-        const MOVES_PLAYED_SHIFT: u32 = 24;
-
-        let mut info = state.legal_moves_mask() as u64;
-        info |= (state.current_player as u64) << CURRENT_PLAYER_SHIFT;
-        info |= (state.winner as u64) << WINNER_SHIFT;
-
         let moves_played: u64 = state.column_heights.iter().map(|&h| h as u64).sum();
-        info |= moves_played << MOVES_PLAYED_SHIFT;
-
-        info
+        info_bits::compute_info_bits(
+            state.legal_moves_mask() as u64,
+            state.current_player,
+            state.winner,
+            moves_played,
+        )
     }
 }
 
@@ -409,7 +382,7 @@ impl Game for Connect4 {
         *state = state.drop_piece(action.column());
 
         let obs = Observation::from_state(state);
-        let reward = Self::calculate_reward(state, previous_player);
+        let reward = calculate_reward(state.winner, previous_player);
         let done = state.is_done();
         let info = Self::compute_info_bits(state);
 
@@ -516,15 +489,14 @@ impl Game for Connect4 {
 
     fn encode_obs(obs: &Self::Obs, out: &mut Vec<u8>) -> Result<(), EncodeError> {
         // Encode as OBS_SIZE f32 values in little-endian format
-        for &value in &obs.board_view {
-            out.extend_from_slice(&value.to_le_bytes());
-        }
-        for &value in &obs.legal_moves {
-            out.extend_from_slice(&value.to_le_bytes());
-        }
-        for &value in &obs.current_player {
-            out.extend_from_slice(&value.to_le_bytes());
-        }
+        encode_f32_slices(
+            out,
+            [
+                &obs.board_view[..],
+                &obs.legal_moves[..],
+                &obs.current_player[..],
+            ],
+        );
         Ok(())
     }
 }

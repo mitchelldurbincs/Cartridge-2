@@ -17,6 +17,7 @@
 //! let reset = ctx.reset(42, &[]).unwrap();
 //! ```
 
+use engine_core::game_utils::{calculate_reward, encode_f32_slices, info_bits};
 use engine_core::typed::{
     ActionSpace, Capabilities, DecodeError, EncodeError, Encoding, EngineId, Game,
 };
@@ -229,49 +230,21 @@ impl TicTacToe {
         Self
     }
 
-    /// Calculate reward for the current state
-    fn calculate_reward(state: &State, previous_player: u8) -> f32 {
-        match state.winner {
-            0 => 0.0, // Game ongoing
-            1 => {
-                if previous_player == 1 {
-                    1.0
-                } else {
-                    -1.0
-                }
-            } // X wins
-            2 => {
-                if previous_player == 2 {
-                    1.0
-                } else {
-                    -1.0
-                }
-            } // O wins
-            3 => 0.0, // Draw
-            _ => 0.0, // Shouldn't happen
-        }
-    }
-
     /// Pack auxiliary information about the state into a u64 bit-field.
     ///
-    /// Layout (little endian bit numbering):
+    /// Uses the standard layout from `engine_core::game_utils::info_bits`:
     /// * Bits 0-8  : Legal move mask
     /// * Bits 16-19: Current player (1 = X, 2 = O)
     /// * Bits 20-23: Winner (0 = none, 1 = X, 2 = O, 3 = draw)
     /// * Bits 24-27: Moves played so far
     fn compute_info_bits(state: &State) -> u64 {
-        const CURRENT_PLAYER_SHIFT: u32 = 16;
-        const WINNER_SHIFT: u32 = 20;
-        const MOVES_PLAYED_SHIFT: u32 = 24;
-
-        let mut info = state.legal_moves_mask() as u64;
-        info |= (state.current_player as u64) << CURRENT_PLAYER_SHIFT;
-        info |= (state.winner as u64) << WINNER_SHIFT;
-
         let moves_played = state.board.iter().filter(|&&cell| cell != 0).count() as u64;
-        info |= moves_played << MOVES_PLAYED_SHIFT;
-
-        info
+        info_bits::compute_info_bits(
+            state.legal_moves_mask() as u64,
+            state.current_player,
+            state.winner,
+            moves_played,
+        )
     }
 }
 
@@ -313,11 +286,7 @@ impl Game for TicTacToe {
             .with_board(3, 3)
             .with_actions(9)
             .with_observation(29, 18) // 29 floats, legal mask starts at index 18
-            .with_players(
-                2,
-                vec!["X".to_string(), "O".to_string()],
-                vec!['X', 'O'],
-            )
+            .with_players(2, vec!["X".to_string(), "O".to_string()], vec!['X', 'O'])
             .with_description("Get three in a row to win!")
     }
 
@@ -337,7 +306,7 @@ impl Game for TicTacToe {
         *state = state.make_move(action.position());
 
         let obs = Observation::from_state(state);
-        let reward = Self::calculate_reward(state, previous_player);
+        let reward = calculate_reward(state.winner, previous_player);
         let done = state.is_done();
         let info = Self::compute_info_bits(state);
 
@@ -431,15 +400,14 @@ impl Game for TicTacToe {
 
     fn encode_obs(obs: &Self::Obs, out: &mut Vec<u8>) -> Result<(), EncodeError> {
         // Encode as 29 f32 values in little-endian format
-        for &value in &obs.board_view {
-            out.extend_from_slice(&value.to_le_bytes());
-        }
-        for &value in &obs.legal_moves {
-            out.extend_from_slice(&value.to_le_bytes());
-        }
-        for &value in &obs.current_player {
-            out.extend_from_slice(&value.to_le_bytes());
-        }
+        encode_f32_slices(
+            out,
+            [
+                &obs.board_view[..],
+                &obs.legal_moves[..],
+                &obs.current_player[..],
+            ],
+        );
         Ok(())
     }
 }
@@ -919,11 +887,7 @@ mod tests {
 
             // Verify board_view
             for (i, &decoded_val) in decoded_floats.iter().enumerate().take(18) {
-                assert_eq!(
-                    decoded_val, obs.board_view[i],
-                    "board_view[{}] mismatch",
-                    i
-                );
+                assert_eq!(decoded_val, obs.board_view[i], "board_view[{}] mismatch", i);
             }
             // Verify legal_moves
             for i in 0..9 {

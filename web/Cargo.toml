@@ -17,6 +17,7 @@ engine-core = { path = "../engine/engine-core" }
 games-tictactoe = { path = "../engine/games-tictactoe" }
 games-connect4 = { path = "../engine/games-connect4" }
 mcts = { path = "../engine/mcts" }
+model-watcher = { path = "../engine/model-watcher", features = ["metadata"] }
 
 # Web framework
 axum = { version = "0.7", features = ["macros"] }
@@ -39,9 +40,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Randomness
 rand = "0.8"
 rand_chacha = "0.3"
-
-# File watching for model hot-reload
-notify = "7"
 
 [dev-dependencies]
 # Testing
