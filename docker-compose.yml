@@ -1,0 +1,111 @@
+# Cartridge2 Docker Compose Configuration
+#
+# Services:
+#   - actor: Self-play episode runner (generates training data)
+#   - web: Backend API server (game logic, model serving)
+#   - frontend: Nginx serving Svelte frontend + proxying to web
+#   - trainer: Python training loop (trains neural network)
+#
+# Shared volume: ./data (SQLite DB, ONNX models, stats.json)
+#
+# Usage:
+#   docker-compose up -d              # Start all services
+#   docker-compose up -d web frontend # Start only web interface
+#   docker-compose logs -f trainer    # Watch trainer logs
+#   docker-compose down               # Stop all services
+
+services:
+  # ==========================================================================
+  # Actor - Self-play episode runner
+  # ==========================================================================
+  actor:
+    build:
+      context: .
+      dockerfile: actor/Dockerfile
+    container_name: cartridge-actor
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - ACTOR_ACTOR_ID=actor-1
+      - ACTOR_ENV_ID=tictactoe
+      - ACTOR_MAX_EPISODES=-1
+      - ACTOR_LOG_LEVEL=info
+      - ACTOR_REPLAY_DB_PATH=/app/data/replay.db
+      - ACTOR_DATA_DIR=/app/data
+    depends_on:
+      - web
+    networks:
+      - cartridge-net
+
+  # ==========================================================================
+  # Web Backend - API server with game logic
+  # ==========================================================================
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    container_name: cartridge-web
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATA_DIR=/app/data
+      - DEFAULT_GAME=tictactoe
+      - RUST_LOG=info
+    ports:
+      - "8080:8080"
+    networks:
+      - cartridge-net
+
+  # ==========================================================================
+  # Frontend - Nginx serving Svelte app + proxying API
+  # ==========================================================================
+  frontend:
+    build:
+      context: web/frontend
+      dockerfile: Dockerfile
+    container_name: cartridge-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - web
+    networks:
+      - cartridge-net
+
+  # ==========================================================================
+  # Trainer - Python training loop
+  # ==========================================================================
+  trainer:
+    build:
+      context: trainer
+      dockerfile: Dockerfile
+    container_name: cartridge-trainer
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TRAINER_ENV_ID=tictactoe
+      - TRAINER_DEVICE=cpu
+      - TRAINER_LOG_LEVEL=INFO
+    command: >
+      --db /app/data/replay.db
+      --model-dir /app/data/models
+      --stats /app/data/stats.json
+      --steps 10000
+      --batch-size 64
+      --lr 0.001
+      --checkpoint-interval 100
+      --stats-interval 10
+      --env-id tictactoe
+    networks:
+      - cartridge-net
+
+networks:
+  cartridge-net:
+    driver: bridge
+
+volumes:
+  data:
+    driver: local

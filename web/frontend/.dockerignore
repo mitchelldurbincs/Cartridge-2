@@ -1,0 +1,38 @@
+# Frontend .dockerignore
+
+# Dependencies (will be installed fresh)
+node_modules/
+
+# Build output (will be built fresh)
+dist/
+
+# Svelte kit
+.svelte-kit/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+README*
+LICENSE*
+
+# Logs and temp files
+*.log
+tmp/
+temp/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
