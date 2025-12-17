@@ -1,57 +1,115 @@
 //! Configuration for the Actor service
+//!
+//! Configuration is loaded from config.toml with environment variable overrides.
+//! CLI arguments take highest priority, followed by env vars, then config.toml.
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::level_filters::LevelFilter;
+
+use crate::central_config::{load_config, CentralConfig};
+
+// Load central config once at startup
+static CENTRAL_CONFIG: Lazy<CentralConfig> = Lazy::new(load_config);
+
+// Default value functions that read from central config
+fn default_actor_id() -> String {
+    std::env::var("ACTOR_ACTOR_ID").unwrap_or_else(|_| CENTRAL_CONFIG.actor.actor_id.clone())
+}
+
+fn default_env_id() -> String {
+    std::env::var("ACTOR_ENV_ID").unwrap_or_else(|_| CENTRAL_CONFIG.common.env_id.clone())
+}
+
+fn default_max_episodes() -> i32 {
+    std::env::var("ACTOR_MAX_EPISODES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(CENTRAL_CONFIG.actor.max_episodes)
+}
+
+fn default_episode_timeout() -> u64 {
+    std::env::var("ACTOR_EPISODE_TIMEOUT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(CENTRAL_CONFIG.actor.episode_timeout_secs)
+}
+
+fn default_flush_interval() -> u64 {
+    std::env::var("ACTOR_FLUSH_INTERVAL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(CENTRAL_CONFIG.actor.flush_interval_secs)
+}
+
+fn default_log_level() -> String {
+    std::env::var("ACTOR_LOG_LEVEL").unwrap_or_else(|_| CENTRAL_CONFIG.common.log_level.clone())
+}
+
+fn default_log_interval() -> u32 {
+    std::env::var("ACTOR_LOG_INTERVAL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(CENTRAL_CONFIG.actor.log_interval)
+}
+
+fn default_replay_db_path() -> String {
+    std::env::var("ACTOR_REPLAY_DB_PATH")
+        .unwrap_or_else(|_| format!("{}/replay.db", CENTRAL_CONFIG.common.data_dir))
+}
+
+fn default_data_dir() -> String {
+    std::env::var("ACTOR_DATA_DIR").unwrap_or_else(|_| CENTRAL_CONFIG.common.data_dir.clone())
+}
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(name = "actor")]
 #[command(about = "Cartridge2 Actor - Self-play episode runner")]
 #[command(
     long_about = "Actor that runs game episodes using the engine library and stores
-transitions in the SQLite replay buffer for training."
+transitions in the SQLite replay buffer for training.
+
+Configuration is loaded from config.toml with environment variable overrides.
+CLI arguments take highest priority."
 )]
 pub struct Config {
     /// Unique actor identifier
-    #[arg(long, env = "ACTOR_ACTOR_ID", default_value = "actor-1")]
+    #[arg(long, default_value_t = default_actor_id())]
     pub actor_id: String,
 
     /// Environment ID to run (e.g., tictactoe)
-    #[arg(long, env = "ACTOR_ENV_ID", default_value = "tictactoe")]
+    #[arg(long, default_value_t = default_env_id())]
     pub env_id: String,
 
     /// Maximum episodes to run (-1 for unlimited)
-    #[arg(long, env = "ACTOR_MAX_EPISODES", default_value = "-1")]
+    #[arg(long, default_value_t = default_max_episodes())]
     pub max_episodes: i32,
 
     /// Timeout per episode in seconds
-    #[arg(long, env = "ACTOR_EPISODE_TIMEOUT", default_value = "30")]
+    #[arg(long, default_value_t = default_episode_timeout())]
     pub episode_timeout_secs: u64,
 
     /// Interval to flush data in seconds
-    #[arg(long, env = "ACTOR_FLUSH_INTERVAL", default_value = "5")]
+    #[arg(long, default_value_t = default_flush_interval())]
     pub flush_interval_secs: u64,
 
     /// Log level (trace, debug, info, warn, error)
-    #[arg(long, env = "ACTOR_LOG_LEVEL", default_value = "info")]
+    #[arg(long, default_value_t = default_log_level())]
     pub log_level: String,
 
     /// Log progress every N episodes (0 to disable)
-    #[arg(long, env = "ACTOR_LOG_INTERVAL", default_value = "10")]
+    #[arg(long, default_value_t = default_log_interval())]
     pub log_interval: u32,
 
-    /// Path to SQLite replay database (default assumes running from actor/ directory)
-    #[arg(
-        long,
-        env = "ACTOR_REPLAY_DB_PATH",
-        default_value = "../data/replay.db"
-    )]
+    /// Path to SQLite replay database
+    #[arg(long, default_value_t = default_replay_db_path())]
     pub replay_db_path: String,
 
-    /// Data directory for models and other files (default assumes running from actor/ directory)
-    #[arg(long, env = "ACTOR_DATA_DIR", default_value = "../data")]
+    /// Data directory for models and other files
+    #[arg(long, default_value_t = default_data_dir())]
     pub data_dir: String,
 }
 

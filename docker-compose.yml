@@ -1,5 +1,9 @@
 # Cartridge2 Docker Compose Configuration
 #
+# Configuration:
+#   All settings are loaded from config.toml (mounted to /app/config.toml).
+#   Environment variables can override config.toml values for quick customization.
+#
 # Services:
 #   - alphazero:  Synchronized AlphaZero training (RECOMMENDED)
 #   - evaluator:  Periodic model evaluation against random baseline
@@ -11,10 +15,13 @@
 # Shared volume: ./data (SQLite DB, ONNX models, stats.json)
 #
 # Quick Start:
-#   # Train a model (with evaluation after each iteration)
+#   # Train a model (uses settings from config.toml)
 #   docker compose up alphazero
 #
-#   # Train Connect4 instead of TicTacToe
+#   # Override specific settings via environment variables
+#   CARTRIDGE_COMMON_ENV_ID=connect4 docker compose up alphazero
+#
+#   # Legacy environment variables still work for backward compatibility
 #   ALPHAZERO_ENV_ID=connect4 docker compose up alphazero
 #
 #   # Play against the trained model
@@ -33,6 +40,10 @@ services:
   # ==========================================================================
   # Each iteration: clear buffer -> generate episodes -> train -> evaluate
   # This ensures training data comes from the current model only
+  #
+  # Settings loaded from config.toml. Override with environment variables:
+  #   CARTRIDGE_COMMON_ENV_ID, CARTRIDGE_TRAINING_ITERATIONS, etc.
+  #   Legacy ALPHAZERO_* variables also supported for backward compatibility.
   alphazero:
     build:
       context: .
@@ -40,25 +51,16 @@ services:
     container_name: cartridge-alphazero
     volumes:
       - ./data:/app/data
+      - ./config.toml:/app/config.toml:ro
     environment:
-      # Game environment
-      - ALPHAZERO_ENV_ID=${ALPHAZERO_ENV_ID:-tictactoe}
-
-      # Training loop settings
-      - ALPHAZERO_ITERATIONS=${ALPHAZERO_ITERATIONS:-100}
-      - ALPHAZERO_EPISODES=${ALPHAZERO_EPISODES:-500}
-      - ALPHAZERO_STEPS=${ALPHAZERO_STEPS:-1000}
-      - ALPHAZERO_START_ITERATION=${ALPHAZERO_START_ITERATION:-1}
-
-      # Training hyperparameters
-      - ALPHAZERO_BATCH_SIZE=${ALPHAZERO_BATCH_SIZE:-64}
-      - ALPHAZERO_LR=${ALPHAZERO_LR:-0.001}
-      - ALPHAZERO_DEVICE=${ALPHAZERO_DEVICE:-cpu}
-      - ALPHAZERO_CHECKPOINT_INTERVAL=${ALPHAZERO_CHECKPOINT_INTERVAL:-100}
-
-      # Evaluation settings (enabled by default!)
-      - ALPHAZERO_EVAL_INTERVAL=${ALPHAZERO_EVAL_INTERVAL:-1}
-      - ALPHAZERO_EVAL_GAMES=${ALPHAZERO_EVAL_GAMES:-50}
+      # Legacy env vars for backward compatibility (override config.toml)
+      - ALPHAZERO_ENV_ID=${ALPHAZERO_ENV_ID:-}
+      - ALPHAZERO_ITERATIONS=${ALPHAZERO_ITERATIONS:-}
+      - ALPHAZERO_EPISODES=${ALPHAZERO_EPISODES:-}
+      - ALPHAZERO_STEPS=${ALPHAZERO_STEPS:-}
+      - ALPHAZERO_DEVICE=${ALPHAZERO_DEVICE:-}
+      - ALPHAZERO_EVAL_INTERVAL=${ALPHAZERO_EVAL_INTERVAL:-}
+      - ALPHAZERO_EVAL_GAMES=${ALPHAZERO_EVAL_GAMES:-}
     networks:
       - cartridge-net
 
@@ -76,14 +78,11 @@ services:
       - tools
     volumes:
       - ./data:/app/data
-    environment:
-      - DATA_DIR=/app/data
+      - ./config.toml:/app/config.toml:ro
     entrypoint: ["python", "-m", "trainer", "evaluate"]
     command:
       - "--model=/app/data/models/latest.onnx"
       - "--db=/app/data/replay.db"
-      - "--env-id=${ALPHAZERO_ENV_ID:-tictactoe}"
-      - "--games=${EVAL_GAMES:-100}"
     networks:
       - cartridge-net
 
@@ -92,6 +91,7 @@ services:
   # ==========================================================================
   # Generates self-play episodes independently
   # Use for continuous/async training setups
+  # Settings loaded from config.toml
   actor:
     build:
       context: .
@@ -102,13 +102,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./data:/app/data
-    environment:
-      - ACTOR_ACTOR_ID=actor-1
-      - ACTOR_ENV_ID=${ALPHAZERO_ENV_ID:-tictactoe}
-      - ACTOR_MAX_EPISODES=-1
-      - ACTOR_LOG_LEVEL=info
-      - ACTOR_REPLAY_DB_PATH=/app/data/replay.db
-      - ACTOR_DATA_DIR=/app/data
+      - ./config.toml:/app/config.toml:ro
     networks:
       - cartridge-net
 
@@ -117,6 +111,7 @@ services:
   # ==========================================================================
   # Trains on replay buffer data independently
   # Use for continuous/async training setups
+  # Settings loaded from config.toml
   trainer:
     build:
       context: trainer
@@ -127,24 +122,15 @@ services:
     restart: unless-stopped
     volumes:
       - ./data:/app/data
-    environment:
-      - DATA_DIR=/app/data
+      - ./config.toml:/app/config.toml:ro
     entrypoint: ["python", "-m", "trainer", "train"]
-    command:
-      - "--db=/app/data/replay.db"
-      - "--model-dir=/app/data/models"
-      - "--stats=/app/data/stats.json"
-      - "--env-id=${ALPHAZERO_ENV_ID:-tictactoe}"
-      - "--device=${TRAINER_DEVICE:-cpu}"
-      - "--steps=${TRAINER_STEPS:-1000}"
-      - "--batch-size=${TRAINER_BATCH_SIZE:-64}"
-      - "--lr=${TRAINER_LR:-0.001}"
     networks:
       - cartridge-net
 
   # ==========================================================================
   # Web Backend - API server with game logic
   # ==========================================================================
+  # Settings loaded from config.toml
   web:
     build:
       context: .
@@ -153,9 +139,8 @@ services:
     restart: unless-stopped
     volumes:
       - ./data:/app/data
+      - ./config.toml:/app/config.toml:ro
     environment:
-      - DATA_DIR=/app/data
-      - DEFAULT_GAME=${ALPHAZERO_ENV_ID:-tictactoe}
       - RUST_LOG=info
     ports:
       - "8080:8080"

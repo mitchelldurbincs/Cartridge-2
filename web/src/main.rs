@@ -30,10 +30,12 @@ use tracing::info;
 #[cfg(feature = "onnx")]
 use tracing::{info, warn};
 
+mod central_config;
 mod game;
 #[cfg(feature = "onnx")]
 mod model_watcher;
 
+use central_config::{get_data_dir, get_default_game, get_host, get_port};
 use game::GameSession;
 #[cfg(feature = "onnx")]
 use model_watcher::{ModelInfo, ModelWatcher};
@@ -124,8 +126,12 @@ async fn main() -> anyhow::Result<()> {
     games_connect4::register_connect4();
     info!("Registered tictactoe and connect4 games");
 
+    // Load configuration from config.toml with env var overrides
+    let data_dir = get_data_dir();
+    let default_game = get_default_game();
+    info!("Configuration: data_dir={}, default_game={}", data_dir, default_game);
+
     // Set up shared evaluator for model hot-reloading
-    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string());
     let evaluator: Arc<RwLock<Option<OnnxEvaluator>>> = Arc::new(RwLock::new(None));
 
     #[cfg(feature = "onnx")]
@@ -133,11 +139,6 @@ async fn main() -> anyhow::Result<()> {
         use engine_core::EngineContext;
         use tracing::warn;
         let model_dir = format!("{}/models", data_dir);
-
-        // Get obs_size from the default game's metadata
-        // TODO: Support switching games dynamically (would need to reload model watcher)
-        let default_game =
-            std::env::var("DEFAULT_GAME").unwrap_or_else(|_| "tictactoe".to_string());
         let obs_size = EngineContext::new(&default_game)
             .map(|ctx| ctx.metadata().obs_size)
             .unwrap_or(29); // Fallback to TicTacToe's obs_size if game not found
@@ -196,10 +197,12 @@ async fn main() -> anyhow::Result<()> {
     // Build router
     let app = create_app(state);
 
-    let addr = "0.0.0.0:8080";
+    let host = get_host();
+    let port = get_port();
+    let addr = format!("{}:{}", host, port);
     info!("Starting server on {}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())

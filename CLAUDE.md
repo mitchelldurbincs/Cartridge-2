@@ -154,6 +154,7 @@ cartridge2/
 │       ├── evaluator.py   # Model evaluation
 │       └── game_config.py # Game-specific configurations
 ├── Dockerfile.alphazero   # Combined actor+trainer image for Docker
+├── config.toml            # Central configuration file
 ├── docs/
 │   └── MVP.md             # Design document
 ├── data/                  # Runtime data (gitignored)
@@ -161,6 +162,69 @@ cartridge2/
 │   ├── models/            # ONNX model files
 │   └── stats.json         # Training telemetry
 └── CLAUDE.md              # This file
+```
+
+## Configuration
+
+All settings are centralized in `config.toml` at the project root. This single file controls all components (actor, trainer, web server).
+
+### Configuration Priority
+
+Settings are loaded with the following priority (highest to lowest):
+1. **CLI arguments** - Direct command-line flags
+2. **Environment variables** - `CARTRIDGE_*` or legacy `ALPHAZERO_*`
+3. **config.toml** - Central configuration file
+4. **Built-in defaults** - Hardcoded fallbacks
+
+### config.toml Structure
+
+```toml
+[common]
+data_dir = "./data"      # Base data directory
+env_id = "tictactoe"     # Game: tictactoe, connect4
+log_level = "info"       # trace, debug, info, warn, error
+
+[training]
+iterations = 100         # Training iterations
+episodes_per_iteration = 500
+steps_per_iteration = 1000
+batch_size = 64
+learning_rate = 0.001
+device = "cpu"           # cpu, cuda, mps
+
+[evaluation]
+interval = 1             # Evaluate every N iterations (0=disable)
+games = 50               # Games per evaluation
+
+[actor]
+actor_id = "actor-1"
+max_episodes = -1        # -1 for unlimited
+log_interval = 50
+
+[web]
+host = "0.0.0.0"
+port = 8080
+
+[mcts]
+num_simulations = 800
+c_puct = 1.4
+temperature = 1.0
+```
+
+### Environment Variable Overrides
+
+New format (preferred):
+```bash
+CARTRIDGE_COMMON_ENV_ID=connect4
+CARTRIDGE_TRAINING_ITERATIONS=50
+CARTRIDGE_EVALUATION_GAMES=100
+```
+
+Legacy format (still supported):
+```bash
+ALPHAZERO_ENV_ID=connect4
+ALPHAZERO_ITERATIONS=50
+ALPHAZERO_EVAL_GAMES=100
 ```
 
 ## Quick Start
@@ -187,17 +251,13 @@ Open http://localhost:5173 in your browser!
 ### Train with Docker (Easiest)
 
 ```bash
-# Train TicTacToe (default) - includes evaluation after each iteration!
+# Train using settings from config.toml
 docker compose up alphazero
 
-# Train Connect4
+# Override game via environment variable
+CARTRIDGE_COMMON_ENV_ID=connect4 docker compose up alphazero
+# Or using legacy format:
 ALPHAZERO_ENV_ID=connect4 docker compose up alphazero
-
-# Customize training parameters
-ALPHAZERO_ITERATIONS=50 ALPHAZERO_EPISODES=200 ALPHAZERO_STEPS=500 docker compose up alphazero
-
-# Disable evaluation for faster training
-ALPHAZERO_EVAL_INTERVAL=0 docker compose up alphazero
 
 # Run in background
 docker compose up alphazero -d
@@ -211,16 +271,7 @@ docker compose up web frontend
 # Open http://localhost in browser
 ```
 
-**Environment Variables:**
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ALPHAZERO_ENV_ID` | tictactoe | Game: tictactoe, connect4 |
-| `ALPHAZERO_ITERATIONS` | 100 | Training iterations |
-| `ALPHAZERO_EPISODES` | 500 | Episodes per iteration |
-| `ALPHAZERO_STEPS` | 1000 | Training steps per iteration |
-| `ALPHAZERO_EVAL_INTERVAL` | 1 | Evaluate every N iterations (0=disable) |
-| `ALPHAZERO_EVAL_GAMES` | 50 | Games per evaluation |
-| `ALPHAZERO_DEVICE` | cpu | Training device: cpu, cuda, mps |
+**To customize training:** Edit `config.toml` before running, or use environment variable overrides. See the Configuration section above for all available settings.
 
 ## Commands
 

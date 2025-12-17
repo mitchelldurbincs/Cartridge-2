@@ -1,0 +1,297 @@
+"""Centralized configuration loading from config.toml.
+
+This module provides a single source of truth for all configuration values.
+Configuration is loaded from config.toml at the project root, with support
+for environment variable overrides.
+
+Environment Variable Override Pattern:
+    CARTRIDGE_<SECTION>_<KEY>=value
+
+    Examples:
+        CARTRIDGE_COMMON_ENV_ID=connect4
+        CARTRIDGE_TRAINING_ITERATIONS=50
+        CARTRIDGE_EVALUATION_GAMES=100
+
+Usage:
+    from trainer.central_config import get_config, Config
+
+    config = get_config()
+    print(config.common.env_id)
+    print(config.training.iterations)
+"""
+
+import logging
+import os
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+# Use tomllib for Python 3.11+, tomli for 3.10
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+
+logger = logging.getLogger(__name__)
+
+# Default config file locations (searched in order)
+CONFIG_SEARCH_PATHS = [
+    Path("config.toml"),  # Current directory
+    Path("/app/config.toml"),  # Docker container
+    Path(__file__).parent.parent.parent.parent.parent / "config.toml",  # Project root from trainer
+]
+
+
+@dataclass
+class CommonConfig:
+    """Common settings shared across all components."""
+
+    data_dir: str = "./data"
+    env_id: str = "tictactoe"
+    log_level: str = "info"
+
+
+@dataclass
+class TrainingConfig:
+    """Training loop settings."""
+
+    iterations: int = 100
+    start_iteration: int = 1
+    episodes_per_iteration: int = 500
+    steps_per_iteration: int = 1000
+    batch_size: int = 64
+    learning_rate: float = 0.001
+    weight_decay: float = 0.0001
+    grad_clip_norm: float = 1.0
+    device: str = "cpu"
+    checkpoint_interval: int = 100
+    max_checkpoints: int = 10
+
+
+@dataclass
+class EvaluationConfig:
+    """Evaluation settings."""
+
+    interval: int = 1
+    games: int = 50
+
+
+@dataclass
+class ActorConfig:
+    """Actor (self-play) settings."""
+
+    actor_id: str = "actor-1"
+    max_episodes: int = -1
+    episode_timeout_secs: int = 30
+    flush_interval_secs: int = 5
+    log_interval: int = 50
+
+
+@dataclass
+class WebConfig:
+    """Web server settings."""
+
+    host: str = "0.0.0.0"
+    port: int = 8080
+
+
+@dataclass
+class MctsConfig:
+    """MCTS (Monte Carlo Tree Search) settings."""
+
+    num_simulations: int = 800
+    c_puct: float = 1.4
+    temperature: float = 1.0
+    dirichlet_alpha: float = 0.3
+    dirichlet_weight: float = 0.25
+
+
+@dataclass
+class Config:
+    """Root configuration container."""
+
+    common: CommonConfig = field(default_factory=CommonConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+    actor: ActorConfig = field(default_factory=ActorConfig)
+    web: WebConfig = field(default_factory=WebConfig)
+    mcts: MctsConfig = field(default_factory=MctsConfig)
+
+    # Convenience properties for commonly accessed paths
+    @property
+    def data_dir(self) -> Path:
+        return Path(self.common.data_dir)
+
+    @property
+    def replay_db_path(self) -> Path:
+        return self.data_dir / "replay.db"
+
+    @property
+    def models_dir(self) -> Path:
+        return self.data_dir / "models"
+
+    @property
+    def stats_path(self) -> Path:
+        return self.data_dir / "stats.json"
+
+    @property
+    def loop_stats_path(self) -> Path:
+        return self.data_dir / "loop_stats.json"
+
+    @property
+    def eval_stats_path(self) -> Path:
+        return self.data_dir / "eval_stats.json"
+
+
+def _find_config_file() -> Path | None:
+    """Find the config.toml file in standard locations."""
+    # Check environment variable first
+    env_path = os.environ.get("CARTRIDGE_CONFIG")
+    if env_path:
+        path = Path(env_path)
+        if path.exists():
+            return path
+        logger.warning(f"CARTRIDGE_CONFIG={env_path} not found, searching defaults")
+
+    # Search default locations
+    for path in CONFIG_SEARCH_PATHS:
+        if path.exists():
+            return path
+
+    return None
+
+
+def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
+    """Apply environment variable overrides to config data.
+
+    Environment variables follow the pattern: CARTRIDGE_<SECTION>_<KEY>
+    For example: CARTRIDGE_TRAINING_ITERATIONS=50
+
+    Also supports legacy ALPHAZERO_* variables for backward compatibility.
+    """
+    # Legacy mapping: ALPHAZERO_* -> new config paths
+    legacy_mapping = {
+        "ALPHAZERO_ENV_ID": ("common", "env_id"),
+        "ALPHAZERO_ITERATIONS": ("training", "iterations"),
+        "ALPHAZERO_START_ITERATION": ("training", "start_iteration"),
+        "ALPHAZERO_EPISODES": ("training", "episodes_per_iteration"),
+        "ALPHAZERO_STEPS": ("training", "steps_per_iteration"),
+        "ALPHAZERO_BATCH_SIZE": ("training", "batch_size"),
+        "ALPHAZERO_LR": ("training", "learning_rate"),
+        "ALPHAZERO_DEVICE": ("training", "device"),
+        "ALPHAZERO_CHECKPOINT_INTERVAL": ("training", "checkpoint_interval"),
+        "ALPHAZERO_EVAL_INTERVAL": ("evaluation", "interval"),
+        "ALPHAZERO_EVAL_GAMES": ("evaluation", "games"),
+        "DATA_DIR": ("common", "data_dir"),
+    }
+
+    # Apply legacy overrides
+    for env_var, (section, key) in legacy_mapping.items():
+        value = os.environ.get(env_var)
+        if value is not None:
+            if section not in data:
+                data[section] = {}
+            # Convert to appropriate type
+            data[section][key] = _convert_value(value, section, key, data)
+            logger.debug(f"Applied legacy override {env_var}={value}")
+
+    # Apply CARTRIDGE_* overrides (higher priority)
+    prefix = "CARTRIDGE_"
+    for env_var, value in os.environ.items():
+        if not env_var.startswith(prefix):
+            continue
+
+        # Parse CARTRIDGE_SECTION_KEY format
+        parts = env_var[len(prefix) :].lower().split("_", 1)
+        if len(parts) != 2:
+            continue
+
+        section, key = parts
+        if section not in data:
+            data[section] = {}
+
+        data[section][key] = _convert_value(value, section, key, data)
+        logger.debug(f"Applied override {env_var}={value}")
+
+    return data
+
+
+def _convert_value(value: str, section: str, key: str, data: dict) -> Any:
+    """Convert string value to appropriate type based on existing config."""
+    # Try to infer type from existing value
+    existing = data.get(section, {}).get(key)
+
+    if existing is not None:
+        if isinstance(existing, bool):
+            return value.lower() in ("true", "1", "yes")
+        elif isinstance(existing, int):
+            return int(value)
+        elif isinstance(existing, float):
+            return float(value)
+
+    # Default type inference
+    if value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    return value
+
+
+def _dict_to_config(data: dict[str, Any]) -> Config:
+    """Convert a dictionary to a Config object."""
+    return Config(
+        common=CommonConfig(**data.get("common", {})),
+        training=TrainingConfig(**data.get("training", {})),
+        evaluation=EvaluationConfig(**data.get("evaluation", {})),
+        actor=ActorConfig(**data.get("actor", {})),
+        web=WebConfig(**data.get("web", {})),
+        mcts=MctsConfig(**data.get("mcts", {})),
+    )
+
+
+# Cached config instance
+_cached_config: Config | None = None
+
+
+def get_config(reload: bool = False) -> Config:
+    """Get the configuration, loading from file if needed.
+
+    Args:
+        reload: Force reload from file even if cached.
+
+    Returns:
+        The Config object with all settings.
+    """
+    global _cached_config
+
+    if _cached_config is not None and not reload:
+        return _cached_config
+
+    config_path = _find_config_file()
+
+    if config_path is not None:
+        logger.info(f"Loading configuration from {config_path}")
+        with open(config_path, "rb") as f:
+            data = tomllib.load(f)
+    else:
+        logger.warning("No config.toml found, using defaults")
+        data = {}
+
+    # Apply environment variable overrides
+    data = _apply_env_overrides(data)
+
+    _cached_config = _dict_to_config(data)
+    return _cached_config
+
+
+def reset_config() -> None:
+    """Reset the cached config (mainly for testing)."""
+    global _cached_config
+    _cached_config = None
