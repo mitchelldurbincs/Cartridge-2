@@ -251,6 +251,7 @@ struct GameInfoResponse {
     player_names: Vec<String>,
     player_symbols: Vec<char>,
     description: String,
+    board_type: String,
 }
 
 impl From<GameMetadata> for GameInfoResponse {
@@ -267,6 +268,7 @@ impl From<GameMetadata> for GameInfoResponse {
             player_names: meta.player_names,
             player_symbols: meta.player_symbols,
             description: meta.description,
+            board_type: meta.board_type,
         }
     }
 }

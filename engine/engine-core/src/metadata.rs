@@ -46,6 +46,11 @@ pub struct GameMetadata {
 
     /// Brief description of the game rules for UI tooltips
     pub description: String,
+
+    /// Board rendering type for the frontend
+    /// - "grid": Simple grid where clicks place pieces directly (TicTacToe, Othello)
+    /// - "drop_column": Column-based where pieces drop to bottom (Connect 4)
+    pub board_type: String,
 }
 
 impl GameMetadata {
@@ -63,6 +68,7 @@ impl GameMetadata {
             player_names: vec!["Player 1".to_string(), "Player 2".to_string()],
             player_symbols: vec!['1', '2'],
             description: String::new(),
+            board_type: "grid".to_string(),
         }
     }
 
@@ -102,6 +108,14 @@ impl GameMetadata {
     /// Builder method for description
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = description.into();
+        self
+    }
+
+    /// Builder method for board type
+    /// - "grid": Simple grid where clicks place pieces directly (TicTacToe, Othello)
+    /// - "drop_column": Column-based where pieces drop to bottom (Connect 4)
+    pub fn with_board_type(mut self, board_type: impl Into<String>) -> Self {
+        self.board_type = board_type.into();
         self
     }
 

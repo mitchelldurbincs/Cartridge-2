@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Board from './Board.svelte';
-  import Connect4Board from './Connect4Board.svelte';
+  import GenericBoard from './GenericBoard.svelte';
   import Stats from './Stats.svelte';
   import { getGameState, newGame, makeMove, getHealth, getGameInfo, getGames, type GameState, type MoveResponse, type GameInfo } from './lib/api';
 
@@ -104,26 +103,14 @@
     <div class="game-container">
       <div class="game-section">
         {#if gameState && gameInfo}
-          {#if selectedGame === 'connect4'}
-            <Connect4Board
-              board={gameState.board}
-              legalMoves={gameState.legal_moves}
-              gameOver={gameState.game_over}
-              {lastBotMove}
-              onColumnClick={handleCellClick}
-            />
-          {:else}
-            <Board
-              board={gameState.board}
-              legalMoves={gameState.legal_moves}
-              gameOver={gameState.game_over}
-              {lastBotMove}
-              onCellClick={handleCellClick}
-              width={gameInfo.board_width}
-              height={gameInfo.board_height}
-              playerSymbols={gameInfo.player_symbols}
-            />
-          {/if}
+          <GenericBoard
+            board={gameState.board}
+            legalMoves={gameState.legal_moves}
+            gameOver={gameState.game_over}
+            {lastBotMove}
+            {gameInfo}
+            onCellClick={handleCellClick}
+          />
 
           <div class="status" class:winner={gameState.winner === 1} class:loser={gameState.winner === 2}>
             {gameState.message}

@@ -20,6 +20,7 @@ export interface GameInfo {
   player_names: string[];
   player_symbols: string[];
   description: string;
+  board_type: 'grid' | 'drop_column';
 }
 
 export interface GamesListResponse {
