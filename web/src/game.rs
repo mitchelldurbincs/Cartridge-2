@@ -201,49 +201,55 @@ impl GameSession {
         Ok((board, current_player, winner))
     }
 
-    /// Get legal moves
+    /// Get legal moves by extracting from observation using metadata
     pub fn legal_moves(&self) -> Vec<u8> {
         if self.winner != 0 {
             return Vec::new();
         }
 
-        if self.metadata.env_id == "connect4" {
-            let width = self.metadata.board_width;
-            let height = self.metadata.board_height;
+        // Extract legal moves from observation using metadata offsets
+        // Observation is encoded as f32 values in little-endian bytes
+        let offset = self.metadata.legal_mask_offset;
+        let num_actions = self.metadata.num_actions;
 
-            (0..width as u8)
-                .filter(|&col| {
-                    let top_idx = (height - 1) * width + col as usize;
-                    self.board[top_idx] == 0
-                })
-                .collect()
-        } else {
-            let board_size = self.metadata.board_size();
-            (0..board_size as u8)
-                .filter(|&pos| self.board[pos as usize] == 0)
-                .collect()
-        }
+        (0..num_actions)
+            .filter(|&action| {
+                let byte_offset = (offset + action) * 4; // Each f32 is 4 bytes
+                if byte_offset + 4 <= self.obs.len() {
+                    let bytes: [u8; 4] = self.obs[byte_offset..byte_offset + 4]
+                        .try_into()
+                        .unwrap_or([0; 4]);
+                    let value = f32::from_le_bytes(bytes);
+                    value > 0.5 // Legal if 1.0, illegal if 0.0
+                } else {
+                    false
+                }
+            })
+            .map(|a| a as u8)
+            .collect()
     }
 
-    /// Check if a move is legal
+    /// Check if a move is legal by extracting from observation using metadata
     pub fn is_legal_move(&self, position: u8) -> bool {
         if self.winner != 0 {
             return false;
         }
 
-        if self.metadata.env_id == "connect4" {
-            let width = self.metadata.board_width;
-            let height = self.metadata.board_height;
+        let action = position as usize;
+        if action >= self.metadata.num_actions {
+            return false;
+        }
 
-            if (position as usize) >= width {
-                return false;
-            }
-
-            let top_idx = (height - 1) * width + position as usize;
-            self.board[top_idx] == 0
+        // Extract legal move from observation using metadata offsets
+        let byte_offset = (self.metadata.legal_mask_offset + action) * 4;
+        if byte_offset + 4 <= self.obs.len() {
+            let bytes: [u8; 4] = self.obs[byte_offset..byte_offset + 4]
+                .try_into()
+                .unwrap_or([0; 4]);
+            let value = f32::from_le_bytes(bytes);
+            value > 0.5
         } else {
-            let board_size = self.metadata.board_size();
-            (position as usize) < board_size && self.board[position as usize] == 0
+            false
         }
     }
 
