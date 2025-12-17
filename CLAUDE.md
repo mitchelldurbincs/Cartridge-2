@@ -75,15 +75,22 @@ Svelte 5 frontend with Vite:
 ### Trainer (Python) - `trainer/`
 **Status: COMPLETE**
 
-PyTorch training loop with AlphaZero-style learning:
+PyTorch training with AlphaZero-style learning and orchestration:
+
+**CLI Commands:**
+- `python -m trainer train` - Train on replay buffer data
+- `python -m trainer evaluate` - Evaluate model against random baseline
+- `python -m trainer loop` - Synchronized AlphaZero training (actor + trainer + eval)
+
+**Features:**
 - Reads transitions from SQLite replay buffer
 - MCTS policy distributions as soft targets
 - Game outcome propagation for value targets
 - Exports ONNX models with atomic write-then-rename
-- Writes `stats.json` telemetry
+- Writes `stats.json` and `eval_stats.json` telemetry
 - Cosine annealing LR schedule
 - Gradient clipping for stability
-- Model evaluation against random baseline
+- Model evaluation against random baseline (enabled by default in loop)
 
 ## Directory Structure
 
@@ -135,19 +142,18 @@ cartridge2/
 │   │   │   └── Stats.svelte
 │   │   └── vite.config.ts
 │   └── README.md          # Run commands
-├── trainer/               # Python training
+├── trainer/               # Python training package
 │   ├── pyproject.toml     # Package configuration
+│   ├── Dockerfile         # Trainer-only Docker image
 │   └── src/trainer/
-│       ├── __main__.py    # CLI entrypoint
+│       ├── __main__.py    # CLI entrypoint (train, evaluate, loop)
 │       ├── trainer.py     # Training loop
+│       ├── orchestrator.py # Synchronized AlphaZero training orchestrator
 │       ├── network.py     # Neural network
 │       ├── replay.py      # SQLite interface
 │       ├── evaluator.py   # Model evaluation
 │       └── game_config.py # Game-specific configurations
-├── scripts/               # Training scripts
-│   ├── train_loop.py      # Synchronized AlphaZero training loop (local)
-│   ├── docker_train.sh    # Docker entrypoint for synchronized training
-│   └── Dockerfile         # Combined actor+trainer image for Docker
+├── Dockerfile.alphazero   # Combined actor+trainer image for Docker
 ├── docs/
 │   └── MVP.md             # Design document
 ├── data/                  # Runtime data (gitignored)
@@ -181,7 +187,7 @@ Open http://localhost:5173 in your browser!
 ### Train with Docker (Easiest)
 
 ```bash
-# Train TicTacToe (default)
+# Train TicTacToe (default) - includes evaluation after each iteration!
 docker compose up alphazero
 
 # Train Connect4
@@ -190,14 +196,31 @@ ALPHAZERO_ENV_ID=connect4 docker compose up alphazero
 # Customize training parameters
 ALPHAZERO_ITERATIONS=50 ALPHAZERO_EPISODES=200 ALPHAZERO_STEPS=500 docker compose up alphazero
 
+# Disable evaluation for faster training
+ALPHAZERO_EVAL_INTERVAL=0 docker compose up alphazero
+
 # Run in background
 docker compose up alphazero -d
 docker compose logs -f alphazero  # Watch progress
+
+# Run standalone evaluation
+docker compose run --rm evaluator
 
 # Play against trained model (in another terminal)
 docker compose up web frontend
 # Open http://localhost in browser
 ```
+
+**Environment Variables:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ALPHAZERO_ENV_ID` | tictactoe | Game: tictactoe, connect4 |
+| `ALPHAZERO_ITERATIONS` | 100 | Training iterations |
+| `ALPHAZERO_EPISODES` | 500 | Episodes per iteration |
+| `ALPHAZERO_STEPS` | 1000 | Training steps per iteration |
+| `ALPHAZERO_EVAL_INTERVAL` | 1 | Evaluate every N iterations (0=disable) |
+| `ALPHAZERO_EVAL_GAMES` | 50 | Games per evaluation |
+| `ALPHAZERO_DEVICE` | cpu | Training device: cpu, cuda, mps |
 
 ## Commands
 
@@ -228,20 +251,35 @@ cd web && cargo run
 cd web/frontend && npm run dev
 
 # ======= RECOMMENDED: Synchronized AlphaZero Training =======
-# Each iteration: clear buffer -> generate episodes -> train -> repeat
+# Each iteration: clear buffer -> generate episodes -> train -> evaluate
 # This ensures training data comes from the current model only
+# Evaluation runs after each iteration by default!
 
-# Basic synchronized training (TicTacToe)
-python3 scripts/train_loop.py --iterations 50 --episodes 200 --steps 500
+# Install trainer package (required for local training)
+cd trainer && pip install -e .
+
+# Basic synchronized training (TicTacToe) with evaluation
+python -m trainer loop --iterations 50 --episodes 200 --steps 500
 
 # Connect4 with more data per iteration
-python3 scripts/train_loop.py --env-id connect4 --iterations 100 --episodes 500 --steps 1000
+python -m trainer loop --env-id connect4 --iterations 100 --episodes 500 --steps 1000
 
-# With GPU and evaluation
-python3 scripts/train_loop.py --device cuda --eval-interval 100 --eval-games 50
+# With GPU (evaluation runs by default every iteration)
+python -m trainer loop --device cuda --iterations 100
+
+# Disable evaluation for faster training
+python -m trainer loop --eval-interval 0 --iterations 50
 
 # Resume from a specific iteration
-python3 scripts/train_loop.py --iterations 100 --start-iteration 25
+python -m trainer loop --iterations 100 --start-iteration 25
+
+# ======= Standalone Commands =======
+
+# Train on existing replay buffer data
+python -m trainer train --db ./data/replay.db --steps 1000
+
+# Evaluate model against random play
+python -m trainer evaluate --model ./data/models/latest.onnx --games 100
 
 # ======= Alternative: Continuous (non-synchronized) training =======
 # Actor and trainer run concurrently - mixes data from multiple model versions
@@ -251,10 +289,7 @@ python3 scripts/train_loop.py --iterations 100 --start-iteration 25
 cd actor && cargo run -- --env-id tictactoe --max-episodes 1000
 
 # Train the model (in separate terminal)
-cd trainer && python3 -m trainer --db ../data/replay.db --steps 1000
-
-# Evaluate model against random play
-cd trainer && python3 -m trainer.evaluator --model ../data/models/latest.onnx --games 100
+python -m trainer train --db ./data/replay.db --steps 1000
 ```
 
 ## Current Status
@@ -354,7 +389,7 @@ pub fn register_connect4() {
 | Communication | gRPC everywhere | Filesystem + HTTP |
 | Replay Buffer | Go service + Redis | SQLite file |
 | Model Storage | Go service + MinIO | Single ONNX file |
-| Orchestration | K8s/Docker Compose | Shell script |
+| Orchestration | K8s/Docker Compose | Python package |
 | Complexity | Production-grade | MVP-focused |
 
 ## Using MCTS

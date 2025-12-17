@@ -1,5 +1,13 @@
 # Trainer Service Dockerfile
 # Python-based AlphaZero trainer with PyTorch and ONNX
+#
+# This image provides:
+#   - trainer train     - Train on replay buffer data
+#   - trainer evaluate  - Evaluate model against random baseline
+#   - trainer loop      - Orchestrated training (requires ACTOR_BINARY)
+#
+# For synchronized training, use the root Dockerfile.alphazero instead,
+# which bundles both the actor binary and trainer package.
 
 FROM python:3.11-slim-bookworm
 
@@ -10,35 +18,29 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy metadata and source before installing dependencies
+# Copy package files
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-COPY train-loop.sh ./
-RUN sed -i 's/\r$//' train-loop.sh && chmod +x train-loop.sh
 
 # Install CPU-only PyTorch first (avoids downloading ~700MB of CUDA libraries)
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-# Install remaining Python dependencies
+# Install trainer package (includes trainer, trainer-loop, trainer-evaluate commands)
 RUN pip install --no-cache-dir .
 
 # Create data directory
 RUN mkdir -p /app/data/models
 
 # Environment variables with defaults
+ENV DATA_DIR="/app/data"
 ENV TRAINER_DB_PATH="/app/data/replay.db"
 ENV TRAINER_MODEL_DIR="/app/data/models"
 ENV TRAINER_STATS_PATH="/app/data/stats.json"
 ENV TRAINER_ENV_ID="tictactoe"
 ENV TRAINER_DEVICE="cpu"
 ENV TRAINER_LOG_LEVEL="INFO"
-ENV TRAINER_STEPS="1000"
-ENV TRAINER_BATCH_SIZE="64"
-ENV TRAINER_LR="0.001"
 
 # Default command runs the trainer
-# Override with docker run ... evaluator to run evaluation instead
+# Use 'trainer evaluate' or 'trainer loop' for other modes
 ENTRYPOINT ["python", "-m", "trainer"]
-CMD ["--db", "/app/data/replay.db", \
-     "--model-dir", "/app/data/models", \
-     "--stats", "/app/data/stats.json"]
+CMD ["--help"]
