@@ -42,12 +42,12 @@ pub struct Config {
     #[arg(long, env = "ACTOR_LOG_INTERVAL", default_value = "10")]
     pub log_interval: u32,
 
-    /// Path to SQLite replay database
-    #[arg(long, env = "ACTOR_REPLAY_DB_PATH", default_value = "./data/replay.db")]
+    /// Path to SQLite replay database (default assumes running from actor/ directory)
+    #[arg(long, env = "ACTOR_REPLAY_DB_PATH", default_value = "../data/replay.db")]
     pub replay_db_path: String,
 
-    /// Data directory for models and other files
-    #[arg(long, env = "ACTOR_DATA_DIR", default_value = "./data")]
+    /// Data directory for models and other files (default assumes running from actor/ directory)
+    #[arg(long, env = "ACTOR_DATA_DIR", default_value = "../data")]
     pub data_dir: String,
 }
 
@@ -108,8 +108,8 @@ mod tests {
             flush_interval_secs: 5,
             log_level: "info".into(),
             log_interval: 10,
-            replay_db_path: "./data/replay.db".into(),
-            data_dir: "./data".into(),
+            replay_db_path: "../data/replay.db".into(),
+            data_dir: "../data".into(),
         }
     }
 
@@ -181,6 +181,6 @@ mod tests {
     #[test]
     fn model_path_constructs_correctly() {
         let cfg = base_config();
-        assert_eq!(cfg.model_path(), "./data/models/latest.onnx");
+        assert_eq!(cfg.model_path(), "../data/models/latest.onnx");
     }
 }

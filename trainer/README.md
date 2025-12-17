@@ -16,13 +16,11 @@ The trainer:
 # Install
 pip install -e .
 
-# Run training
-python -m trainer --db ../data/replay.db --steps 1000
+# Run training (defaults assume running from trainer/ directory)
+python -m trainer --steps 1000
 
 # With custom settings
 python -m trainer \
-    --db ../data/replay.db \
-    --model-dir ../data/models \
     --steps 5000 \
     --batch-size 128 \
     --lr 0.001
@@ -32,9 +30,9 @@ python -m trainer \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--db` | `./data/replay.db` | SQLite replay database path |
-| `--model-dir` | `./data/models` | Directory for ONNX checkpoints |
-| `--stats` | `./data/stats.json` | Stats file for web polling |
+| `--db` | `../data/replay.db` | SQLite replay database path |
+| `--model-dir` | `../data/models` | Directory for ONNX checkpoints |
+| `--stats` | `../data/stats.json` | Stats file for web polling |
 | `--steps` | 1000 | Total training steps |
 | `--batch-size` | 64 | Training batch size |
 | `--lr` | 0.001 | Learning rate |
@@ -236,9 +234,9 @@ python -m trainer.evaluator --model ./data/models/latest.onnx --games 100
 cd actor
 cargo run -- --env-id tictactoe --replay-db-path ../data/replay.db
 
-# Terminal 2: Trainer consumes data
+# Terminal 2: Trainer consumes data (defaults work from trainer/ directory)
 cd trainer
-python -m trainer --db ../data/replay.db --model-dir ../data/models
+python -m trainer
 ```
 
 The actor will hot-reload `model.onnx` when it changes.

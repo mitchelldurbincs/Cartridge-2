@@ -17,23 +17,23 @@ def main() -> int:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    # Required paths
+    # Required paths (defaults assume running from trainer/ directory)
     parser.add_argument(
         "--db",
         type=str,
-        default="./data/replay.db",
+        default="../data/replay.db",
         help="Path to SQLite replay database",
     )
     parser.add_argument(
         "--model-dir",
         type=str,
-        default="./data/models",
+        default="../data/models",
         help="Directory to save ONNX model checkpoints",
     )
     parser.add_argument(
         "--stats",
         type=str,
-        default="./data/stats.json",
+        default="../data/stats.json",
         help="Path to write stats.json for web polling",
     )
 

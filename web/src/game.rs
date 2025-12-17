@@ -300,40 +300,52 @@ impl GameSession {
         };
 
         let position = if has_model {
-            // Use MCTS with neural network
-            debug!("Using MCTS for bot move");
+            // Try to use MCTS with neural network
+            debug!("Attempting MCTS for bot move");
 
-            let guard = self
-                .evaluator
-                .read()
-                .map_err(|e| anyhow!("Failed to acquire read lock: {}", e))?;
-            let evaluator = guard.as_ref().unwrap();
+            let mcts_result = (|| -> Result<u8> {
+                let guard = self
+                    .evaluator
+                    .read()
+                    .map_err(|e| anyhow!("Failed to acquire read lock: {}", e))?;
+                let evaluator = guard.as_ref().unwrap();
 
-            // Use pre-created simulation context (avoids repeated registry lookups)
-            let sim_ctx = self
-                .mcts_sim_ctx
-                .as_mut()
-                .ok_or_else(|| anyhow!("Simulation context not available"))?;
+                // Use pre-created simulation context (avoids repeated registry lookups)
+                let sim_ctx = self
+                    .mcts_sim_ctx
+                    .as_mut()
+                    .ok_or_else(|| anyhow!("Simulation context not available"))?;
 
-            let result = run_mcts(
-                sim_ctx,
-                evaluator,
-                self.mcts_config.clone(),
-                self.state.clone(),
-                self.obs.clone(),
-                legal_mask,
-                &mut self.rng,
-            )
-            .map_err(|e| anyhow!("MCTS failed: {}", e))?;
+                let result = run_mcts(
+                    sim_ctx,
+                    evaluator,
+                    self.mcts_config.clone(),
+                    self.state.clone(),
+                    self.obs.clone(),
+                    legal_mask,
+                    &mut self.rng,
+                )?;
 
-            debug!(
-                action = result.action,
-                value = result.value,
-                simulations = result.simulations,
-                "MCTS selected move"
-            );
+                debug!(
+                    action = result.action,
+                    value = result.value,
+                    simulations = result.simulations,
+                    "MCTS selected move"
+                );
 
-            result.action as u8
+                Ok(result.action as u8)
+            })();
+
+            match mcts_result {
+                Ok(action) => action,
+                Err(e) => {
+                    // MCTS failed (e.g., model incompatible with current game)
+                    // Fall back to random move
+                    debug!("MCTS failed ({}), falling back to random move", e);
+                    use rand::seq::SliceRandom;
+                    *legal.choose(&mut self.rng).unwrap()
+                }
+            }
         } else {
             // Fall back to random move
             debug!("No model loaded, using random move");
