@@ -152,23 +152,25 @@ The evaluator measures how well a trained model plays against random opponents.
 
 ```bash
 # Basic evaluation (100 games)
-python -m trainer.evaluator --model ./data/models/latest.onnx --games 100
+python -m trainer.evaluator --model ../data/models/latest.onnx --games 100
 
 # More games for statistical confidence
-python -m trainer.evaluator --model ./data/models/latest.onnx --games 500
+python -m trainer.evaluator --model ../data/models/latest.onnx --games 500
 
 # Verbose mode to see individual game moves
-python -m trainer.evaluator --model ./data/models/latest.onnx --games 10 --verbose
+python -m trainer.evaluator --model ../data/models/latest.onnx --games 10 --verbose
 
 # Compare different checkpoints
-python -m trainer.evaluator --model ./data/models/model_step_000100.onnx --games 100
+python -m trainer.evaluator --model ../data/models/model_step_000100.onnx --games 100
 ```
 
 ### CLI Arguments
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--model` | `./data/models/latest.onnx` | Path to ONNX model file |
+| `--model` | `../data/models/latest.onnx` | Path to ONNX model file |
+| `--db` | `../data/replay.db` | Replay database for loading metadata (self-describing configs) |
+| `--env-id` | `tictactoe` | Game environment to evaluate |
 | `--games` | 100 | Number of games to play |
 | `--temperature` | 0.0 | Sampling temperature (0 = greedy/argmax) |
 | `--verbose` | false | Print individual game moves |
