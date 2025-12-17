@@ -3,8 +3,8 @@ Be able to visualize training of AlphaZero AND be able to play against it
 I think I can reuse the engine-rust and the actor from Cartridge
 
 Big Game Goals:
-* Tic tac toe 
-* Connect 4
+* Tic tac toe (COMPLETE)
+* Connect 4 (COMPLETE)
 * Othello
 
 Here is your rewritten design document, streamlined for the **Monolithic/Filesystem MVP** approach (v2).
@@ -17,8 +17,8 @@ I will reuse the engine-rust code, but refactor it from a Service into a Library
 
 **Big Game Goals:**
 
-- Tic tac toe
-- Connect 4
+- Tic tac toe (COMPLETE)
+- Connect 4 (COMPLETE)
 - Othello
 
 **I want to:**
@@ -36,8 +36,9 @@ I will reuse the engine-rust code, but refactor it from a Service into a Library
 
 **MVP:**
 
-- TicTacToe implementation (Rust Crate + Python Script).
-- Web Interface to play against the current "best" model.
+- TicTacToe implementation (COMPLETE)
+- Connect 4 implementation (COMPLETE)
+- Web Interface to play against the current "best" model (COMPLETE)
 - No K8s yet—just two terminal windows (one for Rust, one for Python).
 
 [https://github.com/suragnair/alpha-zero-general](https://github.com/suragnair/alpha-zero-general)

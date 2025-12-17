@@ -4,7 +4,7 @@
 
 Cartridge2 is a simplified AlphaZero training and visualization platform. It enables training neural network game agents via self-play and lets users play against trained models through a web interface.
 
-**Target Games:** TicTacToe, Connect 4, Othello
+**Target Games:** TicTacToe (complete), Connect 4 (complete), Othello (planned)
 
 **Key Difference from Cartridge1:** This is a monolithic/filesystem approach vs. Cartridge1's microservices architecture. No Kubernetes, no gRPC between services—just shared filesystem and local processes.
 
@@ -35,20 +35,22 @@ Cartridge2 is a simplified AlphaZero training and visualization platform. It ena
 
 Pure game logic library. No network I/O. Library-only design (no gRPC).
 
-- `engine-core/` - Game trait, erased adapter, registry, EngineContext API (39 tests)
-- `games-tictactoe/` - TicTacToe implementation (15 tests)
-- `mcts/` - Monte Carlo Tree Search implementation (21 tests)
+- `engine-core/` - Game trait, erased adapter, registry, EngineContext API, GameMetadata (48 tests)
+- `games-tictactoe/` - TicTacToe implementation (26 tests)
+- `games-connect4/` - Connect 4 implementation (20 tests)
+- `mcts/` - Monte Carlo Tree Search implementation (25 tests)
 
 ### Actor (Rust Binary) - `actor/`
-**Status: COMPLETE (30 tests)**
+**Status: COMPLETE (46 tests)**
 
 Self-play episode runner using engine-core directly:
 - Uses `EngineContext` for game simulation (no gRPC)
 - Stores transitions in SQLite (`./data/replay.db`)
 - MCTS policy with ONNX neural network evaluation
-- Hot-reloads model when `latest.onnx` changes
+- Hot-reloads model when `latest.onnx` changes (via model_watcher)
 - Stores MCTS visit distributions as policy targets
 - Game outcome backfill for value targets
+- Auto-derives game configuration from GameMetadata
 
 ### Web Server (Rust Binary) - `web/`
 **Status: COMPLETE (4 tests)**
@@ -93,33 +95,55 @@ cartridge2/
 │       ├── main.rs         # Entry point
 │       ├── actor.rs        # Episode runner using EngineContext
 │       ├── config.rs       # CLI configuration
-│       ├── policy.rs       # Action selection (random policy)
+│       ├── game_config.rs  # Game-specific config derived from metadata
+│       ├── mcts_policy.rs  # MCTS policy implementation
+│       ├── model_watcher.rs # ONNX model hot-reload via file watching
+│       ├── policy.rs       # Policy trait and random policy
 │       └── replay.rs       # SQLite replay buffer
 ├── engine/                 # Rust workspace
 │   ├── Cargo.toml         # Workspace config
 │   ├── engine-core/       # Core Game trait + EngineContext API
-│   ├── games-tictactoe/   # Reference game implementation
+│   │   └── src/
+│   │       ├── adapter.rs  # GameAdapter (typed -> erased)
+│   │       ├── context.rs  # EngineContext high-level API
+│   │       ├── erased.rs   # ErasedGame trait
+│   │       ├── metadata.rs # GameMetadata for game configuration
+│   │       ├── registry.rs # Static game registration
+│   │       └── typed.rs    # Game trait definition
+│   ├── games-tictactoe/   # TicTacToe implementation
+│   ├── games-connect4/    # Connect 4 implementation
 │   └── mcts/              # Monte Carlo Tree Search
+│       └── src/
+│           ├── config.rs   # MctsConfig
+│           ├── evaluator.rs # Evaluator trait + UniformEvaluator
+│           ├── node.rs     # MctsNode
+│           ├── onnx.rs     # OnnxEvaluator (feature-gated)
+│           ├── search.rs   # MCTS search algorithm
+│           └── tree.rs     # MctsTree with arena allocation
 ├── web/                    # Web server + frontend
 │   ├── Cargo.toml         # Axum server
 │   ├── src/
 │   │   ├── main.rs        # HTTP endpoints
-│   │   └── game.rs        # Game session management
+│   │   ├── game.rs        # Game session management
+│   │   └── model_watcher.rs # Model hot-reload for web
 │   ├── frontend/          # Svelte frontend
 │   │   ├── package.json
 │   │   ├── src/
 │   │   │   ├── App.svelte
-│   │   │   ├── Board.svelte
+│   │   │   ├── Board.svelte      # TicTacToe board
+│   │   │   ├── Connect4Board.svelte # Connect 4 board
 │   │   │   └── Stats.svelte
 │   │   └── vite.config.ts
 │   └── README.md          # Run commands
 ├── trainer/               # Python training
+│   ├── pyproject.toml     # Package configuration
 │   └── src/trainer/
 │       ├── __main__.py    # CLI entrypoint
 │       ├── trainer.py     # Training loop
 │       ├── network.py     # Neural network
 │       ├── replay.py      # SQLite interface
-│       └── evaluator.py   # Model evaluation
+│       ├── evaluator.py   # Model evaluation
+│       └── game_config.py # Game-specific configurations
 ├── docs/
 │   └── MVP.md             # Design document
 ├── data/                  # Runtime data (gitignored)
@@ -163,8 +187,8 @@ cd actor && cargo build --release
 cd web && cargo build --release
 
 # Run all tests
-cd engine && cargo test   # 75 tests (39 + 15 + 21)
-cd actor && cargo test    # 30 tests
+cd engine && cargo test   # 119 tests (48 + 26 + 20 + 25)
+cd actor && cargo test    # 46 tests
 cd web && cargo test      # 4 tests
 
 # Format and lint
@@ -190,18 +214,20 @@ cd trainer && python3 -m trainer.evaluator --model ../data/models/latest.onnx --
 
 ## Current Status
 
-- [x] Engine core abstractions (Game trait, adapter, registry) - 39 tests
+- [x] Engine core abstractions (Game trait, adapter, registry, metadata) - 48 tests
 - [x] EngineContext high-level API
-- [x] TicTacToe game implementation - 15 tests
+- [x] TicTacToe game implementation - 26 tests
+- [x] Connect 4 game implementation - 20 tests
 - [x] Removed gRPC/proto dependencies (library-only)
-- [x] Actor core (episode runner, SQLite replay) - 30 tests
+- [x] Actor core (episode runner, SQLite replay) - 46 tests
 - [x] MCTS integration in actor with ONNX evaluation
+- [x] Model hot-reload via file watching
+- [x] Auto-derived game configuration from GameMetadata
 - [x] Web server (Axum, game API) - 4 tests
-- [x] Web frontend (Svelte, play UI, stats)
-- [x] MCTS implementation - 21 tests
+- [x] Web frontend (Svelte, play UI, stats, Connect4 board)
+- [x] MCTS implementation - 25 tests
 - [x] Python trainer (PyTorch, ONNX export, evaluator)
 - [x] MCTS policy targets + game outcome propagation
-- [ ] Connect 4 game
 - [ ] Othello game
 
 ## API Endpoints
@@ -336,10 +362,7 @@ engine/mcts/src/
 
 ## Next Steps
 
-1. **ONNX Integration** - Load and run neural network policies
-2. **Python Learner** - Training script that reads from SQLite
-3. **Connect 4 Game** - Add second game implementation
-4. **Othello Game** - Add third game implementation
+1. **Othello Game** - Add third game implementation
 
 ## Reference
 

@@ -6,9 +6,10 @@ Rust workspace containing the core game engine, game implementations, and MCTS s
 
 | Crate | Description |
 |-------|-------------|
-| `engine-core` | Game trait, type erasure, registry, EngineContext API |
-| `games-tictactoe` | TicTacToe reference implementation |
-| `mcts` | Monte Carlo Tree Search for AlphaZero-style play |
+| `engine-core` | Game trait, type erasure, registry, EngineContext API, GameMetadata |
+| `games-tictactoe` | TicTacToe reference implementation (26 tests) |
+| `games-connect4` | Connect 4 implementation (20 tests) |
+| `mcts` | Monte Carlo Tree Search for AlphaZero-style play (25 tests) |
 
 ## Quick Start
 
@@ -30,6 +31,10 @@ cargo build --release --features mcts/onnx
 |  games-tictactoe |---->|    engine-core    |
 +------------------+     +-------------------+
                                ^
++------------------+           |
+|  games-connect4  |-----------|
++------------------+           |
+                               |
 +------------------+           |
 |       mcts       |-----------+
 +------------------+
@@ -57,18 +62,19 @@ Shared dependencies are defined in the root `Cargo.toml`:
 4. Add a `register_{name}()` function
 5. Write tests for game logic and encoding
 
-See `games-tictactoe` for a reference implementation.
+See `games-tictactoe` or `games-connect4` for reference implementations.
 
 ## Testing
 
 ```bash
-# All tests
+# All tests (119 total)
 cargo test
 
 # Specific crate
-cargo test -p engine-core
-cargo test -p games-tictactoe
-cargo test -p mcts
+cargo test -p engine-core      # 48 tests
+cargo test -p games-tictactoe  # 26 tests
+cargo test -p games-connect4   # 20 tests
+cargo test -p mcts             # 25 tests
 
 # With output
 cargo test -- --nocapture
