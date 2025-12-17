@@ -465,6 +465,21 @@ async fn make_move(
 // Stats
 // ============================================================================
 
+/// Training history entry for loss visualization
+#[derive(Deserialize, Serialize, Clone, Default)]
+struct HistoryEntry {
+    #[serde(default)]
+    step: u32,
+    #[serde(default)]
+    total_loss: f64,
+    #[serde(default)]
+    value_loss: f64,
+    #[serde(default)]
+    policy_loss: f64,
+    #[serde(default)]
+    learning_rate: f64,
+}
+
 /// Evaluation stats from a single evaluation run
 #[derive(Deserialize, Serialize, Clone, Default)]
 struct EvalStats {
@@ -509,6 +524,8 @@ struct TrainerStats {
     last_eval: Option<EvalStats>,
     #[serde(default)]
     eval_history: Vec<EvalStats>,
+    #[serde(default)]
+    history: Vec<HistoryEntry>,
 }
 
 /// Stats format sent to frontend
@@ -528,6 +545,7 @@ struct TrainingStats {
     env_id: String,
     last_eval: Option<EvalStats>,
     eval_history: Vec<EvalStats>,
+    history: Vec<HistoryEntry>,
 }
 
 impl From<TrainerStats> for TrainingStats {
@@ -547,6 +565,7 @@ impl From<TrainerStats> for TrainingStats {
             env_id: t.env_id,
             last_eval: t.last_eval,
             eval_history: t.eval_history,
+            history: t.history,
         }
     }
 }
