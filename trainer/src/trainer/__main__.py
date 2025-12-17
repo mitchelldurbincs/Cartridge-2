@@ -21,7 +21,8 @@ import sys
 
 def cmd_train(args: argparse.Namespace) -> int:
     """Run the training loop."""
-    from .trainer import Trainer, TrainerConfig, WaitTimeout
+    from .backoff import WaitTimeout
+    from .trainer import Trainer, TrainerConfig
 
     logger = logging.getLogger(__name__)
     logger.info("Cartridge2 Trainer starting...")
