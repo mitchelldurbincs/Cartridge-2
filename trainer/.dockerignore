@@ -35,11 +35,6 @@ htmlcov/
 .git/
 .gitignore
 
-# Documentation
-*.md
-README*
-LICENSE*
-
 # Logs and temp files
 *.log
 tmp/
