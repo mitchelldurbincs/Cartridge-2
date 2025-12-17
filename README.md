@@ -204,6 +204,41 @@ PyTorch training loop:
 - Checkpoint management
 - Model evaluation against random baseline
 
+#### Synchronized AlphaZero training loop
+
+The Python package now includes an orchestrated, synchronous AlphaZero workflow
+that coordinates the actor, trainer, and post-iteration evaluation. This
+pipeline clears the replay buffer each iteration, generates fresh self-play
+episodes, trains on that data, and then benchmarks the resulting model against
+the random baseline.
+
+Run locally (with defaults targeting TicTacToe):
+
+```bash
+python -m trainer.orchestrator --iterations 5 --episodes 200 --steps 500
+# Or via console entry point after `pip install -e trainer`
+trainer-loop --iterations 5 --episodes 200 --steps 500
+```
+
+Configuration can be supplied via flags or environment variables (prefixed with
+`ALPHAZERO_`). For example, to train Connect4 with GPU acceleration and disable
+evaluation for speed:
+
+```bash
+ALPHAZERO_ENV_ID=connect4 ALPHAZERO_DEVICE=cuda ALPHAZERO_EVAL_INTERVAL=0 \
+    trainer-loop --iterations 20 --episodes 300 --steps 1000
+```
+
+Docker usage mirrors the same interface. The root-level `docker-compose.yml`
+defines an `alphazero` service that runs the synchronized loop and mounts the
+shared `./data` volume for replay, models, and stats:
+
+```bash
+docker compose up alphazero
+# Override parameters as needed
+ALPHAZERO_ENV_ID=connect4 ALPHAZERO_EVAL_GAMES=100 docker compose up alphazero
+```
+
 ## Adding a New Game
 
 1. Create a new crate in `engine/games-{name}/`

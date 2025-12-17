@@ -21,6 +21,9 @@ dev = [
 
 [project.scripts]
 trainer = "trainer.__main__:main"
+trainer-loop = "trainer.orchestrator:main"
+trainer-evaluate = "trainer.evaluator:main"
+# Legacy alias
 evaluator = "trainer.evaluator:main"
 
 [build-system]
