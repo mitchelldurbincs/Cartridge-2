@@ -2,7 +2,7 @@
 
 A simplified AlphaZero training and visualization platform for board games. Train neural network agents via self-play and play against them through a web interface.
 
-**Games:** TicTacToe (complete), Connect 4 (planned), Othello (planned)
+**Games:** TicTacToe (complete), Connect 4 (complete), Othello (planned)
 
 ## Architecture
 
@@ -81,7 +81,10 @@ cartridge2/
 |   |   |-- main.rs            # Entry point
 |   |   |-- actor.rs           # Episode loop
 |   |   |-- config.rs          # CLI configuration
-|   |   |-- policy.rs          # Action selection
+|   |   |-- game_config.rs     # Game-specific config from metadata
+|   |   |-- mcts_policy.rs     # MCTS policy implementation
+|   |   |-- model_watcher.rs   # ONNX model hot-reload
+|   |   |-- policy.rs          # Policy trait + random policy
 |   |   +-- replay.rs          # SQLite interface
 |   +-- tests/
 |
@@ -92,26 +95,33 @@ cartridge2/
 |   |       |-- adapter.rs     # Type erasure adapter
 |   |       |-- erased.rs      # Erased game interface
 |   |       |-- context.rs     # EngineContext API
+|   |       |-- metadata.rs    # GameMetadata for game configuration
 |   |       +-- registry.rs    # Static game registry
 |   |-- games-tictactoe/       # TicTacToe implementation
+|   |-- games-connect4/        # Connect 4 implementation
+|   +-- mcts/                  # Monte Carlo Tree Search
 |
 |-- web/                       # HTTP server + frontend
 |   |-- src/
 |   |   |-- main.rs            # Axum endpoints
-|   |   +-- game.rs            # Session management
+|   |   |-- game.rs            # Session management
+|   |   +-- model_watcher.rs   # ONNX model hot-reload
 |   +-- frontend/              # Svelte application
 |       +-- src/
 |           |-- App.svelte
-|           |-- Board.svelte
+|           |-- Board.svelte         # TicTacToe board
+|           |-- Connect4Board.svelte # Connect 4 board
 |           +-- Stats.svelte
 |
 |-- trainer/                   # Python training
+|   |-- pyproject.toml         # Package configuration
 |   +-- src/trainer/
 |       |-- __main__.py        # CLI entrypoint
 |       |-- trainer.py         # Training loop
 |       |-- network.py         # Neural network
 |       |-- replay.py          # SQLite interface
-|       +-- evaluator.py       # Model evaluation
+|       |-- evaluator.py       # Model evaluation
+|       +-- game_config.py     # Game-specific configurations
 |
 |-- data/                      # Runtime data (gitignored)
 |   |-- replay.db              # SQLite replay buffer
@@ -246,8 +256,8 @@ cd trainer && pip install -e .
 ### Test
 
 ```bash
-cd engine && cargo test    # 75 tests
-cd actor && cargo test     # 30 tests
+cd engine && cargo test    # 119 tests
+cd actor && cargo test     # 46 tests
 cd web && cargo test       # 4 tests
 cd trainer && pytest       # Python tests
 ```
@@ -262,17 +272,19 @@ cd web && cargo fmt && cargo clippy
 
 ## Current Status
 
-- [x] Engine core abstractions (Game trait, adapter, registry)
+- [x] Engine core abstractions (Game trait, adapter, registry, metadata)
 - [x] EngineContext high-level API
 - [x] TicTacToe game implementation
+- [x] Connect 4 game implementation
 - [x] Actor (episode runner, SQLite replay, MCTS + ONNX)
 - [x] MCTS implementation
+- [x] Model hot-reload via file watching
+- [x] Auto-derived game configuration from GameMetadata
 - [x] Web server (Axum, game API)
-- [x] Web frontend (Svelte, play UI, stats)
+- [x] Web frontend (Svelte, play UI, stats, Connect4 board)
 - [x] Python trainer (PyTorch, ONNX export)
 - [x] MCTS policy targets + game outcome propagation
 - [x] Model evaluation against random baseline
-- [ ] Connect 4 game
 - [ ] Othello game
 
 ## Design Decisions

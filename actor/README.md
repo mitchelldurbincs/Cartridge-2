@@ -50,6 +50,8 @@ cargo run -- --actor-id actor-3 &
 │  main()                                                  │
 │    ├─ Parse CLI args (clap)                             │
 │    ├─ Validate config                                   │
+│    ├─ Load GameConfig from metadata                     │
+│    ├─ Init model watcher                                │
 │    ├─ Init tracing                                      │
 │    └─ Run actor.run() async loop                        │
 │                                                          │
@@ -108,7 +110,6 @@ Implements:
 - **RandomPolicy** - Uniform random for testing/fallback
 
 The MCTS policy:
-- Watches `./data/models/latest.onnx` for updates
 - Falls back to random if no model is available
 - Returns visit count distributions as policy targets
 
@@ -116,6 +117,20 @@ Supported action spaces:
 - **Discrete(n)** - Single integer 0..n (encoded as 4-byte u32)
 - **MultiDiscrete(nvec)** - Multiple discrete dimensions
 - **Continuous { low, high }** - Real-valued actions (encoded as f32s)
+
+### Model Watcher (`src/model_watcher.rs`)
+
+Hot-reload for ONNX models:
+- Watches `./data/models/latest.onnx` for changes
+- Automatically reloads the model when updated
+- Thread-safe access via Arc<RwLock>
+
+### Game Config (`src/game_config.rs`)
+
+Game-specific configuration derived from GameMetadata:
+- Auto-derives observation size, action space, legal mask offset
+- Supports TicTacToe and Connect 4
+- No hardcoded game parameters
 
 ### Replay Buffer (`src/replay.rs`)
 
@@ -235,7 +250,7 @@ python -m trainer --db ../data/replay.db
 ## Testing
 
 ```bash
-# Run all tests (30 tests)
+# Run all tests (46 tests)
 cargo test
 
 # Run specific test with output
@@ -249,8 +264,11 @@ cargo bench
 
 - **Config tests (10)** - Validation, defaults, duration conversion
 - **Policy tests (9)** - Action space handling, determinism, edge cases
-- **Replay tests (8)** - Store, sample, cleanup, batch operations
-- **Actor tests (3)** - Creation, episode execution, error handling
+- **Replay tests (10)** - Store, sample, cleanup, batch operations
+- **Actor tests (4)** - Creation, episode execution, error handling
+- **MCTS Policy tests (4)** - MCTS-based action selection
+- **Model Watcher tests (2)** - Model hot-reload behavior
+- **Game Config tests (7)** - Game-specific configuration from metadata
 
 ## Dependencies
 
@@ -293,5 +311,6 @@ RUST_LOG=debug cargo run -- --log-level debug
 - [x] MCTS policy implementation
 - [x] ONNX neural network policy
 - [x] Model hot-reload via file watching
+- [x] Auto-derived game configuration from GameMetadata
 - [ ] Distributed actor coordination
 - [ ] Priority experience replay

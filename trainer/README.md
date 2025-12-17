@@ -120,7 +120,8 @@ src/trainer/
 |-- trainer.py     # Training loop, TrainerConfig
 |-- network.py     # Neural network architecture
 |-- replay.py      # SQLite replay buffer interface
-+-- evaluator.py   # Model evaluation against baselines
+|-- evaluator.py   # Model evaluation against baselines
++-- game_config.py # Game-specific configurations (TicTacToe, Connect4)
 ```
 
 ## Development
