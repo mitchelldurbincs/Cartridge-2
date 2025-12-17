@@ -8,6 +8,16 @@
 //! - `metadata`: Enable additional metadata tracking (load time, file modification time,
 //!   training step extraction). Useful for web server display.
 //!
+//! # Polling Fallback
+//!
+//! In addition to inotify-based file watching, this crate includes a polling fallback
+//! that periodically checks for file changes. This is essential for Docker environments
+//! where inotify events don't reliably propagate across container boundaries with
+//! bind-mounted volumes.
+//!
+//! The poll interval defaults to 5 seconds and can be configured with
+//! [`ModelWatcher::with_poll_interval`].
+//!
 //! # Example
 //!
 //! ```ignore
@@ -20,7 +30,7 @@
 //! // Try to load existing model
 //! watcher.try_load_existing()?;
 //!
-//! // Start watching for changes
+//! // Start watching for changes (uses both inotify and polling)
 //! let mut rx = watcher.start_watching().await?;
 //! while let Some(()) = rx.recv().await {
 //!     println!("Model reloaded!");
@@ -32,12 +42,12 @@ use mcts::OnnxEvaluator;
 use notify::{recommended_watcher, Event, EventKind, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 #[cfg(feature = "metadata")]
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 /// Information about the currently loaded model.
 ///
@@ -57,9 +67,17 @@ pub struct ModelInfo {
     pub training_step: Option<u32>,
 }
 
+/// Default polling interval for checking model file changes.
+///
+/// This is used as a fallback when inotify events don't propagate
+/// (common in Docker with bind mounts).
+const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
 /// Watches for new ONNX model files and hot-reloads them.
 ///
 /// This is the shared implementation used by both actor and web server components.
+/// It uses both inotify (for fast detection when it works) and polling (as a
+/// fallback for Docker/cross-container scenarios).
 pub struct ModelWatcher {
     /// Path to the models directory
     model_dir: PathBuf,
@@ -69,6 +87,11 @@ pub struct ModelWatcher {
     obs_size: usize,
     /// Shared evaluator to update
     evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
+    /// Last known modification time of the loaded model file.
+    /// Used by polling to detect changes.
+    last_mtime: Arc<RwLock<Option<SystemTime>>>,
+    /// Polling interval for checking file changes
+    poll_interval: Duration,
     /// Current model info (only with metadata feature)
     #[cfg(feature = "metadata")]
     model_info: Arc<RwLock<ModelInfo>>,
@@ -93,9 +116,27 @@ impl ModelWatcher {
             model_filename: model_filename.into(),
             obs_size,
             evaluator,
+            last_mtime: Arc::new(RwLock::new(None)),
+            poll_interval: DEFAULT_POLL_INTERVAL,
             #[cfg(feature = "metadata")]
             model_info: Arc::new(RwLock::new(ModelInfo::default())),
         }
+    }
+
+    /// Set a custom polling interval.
+    ///
+    /// The default is 5 seconds. Shorter intervals provide faster detection
+    /// but use more CPU. Longer intervals are more efficient but slower to
+    /// detect changes.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let watcher = ModelWatcher::new(dir, "latest.onnx", 29, evaluator)
+    ///     .with_poll_interval(Duration::from_secs(2));
+    /// ```
+    pub fn with_poll_interval(mut self, interval: Duration) -> Self {
+        self.poll_interval = interval;
+        self
     }
 
     /// Get the full path to the model file.
@@ -130,6 +171,9 @@ impl ModelWatcher {
     fn load_model(&self, path: &Path) -> Result<()> {
         info!("Loading model from {:?}", path);
 
+        // Get the file modification time for polling comparison
+        let file_mtime = path.metadata().and_then(|m| m.modified()).ok();
+
         #[cfg(feature = "metadata")]
         let (file_modified, training_step) = Self::extract_metadata(path);
 
@@ -144,6 +188,15 @@ impl ModelWatcher {
                 .write()
                 .map_err(|e| anyhow!("Failed to acquire evaluator write lock: {}", e))?;
             *guard = Some(new_evaluator);
+        }
+
+        // Update the last known modification time (for polling)
+        {
+            let mut mtime_guard = self
+                .last_mtime
+                .write()
+                .map_err(|e| anyhow!("Failed to acquire last_mtime write lock: {}", e))?;
+            *mtime_guard = file_mtime;
         }
 
         #[cfg(feature = "metadata")]
@@ -199,8 +252,12 @@ impl ModelWatcher {
 
     /// Start watching for model changes.
     ///
-    /// This spawns a background task that watches the model directory
-    /// and reloads the model when it changes.
+    /// This spawns two background tasks:
+    /// 1. An inotify-based watcher for fast detection when events propagate
+    /// 2. A polling fallback that checks file modification time periodically
+    ///
+    /// The polling fallback is essential for Docker environments where inotify
+    /// events don't reliably propagate across container boundaries with bind mounts.
     ///
     /// Returns a channel that receives `()` when a new model is loaded.
     pub async fn start_watching(&self) -> Result<mpsc::Receiver<()>> {
@@ -209,6 +266,8 @@ impl ModelWatcher {
         let model_filename = self.model_filename.clone();
         let obs_size = self.obs_size;
         let evaluator = Arc::clone(&self.evaluator);
+        let last_mtime = Arc::clone(&self.last_mtime);
+        let poll_interval = self.poll_interval;
 
         #[cfg(feature = "metadata")]
         let model_info = Arc::clone(&self.model_info);
@@ -243,7 +302,16 @@ impl ModelWatcher {
 
         info!("Started watching {:?} for model updates", model_dir);
 
-        // Spawn task to handle file events
+        // Clone for the inotify task
+        let inotify_tx = tx.clone();
+        let inotify_model_dir = model_dir.clone();
+        let inotify_model_filename = model_filename.clone();
+        let inotify_evaluator = Arc::clone(&evaluator);
+        let inotify_last_mtime = Arc::clone(&last_mtime);
+        #[cfg(feature = "metadata")]
+        let inotify_model_info = Arc::clone(&model_info);
+
+        // Spawn task to handle inotify file events
         tokio::spawn(async move {
             // Keep watcher alive in this task
             let _watcher = watcher;
@@ -262,7 +330,7 @@ impl ModelWatcher {
                 }
 
                 // Check if this affects our model file
-                let model_path = model_dir.join(&model_filename);
+                let model_path = inotify_model_dir.join(&inotify_model_filename);
                 let is_our_file = event
                     .paths
                     .iter()
@@ -274,7 +342,7 @@ impl ModelWatcher {
 
                 // Debounce rapid events
                 if last_reload.elapsed() < debounce_duration {
-                    debug!("Debouncing model reload event");
+                    debug!("Debouncing model reload event (inotify)");
                     continue;
                 }
 
@@ -288,23 +356,124 @@ impl ModelWatcher {
                 }
 
                 // Try to load the model
-                info!("Model file changed, reloading {:?}", model_path);
+                info!("Model file changed (inotify), reloading {:?}", model_path);
 
                 #[cfg(feature = "metadata")]
-                let result =
-                    Self::load_model_static(&model_path, obs_size, &evaluator, &model_info);
+                let result = Self::load_model_static(
+                    &model_path,
+                    obs_size,
+                    &inotify_evaluator,
+                    &inotify_last_mtime,
+                    &inotify_model_info,
+                );
 
                 #[cfg(not(feature = "metadata"))]
-                let result = Self::load_model_static(&model_path, obs_size, &evaluator);
+                let result = Self::load_model_static(
+                    &model_path,
+                    obs_size,
+                    &inotify_evaluator,
+                    &inotify_last_mtime,
+                );
 
                 match result {
                     Ok(()) => {
                         last_reload = std::time::Instant::now();
                         // Notify listeners
-                        let _ = tx.send(()).await;
+                        let _ = inotify_tx.send(()).await;
                     }
                     Err(e) => {
-                        error!("Failed to reload model: {}", e);
+                        error!("Failed to reload model (inotify): {}", e);
+                    }
+                }
+            }
+        });
+
+        // Spawn polling task as fallback for Docker/cross-container scenarios
+        let poll_tx = tx;
+        let poll_model_dir = model_dir;
+        let poll_model_filename = model_filename;
+        let poll_evaluator = evaluator;
+        let poll_last_mtime = last_mtime;
+        #[cfg(feature = "metadata")]
+        let poll_model_info = model_info;
+
+        tokio::spawn(async move {
+            info!(
+                "Started polling fallback for model updates (interval: {:?})",
+                poll_interval
+            );
+
+            let mut interval = tokio::time::interval(poll_interval);
+            // Don't fire immediately - let inotify have first chance
+            interval.tick().await;
+
+            loop {
+                interval.tick().await;
+
+                let model_path = poll_model_dir.join(&poll_model_filename);
+
+                // Check if file exists
+                if !model_path.exists() {
+                    debug!("Polling: model file doesn't exist yet");
+                    continue;
+                }
+
+                // Get current file modification time
+                let current_mtime = match model_path.metadata().and_then(|m| m.modified()) {
+                    Ok(mtime) => mtime,
+                    Err(e) => {
+                        debug!("Polling: failed to get file mtime: {}", e);
+                        continue;
+                    }
+                };
+
+                // Check if file has changed since last load
+                let needs_reload = {
+                    let last = poll_last_mtime.read().ok();
+                    match last.as_deref() {
+                        Some(Some(last_time)) => current_mtime > *last_time,
+                        Some(None) => true, // No model loaded yet
+                        None => {
+                            warn!("Polling: failed to read last_mtime lock");
+                            continue;
+                        }
+                    }
+                };
+
+                if !needs_reload {
+                    debug!("Polling: model file unchanged");
+                    continue;
+                }
+
+                // Small delay to ensure file is fully written
+                tokio::time::sleep(Duration::from_millis(100)).await;
+
+                info!("Model file changed (polling), reloading {:?}", model_path);
+
+                #[cfg(feature = "metadata")]
+                let result = Self::load_model_static(
+                    &model_path,
+                    obs_size,
+                    &poll_evaluator,
+                    &poll_last_mtime,
+                    &poll_model_info,
+                );
+
+                #[cfg(not(feature = "metadata"))]
+                let result = Self::load_model_static(
+                    &model_path,
+                    obs_size,
+                    &poll_evaluator,
+                    &poll_last_mtime,
+                );
+
+                match result {
+                    Ok(()) => {
+                        // Notify listeners
+                        let _ = poll_tx.send(()).await;
+                    }
+                    Err(e) => {
+                        error!("Failed to reload model (polling): {}", e);
                     }
                 }
             }
@@ -319,8 +488,12 @@ impl ModelWatcher {
         path: &Path,
         obs_size: usize,
         evaluator: &Arc<RwLock<Option<OnnxEvaluator>>>,
+        last_mtime: &Arc<RwLock<Option<SystemTime>>>,
         model_info: &Arc<RwLock<ModelInfo>>,
     ) -> Result<()> {
+        // Get file modification time for polling comparison
+        let file_mtime = path.metadata().and_then(|m| m.modified()).ok();
+
         let (file_modified, training_step) = Self::extract_metadata(path);
 
         let new_evaluator = OnnxEvaluator::load(path, obs_size)
@@ -331,6 +504,14 @@ impl ModelWatcher {
                 .write()
                 .map_err(|e| anyhow!("Failed to acquire evaluator write lock: {}", e))?;
             *guard = Some(new_evaluator);
+        }
+
+        // Update last modification time (for polling)
+        {
+            let mut mtime_guard = last_mtime
+                .write()
+                .map_err(|e| anyhow!("Failed to acquire last_mtime write lock: {}", e))?;
+            *mtime_guard = file_mtime;
         }
 
         {
@@ -361,14 +542,28 @@ impl ModelWatcher {
         path: &Path,
         obs_size: usize,
         evaluator: &Arc<RwLock<Option<OnnxEvaluator>>>,
+        last_mtime: &Arc<RwLock<Option<SystemTime>>>,
     ) -> Result<()> {
+        // Get file modification time for polling comparison
+        let file_mtime = path.metadata().and_then(|m| m.modified()).ok();
+
         let new_evaluator = OnnxEvaluator::load(path, obs_size)
             .map_err(|e| anyhow!("Failed to load ONNX model: {}", e))?;
 
-        let mut guard = evaluator
-            .write()
-            .map_err(|e| anyhow!("Failed to acquire write lock: {}", e))?;
-        *guard = Some(new_evaluator);
+        {
+            let mut guard = evaluator
+                .write()
+                .map_err(|e| anyhow!("Failed to acquire write lock: {}", e))?;
+            *guard = Some(new_evaluator);
+        }
+
+        // Update last modification time (for polling)
+        {
+            let mut mtime_guard = last_mtime
+                .write()
+                .map_err(|e| anyhow!("Failed to acquire last_mtime write lock: {}", e))?;
+            *mtime_guard = file_mtime;
+        }
 
         info!("Model reloaded successfully");
         Ok(())
