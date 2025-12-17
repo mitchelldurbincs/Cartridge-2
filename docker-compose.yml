@@ -75,7 +75,7 @@ services:
       - cartridge-net
 
   # ==========================================================================
-  # Trainer - Python training loop
+  # Trainer - Python training loop (AlphaZero-style iterations)
   # ==========================================================================
   trainer:
     build:
@@ -89,16 +89,19 @@ services:
       - TRAINER_ENV_ID=tictactoe
       - TRAINER_DEVICE=cpu
       - TRAINER_LOG_LEVEL=INFO
-    command: >
-      --db /app/data/replay.db
-      --model-dir /app/data/models
-      --stats /app/data/stats.json
-      --steps 10000
-      --batch-size 64
-      --lr 0.001
-      --checkpoint-interval 100
-      --stats-interval 10
-      --env-id tictactoe
+      - TRAINER_DB_PATH=/app/data/replay.db
+      - TRAINER_MODEL_DIR=/app/data/models
+      - TRAINER_STATS_PATH=/app/data/stats.json
+      # AlphaZero-style short iterations for frequent model updates
+      - TRAINER_STEPS_PER_ITERATION=50
+      - TRAINER_BATCH_SIZE=32
+      - TRAINER_LR=0.001
+      - TRAINER_CHECKPOINT_INTERVAL=25
+      - TRAINER_STATS_INTERVAL=10
+      - TRAINER_MIN_SAMPLES=100
+      - TRAINER_SLEEP_INTERVAL=5
+    entrypoint: ["/bin/bash", "/app/train-loop.sh"]
+    command: []
     networks:
       - cartridge-net
 

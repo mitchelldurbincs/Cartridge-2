@@ -13,6 +13,8 @@ WORKDIR /app
 # Copy metadata and source before installing dependencies
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
+COPY train-loop.sh ./
+RUN chmod +x train-loop.sh
 
 # Install Python dependencies
 # Using pip with --no-cache-dir to reduce image size

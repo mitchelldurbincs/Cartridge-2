@@ -208,7 +208,7 @@ impl Actor {
                                 duration,
                                 "Episode completed"
                             );
-                            if self.config.log_interval > 0 && new_count.is_multiple_of(self.config.log_interval) {
+                            if self.config.log_interval > 0 && new_count % self.config.log_interval == 0 {
                                 info!("Completed {} episodes", new_count);
                             }
                         }
