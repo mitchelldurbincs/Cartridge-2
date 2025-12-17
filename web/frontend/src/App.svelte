@@ -109,6 +109,7 @@
             gameOver={gameState.game_over}
             {lastBotMove}
             {gameInfo}
+            currentPlayer={gameState.current_player}
             onCellClick={handleCellClick}
           />
 
