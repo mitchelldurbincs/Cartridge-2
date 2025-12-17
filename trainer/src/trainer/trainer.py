@@ -237,6 +237,9 @@ class TrainerStats:
     history: list[dict] = field(default_factory=list)
     _max_history: int = 100  # Bound history length
 
+    # Environment being trained
+    env_id: str = ""
+
     # Evaluation metrics
     last_eval: EvalStats | None = None
     eval_history: list[dict] = field(default_factory=list)
@@ -269,6 +272,7 @@ class TrainerStats:
             "last_checkpoint": self.last_checkpoint,
             "timestamp": self.timestamp,
             "history": self.history,  # Already bounded on append
+            "env_id": self.env_id,
             "last_eval": self.last_eval.to_dict() if self.last_eval else None,
             "eval_history": self.eval_history,
         }
@@ -323,6 +327,7 @@ class Trainer:
         # Stats tracking - load existing stats to preserve eval history
         self.stats = self._load_existing_stats()
         self.stats.total_steps = config.total_steps
+        self.stats.env_id = config.env_id
         self.stats._max_history = config.max_history_length
         self.samples_seen = 0
 

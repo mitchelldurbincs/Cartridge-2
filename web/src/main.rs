@@ -501,6 +501,8 @@ struct TrainerStats {
     #[serde(default)]
     timestamp: f64,
     #[serde(default)]
+    env_id: String,
+    #[serde(default)]
     last_eval: Option<EvalStats>,
     #[serde(default)]
     eval_history: Vec<EvalStats>,
@@ -520,6 +522,7 @@ struct TrainingStats {
     replay_buffer_size: u64,
     learning_rate: f64,
     timestamp: f64,
+    env_id: String,
     last_eval: Option<EvalStats>,
     eval_history: Vec<EvalStats>,
 }
@@ -538,6 +541,7 @@ impl From<TrainerStats> for TrainingStats {
             replay_buffer_size: t.replay_buffer_size,
             learning_rate: t.learning_rate,
             timestamp: t.timestamp,
+            env_id: t.env_id,
             last_eval: t.last_eval,
             eval_history: t.eval_history,
         }

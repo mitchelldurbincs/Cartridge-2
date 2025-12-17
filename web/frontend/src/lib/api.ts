@@ -53,6 +53,7 @@ export interface TrainingStats {
   replay_buffer_size: number;
   learning_rate: number;
   timestamp: number;
+  env_id: string;
   last_eval: EvalStats | null;
   eval_history: EvalStats[];
 }

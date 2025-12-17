@@ -28,7 +28,7 @@ services:
       - ./data:/app/data
     environment:
       - ACTOR_ACTOR_ID=actor-1
-      - ACTOR_ENV_ID=tictactoe
+      - ACTOR_ENV_ID=connect4
       - ACTOR_MAX_EPISODES=-1
       - ACTOR_LOG_LEVEL=info
       - ACTOR_REPLAY_DB_PATH=/app/data/replay.db
@@ -86,7 +86,7 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      - TRAINER_ENV_ID=tictactoe
+      - TRAINER_ENV_ID=connect4
       - TRAINER_DEVICE=cpu
       - TRAINER_LOG_LEVEL=INFO
       - TRAINER_DB_PATH=/app/data/replay.db

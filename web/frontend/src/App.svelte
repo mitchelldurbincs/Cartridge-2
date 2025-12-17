@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import GenericBoard from './GenericBoard.svelte';
   import Stats from './Stats.svelte';
-  import { getGameState, newGame, makeMove, getHealth, getGameInfo, getGames, type GameState, type MoveResponse, type GameInfo } from './lib/api';
+  import { getGameState, newGame, makeMove, getHealth, getGameInfo, getGames, getStats, type GameState, type MoveResponse, type GameInfo } from './lib/api';
 
   let gameState: GameState | null = $state(null);
   let gameInfo: GameInfo | null = $state(null);
@@ -20,10 +20,21 @@
       serverOnline = true;
       // Load available games
       availableGames = await getGames();
+
+      // Check what game is currently being trained and use that as default
+      try {
+        const stats = await getStats();
+        if (stats.env_id && availableGames.includes(stats.env_id)) {
+          selectedGame = stats.env_id;
+        }
+      } catch {
+        // Stats not available, keep default
+      }
+
       // Load game metadata
       gameInfo = await getGameInfo(selectedGame);
-      // Load initial game state
-      gameState = await getGameState();
+      // Start a new game with the selected game
+      gameState = await newGame('player', selectedGame);
     } catch (e) {
       serverOnline = false;
       error = 'Cannot connect to server. Is the Rust backend running on :8080?';

@@ -28,7 +28,15 @@ echo "Batch size: $BATCH_SIZE"
 echo "================================"
 
 iteration=0
-global_step=0
+
+# Resume from last step if stats.json exists
+if [ -f "$STATS_PATH" ]; then
+    global_step=$(python3 -c "import json; print(json.load(open('$STATS_PATH')).get('step', 0))" 2>/dev/null || echo "0")
+    echo "Resuming from step $global_step (loaded from stats.json)"
+else
+    global_step=0
+    echo "Starting fresh from step 0"
+fi
 
 while true; do
     iteration=$((iteration + 1))
