@@ -1,0 +1,34 @@
+# Web service .dockerignore
+# Note: Build context is at repo root, so this file has limited effect
+# See root .dockerignore for actual exclusions
+
+# Cargo build artifacts
+target/
+
+# Frontend (separate build)
+frontend/node_modules/
+frontend/dist/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+README*
+LICENSE*
+
+# Test artifacts
+*.profraw
+*.profdata
+
+# OS-specific
+.DS_Store
+Thumbs.db

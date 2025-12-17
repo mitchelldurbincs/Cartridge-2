@@ -1,0 +1,60 @@
+# Root .dockerignore for Cartridge2
+# Used when building actor and web services (context is root)
+
+# Cargo build artifacts (large!)
+target/
+**/target/
+
+# Data directory (runtime data, not needed for build)
+data/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.github/
+
+# Test artifacts
+*.profraw
+*.profdata
+
+# Logs and temp files
+*.log
+tmp/
+temp/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Python artifacts (trainer has its own context)
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node.js artifacts (frontend has its own context)
+node_modules/
+dist/
+.svelte-kit/
+
+# Docker files (we don't want recursive docker builds)
+docker-compose*.yml
+Dockerfile*

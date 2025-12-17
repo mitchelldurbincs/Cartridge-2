@@ -1,0 +1,51 @@
+# Trainer .dockerignore
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Linting
+.ruff_cache/
+.mypy_cache/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Logs and temp files
+*.log
+tmp/
+temp/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Data directory (runtime data)
+data/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
