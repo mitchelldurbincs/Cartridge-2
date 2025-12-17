@@ -10,6 +10,7 @@
 pub mod adapter;
 pub mod context;
 pub mod erased;
+pub mod game_utils;
 pub mod metadata;
 pub mod registry;
 pub mod typed;

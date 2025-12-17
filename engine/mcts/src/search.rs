@@ -495,7 +495,8 @@ mod tests {
         );
 
         let mut rng = ChaCha20Rng::seed_from_u64(42);
-        let mut search = MctsSearch::new(&mut ctx, &evaluator, config, state, obs, legal_mask).unwrap();
+        let mut search =
+            MctsSearch::new(&mut ctx, &evaluator, config, state, obs, legal_mask).unwrap();
         let result = search.run(&mut rng).unwrap();
 
         // Check the tree directly

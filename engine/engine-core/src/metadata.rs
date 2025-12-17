@@ -93,12 +93,7 @@ impl GameMetadata {
     }
 
     /// Builder method for player information
-    pub fn with_players(
-        mut self,
-        count: usize,
-        names: Vec<String>,
-        symbols: Vec<char>,
-    ) -> Self {
+    pub fn with_players(mut self, count: usize, names: Vec<String>, symbols: Vec<char>) -> Self {
         self.player_count = count;
         self.player_names = names;
         self.player_symbols = symbols;
@@ -141,11 +136,7 @@ mod tests {
             .with_board(3, 3)
             .with_actions(9)
             .with_observation(29, 18)
-            .with_players(
-                2,
-                vec!["X".to_string(), "O".to_string()],
-                vec!['X', 'O'],
-            )
+            .with_players(2, vec!["X".to_string(), "O".to_string()], vec!['X', 'O'])
             .with_description("Get three in a row to win!");
 
         assert_eq!(meta.env_id, "tictactoe");
@@ -163,19 +154,16 @@ mod tests {
 
     #[test]
     fn test_board_size() {
-        let meta = GameMetadata::new("test", "Test")
-            .with_board(7, 6);
+        let meta = GameMetadata::new("test", "Test").with_board(7, 6);
         assert_eq!(meta.board_size(), 42);
     }
 
     #[test]
     fn test_legal_mask_bits() {
-        let meta = GameMetadata::new("tictactoe", "Tic-Tac-Toe")
-            .with_actions(9);
+        let meta = GameMetadata::new("tictactoe", "Tic-Tac-Toe").with_actions(9);
         assert_eq!(meta.legal_mask_bits(), 0x1FF);
 
-        let meta = GameMetadata::new("connect4", "Connect 4")
-            .with_actions(7);
+        let meta = GameMetadata::new("connect4", "Connect 4").with_actions(7);
         assert_eq!(meta.legal_mask_bits(), 0x7F);
     }
 

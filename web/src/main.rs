@@ -53,7 +53,6 @@ pub struct ModelInfo {
     pub training_step: Option<u32>,
 }
 
-
 /// Shared application state
 pub struct AppState {
     /// Current game session
@@ -137,19 +136,19 @@ async fn main() -> anyhow::Result<()> {
 
         // Get obs_size from the default game's metadata
         // TODO: Support switching games dynamically (would need to reload model watcher)
-        let default_game = std::env::var("DEFAULT_GAME").unwrap_or_else(|_| "tictactoe".to_string());
+        let default_game =
+            std::env::var("DEFAULT_GAME").unwrap_or_else(|_| "tictactoe".to_string());
         let obs_size = EngineContext::new(&default_game)
             .map(|ctx| ctx.metadata().obs_size)
             .unwrap_or(29); // Fallback to TicTacToe's obs_size if game not found
-        info!("Model watcher using obs_size={} from game '{}'", obs_size, default_game);
+        info!(
+            "Model watcher using obs_size={} from game '{}'",
+            obs_size, default_game
+        );
 
         // Create model watcher
-        let model_watcher = ModelWatcher::new(
-            &model_dir,
-            "latest.onnx",
-            obs_size,
-            Arc::clone(&evaluator),
-        );
+        let model_watcher =
+            ModelWatcher::new(&model_dir, "latest.onnx", obs_size, Arc::clone(&evaluator));
 
         // Try to load existing model
         match model_watcher.try_load_existing() {
@@ -279,7 +278,10 @@ async fn get_game_info(
     let game = create_game(&id).ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            format!("Game not found: {}. Use /games to list available games.", id),
+            format!(
+                "Game not found: {}. Use /games to list available games.",
+                id
+            ),
         )
     })?;
 
@@ -422,7 +424,10 @@ async fn make_move(
     if !session.is_legal_move(req.position) {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!("Illegal move: position/column {} is not valid", req.position),
+            format!(
+                "Illegal move: position/column {} is not valid",
+                req.position
+            ),
         ));
     }
 
@@ -661,7 +666,11 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         let response: GameStateResponse = serde_json::from_str(&body).unwrap();
-        assert_eq!(response.board, vec![0u8; 9], "Initial board should be empty");
+        assert_eq!(
+            response.board,
+            vec![0u8; 9],
+            "Initial board should be empty"
+        );
         assert_eq!(response.current_player, 1, "Player X should go first");
         assert_eq!(response.winner, 0, "No winner yet");
         assert!(!response.game_over);
@@ -678,7 +687,8 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let response: GameStateResponse = serde_json::from_str(&body).unwrap();
         assert_eq!(
-            response.board, vec![0u8; 9],
+            response.board,
+            vec![0u8; 9],
             "Board should be empty when player goes first"
         );
         assert_eq!(response.current_player, 1);
@@ -715,7 +725,11 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         let response: GameStateResponse = serde_json::from_str(&body).unwrap();
-        assert_eq!(response.board, vec![0u8; 9], "Board should be empty with default");
+        assert_eq!(
+            response.board,
+            vec![0u8; 9],
+            "Board should be empty with default"
+        );
     }
 
     #[tokio::test]

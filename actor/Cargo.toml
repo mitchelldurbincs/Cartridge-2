@@ -13,6 +13,7 @@ engine-core = { path = "../engine/engine-core" }
 games-tictactoe = { path = "../engine/games-tictactoe" }
 games-connect4 = { path = "../engine/games-connect4" }
 mcts = { path = "../engine/mcts", features = ["onnx"] }
+model-watcher = { path = "../engine/model-watcher" }
 
 # Core dependencies
 tokio = { version = "1.0", features = ["full"] }
@@ -42,9 +43,6 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 
 # Time utilities
 uuid = { version = "1.6", features = ["v4"] }
-
-# File watching for model hot-reload
-notify = "7"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

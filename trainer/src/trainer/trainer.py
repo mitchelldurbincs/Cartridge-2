@@ -13,6 +13,7 @@ Training targets:
       that player's perspective, giving meaningful signal at every position.
 """
 
+import dataclasses
 import glob
 import json
 import logging
@@ -20,7 +21,7 @@ import os
 import shutil
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import numpy as np
@@ -42,50 +43,148 @@ DEFAULT_MAX_WAIT = 300.0  # 5 minutes max wait
 LOG_EVERY_N_WAITS = 5  # Log waiting message every N intervals
 
 
+def cli_field(
+    default,
+    *,
+    cli: str | None = None,
+    help: str = "",
+    choices: list | None = None,
+    action: str | None = None,
+):
+    """Create a dataclass field with CLI metadata."""
+
+    metadata: dict[str, object] = {}
+    if cli is not None:
+        metadata["cli"] = cli
+        metadata["help"] = help
+        if choices:
+            metadata["choices"] = choices
+        if action:
+            metadata["action"] = action
+
+    return field(default=default, metadata=metadata)
+
+
 @dataclass
 class TrainerConfig:
     """Configuration for the trainer."""
 
-    db_path: str = "./data/replay.db"
-    model_dir: str = "./data/models"
-    stats_path: str = "./data/stats.json"
+    db_path: str = cli_field(
+        "./data/replay.db", cli="--db", help="Path to SQLite replay database"
+    )
+    model_dir: str = cli_field(
+        "./data/models", cli="--model-dir", help="Directory for ONNX model checkpoints"
+    )
+    stats_path: str = cli_field(
+        "./data/stats.json", cli="--stats", help="Path to write stats.json for web polling"
+    )
 
     # Training hyperparameters
-    batch_size: int = 64
-    learning_rate: float = 1e-3
-    weight_decay: float = 1e-4
+    batch_size: int = cli_field(64, cli="--batch-size", help="Batch size for training")
+    learning_rate: float = cli_field(1e-3, cli="--lr", help="Learning rate")
+    weight_decay: float = cli_field(1e-4, cli="--weight-decay", help="Weight decay")
     value_loss_weight: float = 1.0
     policy_loss_weight: float = 1.0
 
     # Gradient clipping (0 = disabled)
-    grad_clip_norm: float = 1.0
+    grad_clip_norm: float = cli_field(
+        1.0, cli="--grad-clip", help="Gradient clipping max norm (0 to disable)"
+    )
 
     # Learning rate schedule
-    use_lr_scheduler: bool = True
-    lr_min_ratio: float = 0.1  # Final LR = initial_lr * lr_min_ratio
+    use_lr_scheduler: bool = cli_field(
+        True,
+        cli="--no-lr-schedule",
+        action="store_false",
+        help="Disable cosine annealing LR scheduler",
+    )
+    lr_min_ratio: float = cli_field(
+        0.1, cli="--lr-min-ratio", help="Final LR as ratio of initial LR"
+    )
 
     # Training schedule
-    total_steps: int = 1000
-    checkpoint_interval: int = 100
-    stats_interval: int = 10
-    log_interval: int = 10
+    total_steps: int = cli_field(1000, cli="--steps", help="Total training steps")
+    checkpoint_interval: int = cli_field(
+        100, cli="--checkpoint-interval", help="Steps between checkpoint saves"
+    )
+    stats_interval: int = cli_field(10, cli="--stats-interval", help="Steps between stats updates")
+    log_interval: int = cli_field(10, cli="--log-interval", help="Steps between log messages")
 
     # Checkpoint management
-    max_checkpoints: int = 10
+    max_checkpoints: int = cli_field(
+        10, cli="--max-checkpoints", help="Maximum number of checkpoints to keep"
+    )
 
     # Wait/backoff settings
-    wait_interval: float = DEFAULT_WAIT_INTERVAL
-    max_wait: float = DEFAULT_MAX_WAIT  # 0 = wait indefinitely
+    wait_interval: float = cli_field(
+        DEFAULT_WAIT_INTERVAL,
+        cli="--wait-interval",
+        help="Seconds between checks when waiting for data",
+    )
+    max_wait: float = cli_field(
+        DEFAULT_MAX_WAIT,
+        cli="--max-wait",
+        help="Max seconds to wait for DB/data (0 = wait forever)",
+    )
 
     # Step offset for continuous training (checkpoint naming)
-    start_step: int = 0
+    start_step: int = cli_field(
+        0, cli="--start-step", help="Starting step number for checkpoint naming"
+    )
 
     # Stats history settings
     max_history_length: int = 100
 
     # Environment
-    env_id: str = "tictactoe"
-    device: str = "cpu"
+    env_id: str = cli_field("tictactoe", cli="--env-id", help="Environment ID")
+    device: str = cli_field(
+        "cpu", cli="--device", choices=["cpu", "cuda", "mps"], help="Device to train on"
+    )
+
+    @classmethod
+    def configure_parser(cls, parser) -> None:
+        """Add CLI arguments to parser based on field metadata."""
+
+        for f in fields(cls):
+            cli_flag = f.metadata.get("cli")
+            if not cli_flag:
+                continue
+
+            kwargs: dict[str, object] = {
+                "help": f.metadata.get("help", ""),
+            }
+
+            if f.default is not dataclasses.MISSING:
+                kwargs["default"] = f.default
+
+            action = f.metadata.get("action")
+            if action:
+                kwargs["action"] = action
+                kwargs.pop("default", None)
+            else:
+                if f.type in (int, float, str):
+                    kwargs["type"] = f.type
+
+            if f.metadata.get("choices"):
+                kwargs["choices"] = f.metadata["choices"]
+
+            parser.add_argument(cli_flag, **kwargs)
+
+    @classmethod
+    def from_args(cls, args) -> "TrainerConfig":
+        """Construct a TrainerConfig from parsed argparse args."""
+
+        config_kwargs: dict[str, object] = {}
+        for f in fields(cls):
+            cli_flag = f.metadata.get("cli")
+            if not cli_flag:
+                continue
+
+            arg_name = cli_flag.lstrip("-").replace("-", "_")
+            if hasattr(args, arg_name):
+                config_kwargs[f.name] = getattr(args, arg_name)
+
+        return cls(**config_kwargs)
 
 
 @dataclass
