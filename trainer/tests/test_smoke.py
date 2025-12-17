@@ -118,7 +118,7 @@ class TestReplay:
             insert_test_transitions(db_path, count=100)
 
             with ReplayBuffer(db_path) as replay:
-                batch = replay.sample_batch_tensors(32)
+                batch = replay.sample_batch_tensors(32, num_actions=9)
                 assert batch is not None
 
                 obs, policy_targets, value_targets = batch
@@ -137,7 +137,7 @@ class TestReplay:
 
             with ReplayBuffer(db_path) as replay:
                 # Try to sample more than available
-                batch = replay.sample_batch_tensors(100)
+                batch = replay.sample_batch_tensors(100, num_actions=9)
                 assert batch is None
 
     def test_schema_validation_missing_table(self):
@@ -446,7 +446,7 @@ class TestGradientClipping:
 
             # Run a single train step manually
             with ReplayBuffer(db_path) as replay:
-                batch = replay.sample_batch_tensors(32)
+                batch = replay.sample_batch_tensors(32, num_actions=9)
                 obs, policy_targets, value_targets = batch
                 metrics = trainer._train_step(obs, policy_targets, value_targets)
 

@@ -363,6 +363,10 @@ class Trainer:
         self._recent_losses: list[dict[str, float]] = []
         self._rolling_window = 100
 
+        # Buffer size caching (avoid expensive count() calls every step)
+        self._buffer_size_cache: int = 0
+        self._buffer_size_update_interval: int = 100  # Update every 100 steps
+
         # Checkpoint tracking
         self.checkpoints: list[Path] = []
         self.latest_checkpoint: Path | None = None
@@ -516,6 +520,8 @@ class Trainer:
                 buffer_size = replay.count(env_id=env_id)
                 logger.info(f"Replay buffer now has {buffer_size} transitions for {env_id}")
 
+            # Initialize buffer size cache
+            self._buffer_size_cache = buffer_size
             self.stats.replay_buffer_size = buffer_size
 
             # Training loop
@@ -560,7 +566,11 @@ class Trainer:
                 self.stats.learning_rate = self.optimizer.param_groups[0]["lr"]
                 self.stats.samples_seen = self.samples_seen
                 self.stats.timestamp = time.time()
-                self.stats.replay_buffer_size = replay.count(env_id=env_id)
+
+                # Use cached buffer size (update periodically to avoid expensive count() every step)
+                if step % self._buffer_size_update_interval == 0:
+                    self._buffer_size_cache = replay.count(env_id=env_id)
+                self.stats.replay_buffer_size = self._buffer_size_cache
 
                 # Track recent losses for rolling average
                 self._recent_losses.append({
@@ -610,7 +620,9 @@ class Trainer:
                             f"Replay cleanup removed {deleted} old transitions "
                             f"(window={self.config.replay_window})"
                         )
-                    self.stats.replay_buffer_size = replay.count(env_id=env_id)
+                    # Update cache after cleanup (buffer size changed)
+                    self._buffer_size_cache = replay.count(env_id=env_id)
+                    self.stats.replay_buffer_size = self._buffer_size_cache
 
                 # Save checkpoint
                 if step % self.config.checkpoint_interval == 0:
