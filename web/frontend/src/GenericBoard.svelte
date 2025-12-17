@@ -7,6 +7,7 @@
     gameOver: boolean;
     lastBotMove: number | null;
     gameInfo: GameInfo;
+    currentPlayer: number;
     onCellClick: (position: number) => void;
   }
 
@@ -16,6 +17,7 @@
     gameOver,
     lastBotMove,
     gameInfo,
+    currentPlayer,
     onCellClick
   }: Props = $props();
 
@@ -91,7 +93,7 @@
     if (landingRow === -1) return;
 
     // Start drop animation
-    droppingPiece = { column: col, row: landingRow, player: 1 };
+    droppingPiece = { column: col, row: landingRow, player: currentPlayer };
 
     // Trigger the actual move after a brief delay to show animation
     setTimeout(() => {
@@ -180,7 +182,10 @@
           aria-label={`Drop piece in column ${col + 1}`}
         >
           {#if isColumnClickable(col)}
-            <div class="hover-piece player1-preview" style="width: {dropHoleSize}px; height: {dropHoleSize}px;"></div>
+            <div
+              class={`hover-piece player${currentPlayer}-preview`}
+              style="width: {dropHoleSize}px; height: {dropHoleSize}px;"
+            ></div>
           {/if}
         </button>
       {/each}
@@ -191,7 +196,7 @@
       <!-- Dropping piece animation -->
       {#if droppingPiece}
         <div
-          class="dropping-piece player1"
+          class={`dropping-piece player${droppingPiece.player}`}
           style="
             left: {getDropX(droppingPiece.column)}px;
             width: {dropPieceSize}px;
@@ -344,6 +349,11 @@
     box-shadow: 0 2px 8px rgba(231, 76, 60, 0.4);
   }
 
+  .player2-preview {
+    background: radial-gradient(circle at 30% 30%, #ffe066, #f1c40f);
+    box-shadow: 0 2px 8px rgba(243, 156, 18, 0.4);
+  }
+
   .board-frame {
     position: relative;
     background: linear-gradient(180deg, #1e5799 0%, #2989d8 50%, #1e5799 100%);
@@ -438,6 +448,14 @@
       0 4px 8px rgba(0, 0, 0, 0.4),
       inset 0 2px 4px rgba(255, 255, 255, 0.3),
       inset 0 -2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  .dropping-piece.player2 {
+    background: radial-gradient(circle at 30% 30%, #ffe066, #f1c40f 60%, #f39c12);
+    box-shadow:
+      0 4px 8px rgba(0, 0, 0, 0.4),
+      inset 0 2px 4px rgba(255, 255, 255, 0.4),
+      inset 0 -2px 4px rgba(0, 0, 0, 0.1);
   }
 
   @keyframes drop-piece {
