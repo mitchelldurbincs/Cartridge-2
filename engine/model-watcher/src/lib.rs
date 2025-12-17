@@ -249,8 +249,10 @@ impl ModelWatcher {
             let _watcher = watcher;
 
             // Debounce timer to avoid rapid reloads
-            let mut last_reload = std::time::Instant::now();
             let debounce_duration = Duration::from_millis(500);
+            // Initialize the timer far enough in the past so the first
+            // filesystem event is never dropped by the debounce guard.
+            let mut last_reload = std::time::Instant::now() - debounce_duration;
 
             while let Some(event) = fs_rx.recv().await {
                 // Only care about create/modify events
