@@ -128,6 +128,27 @@ class TrainerConfig:
         help="Max seconds to wait for DB/data (0 = wait forever)",
     )
 
+    # Replay buffer management
+    clear_replay_on_start: bool = cli_field(
+        False,
+        cli="--clear-replay",
+        action="store_true",
+        help="Delete all transitions before training (synchronized AlphaZero)",
+    )
+    replay_window: int = cli_field(
+        0,
+        cli="--replay-window",
+        help="Keep only the most recent N transitions (0 = disable cleanup)",
+    )
+    replay_cleanup_interval: int = cli_field(
+        0,
+        cli="--replay-cleanup-interval",
+        help=(
+            "Steps between replay cleanup when replay-window is set ("
+            "0 = align with stats-interval)"
+        ),
+    )
+
     # Step offset for continuous training (checkpoint naming)
     start_step: int = cli_field(
         0, cli="--start-step", help="Starting step number for checkpoint naming"
@@ -331,6 +352,13 @@ class Trainer:
         self.stats._max_history = config.max_history_length
         self.samples_seen = 0
 
+        # Replay maintenance
+        self._replay_cleanup_every = (
+            config.replay_cleanup_interval
+            if config.replay_cleanup_interval > 0
+            else config.stats_interval
+        )
+
         # Rolling window for averaging (last 100 steps)
         self._recent_losses: list[dict[str, float]] = []
         self._rolling_window = 100
@@ -451,6 +479,12 @@ class Trainer:
         with ReplayBuffer(self.config.db_path) as replay:
             env_id = self.config.env_id
 
+            if self.config.clear_replay_on_start:
+                deleted = replay.clear_transitions()
+                logger.info(
+                    f"Cleared {deleted} transitions from replay buffer before training"
+                )
+
             # Try to get game metadata from database (preferred, self-describing)
             db_metadata = replay.get_metadata(env_id)
             if db_metadata:
@@ -565,6 +599,18 @@ class Trainer:
                         }
                     )
                     self._write_stats()
+
+                if (
+                    self.config.replay_window > 0
+                    and global_step % self._replay_cleanup_every == 0
+                ):
+                    deleted = replay.cleanup(self.config.replay_window)
+                    if deleted > 0:
+                        logger.info(
+                            f"Replay cleanup removed {deleted} old transitions "
+                            f"(window={self.config.replay_window})"
+                        )
+                    self.stats.replay_buffer_size = replay.count(env_id=env_id)
 
                 # Save checkpoint
                 if step % self.config.checkpoint_interval == 0:
