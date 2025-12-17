@@ -81,7 +81,7 @@ Orchestrates the self-play loop:
 pub struct Actor {
     config: Config,
     engine: Mutex<EngineContext>,      // Game simulation
-    policy: Mutex<Box<dyn Policy>>,    // Action selection
+    mcts_policy: Mutex<MctsPolicy>,    // Action selection
     replay: Mutex<ReplayBuffer>,       // SQLite storage
     episode_count: AtomicU32,
     shutdown_signal: AtomicBool,
@@ -95,28 +95,17 @@ impl Actor {
 }
 ```
 
-### Policy (`src/policy.rs`, `src/mcts_policy.rs`)
+### MCTS Policy (`src/mcts_policy.rs`)
 
-Trait for action selection strategies:
+Action selection is handled by `MctsPolicy`, which wraps the MCTS searcher and
+ONNX evaluator:
 
-```rust
-pub trait Policy: Send + Sync {
-    fn select_action(&mut self, observation: &[u8]) -> Result<Vec<u8>>;
-}
-```
+- Runs Monte Carlo Tree Search with a shared `OnnxEvaluator` that can be hot-reloaded
+- Falls back to uniform random over legal moves until a model is available
+- Returns visit count distributions as policy targets for training
 
-Implements:
-- **MctsPolicy** - MCTS with ONNX neural network evaluation (default)
-- **RandomPolicy** - Uniform random for testing/fallback
-
-The MCTS policy:
-- Falls back to random if no model is available
-- Returns visit count distributions as policy targets
-
-Supported action spaces:
+Supported action space:
 - **Discrete(n)** - Single integer 0..n (encoded as 4-byte u32)
-- **MultiDiscrete(nvec)** - Multiple discrete dimensions
-- **Continuous { low, high }** - Real-valued actions (encoded as f32s)
 
 ### Model Watcher (`src/model_watcher.rs`)
 
@@ -250,7 +239,7 @@ python -m trainer --db ../data/replay.db
 ## Testing
 
 ```bash
-# Run all tests (46 tests)
+# Run all tests (39 tests)
 cargo test
 
 # Run specific test with output
@@ -263,11 +252,10 @@ cargo bench
 ### Test Coverage
 
 - **Config tests (10)** - Validation, defaults, duration conversion
-- **Policy tests (9)** - Action space handling, determinism, edge cases
+- **Central config tests (4)** - TOML loading and environment overrides
 - **Replay tests (10)** - Store, sample, cleanup, batch operations
 - **Actor tests (4)** - Creation, episode execution, error handling
-- **MCTS Policy tests (4)** - MCTS-based action selection
-- **Model Watcher tests (2)** - Model hot-reload behavior
+- **MCTS Policy tests (4)** - MCTS-based action selection and random fallback
 - **Game Config tests (7)** - Game-specific configuration from metadata
 
 ## Dependencies
