@@ -36,6 +36,11 @@
     return n.toFixed(4);
   }
 
+  function formatPercent(n: number | undefined): string {
+    if (n === undefined) return '-';
+    return `${(n * 100).toFixed(1)}%`;
+  }
+
   function formatTimestamp(ts: number | null | undefined): string {
     if (!ts) return '-';
     const date = new Date(ts * 1000);
@@ -50,6 +55,12 @@
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return `${Math.floor(diff / 86400)}d ago`;
+  }
+
+  function getWinRateColor(winRate: number): string {
+    if (winRate >= 0.7) return '#4f4';  // Green - good
+    if (winRate >= 0.5) return '#fa0';  // Orange - okay
+    return '#f66';  // Red - poor
   }
 </script>
 
@@ -88,15 +99,15 @@
 
   {#if error}
     <p class="error">{error}</p>
-  {:else if stats && stats.epoch > 0}
+  {:else if stats && (stats.epoch > 0 || stats.step > 0)}
     <div class="stat-grid">
       <div class="stat">
-        <span class="label">Epoch</span>
-        <span class="value">{stats.epoch}</span>
+        <span class="label">Step</span>
+        <span class="value">{stats.step || stats.epoch} / {stats.total_steps || '-'}</span>
       </div>
       <div class="stat">
         <span class="label">Total Loss</span>
-        <span class="value">{formatNumber(stats.loss)}</span>
+        <span class="value">{formatNumber(stats.total_loss || stats.loss)}</span>
       </div>
       <div class="stat">
         <span class="label">Policy Loss</span>
@@ -107,8 +118,8 @@
         <span class="value">{formatNumber(stats.value_loss)}</span>
       </div>
       <div class="stat">
-        <span class="label">Games Played</span>
-        <span class="value">{stats.games_played}</span>
+        <span class="label">Replay Buffer</span>
+        <span class="value">{(stats.replay_buffer_size || stats.games_played || 0).toLocaleString()}</span>
       </div>
       <div class="stat">
         <span class="label">Learning Rate</span>
@@ -119,6 +130,68 @@
         <span class="value">{formatTimestamp(stats.timestamp)}</span>
       </div>
     </div>
+
+    <!-- Evaluation Section -->
+    {#if stats.last_eval}
+      <hr class="divider" />
+      <h2>Model Evaluation</h2>
+      <div class="eval-summary">
+        <div class="win-rate-display">
+          <span class="win-rate-value" style="color: {getWinRateColor(stats.last_eval.win_rate)}">
+            {formatPercent(stats.last_eval.win_rate)}
+          </span>
+          <span class="win-rate-label">Win Rate vs Random</span>
+        </div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat">
+          <span class="label">Draws</span>
+          <span class="value">{formatPercent(stats.last_eval.draw_rate)}</span>
+        </div>
+        <div class="stat">
+          <span class="label">Losses</span>
+          <span class="value">{formatPercent(stats.last_eval.loss_rate)}</span>
+        </div>
+        <div class="stat">
+          <span class="label">Games Played</span>
+          <span class="value">{stats.last_eval.games_played}</span>
+        </div>
+        <div class="stat">
+          <span class="label">Avg Game Length</span>
+          <span class="value">{stats.last_eval.avg_game_length.toFixed(1)}</span>
+        </div>
+        <div class="stat full-width">
+          <span class="label">Evaluated at Step</span>
+          <span class="value">{stats.last_eval.step}</span>
+        </div>
+      </div>
+
+      <!-- Win Rate History Chart -->
+      {#if stats.eval_history && stats.eval_history.length > 1}
+        <div class="chart-container">
+          <h3>Win Rate Over Time</h3>
+          <div class="mini-chart">
+            {#each stats.eval_history as evalPoint}
+              <div
+                class="chart-bar"
+                style="height: {evalPoint.win_rate * 100}%; background: {getWinRateColor(evalPoint.win_rate)}"
+                title="Step {evalPoint.step}: {formatPercent(evalPoint.win_rate)}"
+              ></div>
+            {/each}
+          </div>
+          <div class="chart-labels">
+            <span>0%</span>
+            <span>50%</span>
+            <span>100%</span>
+          </div>
+        </div>
+      {/if}
+    {:else}
+      <hr class="divider" />
+      <h2>Model Evaluation</h2>
+      <p class="no-data">No evaluation data yet.</p>
+      <p class="hint">Evaluation runs automatically during training.</p>
+    {/if}
   {:else}
     <p class="no-data">No training data yet.</p>
     <p class="hint">Start the Python trainer to see stats here.</p>
@@ -228,5 +301,69 @@
   .hint {
     font-size: 0.85rem;
     color: #666;
+  }
+
+  /* Evaluation styles */
+  .eval-summary {
+    margin-bottom: 1rem;
+  }
+
+  .win-rate-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1rem;
+    background: #3a3a5a;
+    border-radius: 8px;
+  }
+
+  .win-rate-value {
+    font-size: 2.5rem;
+    font-weight: bold;
+    line-height: 1;
+  }
+
+  .win-rate-label {
+    font-size: 0.85rem;
+    color: #888;
+    margin-top: 0.5rem;
+  }
+
+  /* Mini chart styles */
+  .chart-container {
+    margin-top: 1rem;
+  }
+
+  .chart-container h3 {
+    font-size: 0.9rem;
+    color: #888;
+    margin: 0 0 0.5rem 0;
+    font-weight: normal;
+  }
+
+  .mini-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 60px;
+    padding: 0.5rem;
+    background: #3a3a5a;
+    border-radius: 8px;
+  }
+
+  .chart-bar {
+    flex: 1;
+    min-width: 4px;
+    max-width: 20px;
+    border-radius: 2px 2px 0 0;
+    transition: height 0.3s ease;
+  }
+
+  .chart-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: #666;
+    margin-top: 0.25rem;
   }
 </style>

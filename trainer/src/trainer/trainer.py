@@ -34,6 +34,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from .game_config import GameConfig, get_config
 from .network import AlphaZeroLoss, PolicyValueNetwork, create_network
 from .replay import GameMetadata, ReplayBuffer
+from .evaluator import evaluate, OnnxPolicy, RandomPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,14 @@ class TrainerConfig:
         0, cli="--start-step", help="Starting step number for checkpoint naming"
     )
 
+    # Evaluation settings
+    eval_interval: int = cli_field(
+        100, cli="--eval-interval", help="Steps between evaluations (0 to disable)"
+    )
+    eval_games: int = cli_field(
+        50, cli="--eval-games", help="Number of games per evaluation"
+    )
+
     # Stats history settings
     max_history_length: int = 100
 
@@ -188,6 +197,30 @@ class TrainerConfig:
 
 
 @dataclass
+class EvalStats:
+    """Evaluation statistics from a single evaluation run."""
+
+    step: int = 0
+    win_rate: float = 0.0
+    draw_rate: float = 0.0
+    loss_rate: float = 0.0
+    games_played: int = 0
+    avg_game_length: float = 0.0
+    timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict:
+        return {
+            "step": self.step,
+            "win_rate": self.win_rate,
+            "draw_rate": self.draw_rate,
+            "loss_rate": self.loss_rate,
+            "games_played": self.games_played,
+            "avg_game_length": self.avg_game_length,
+            "timestamp": self.timestamp,
+        }
+
+
+@dataclass
 class TrainerStats:
     """Training statistics for web visualization."""
 
@@ -204,12 +237,24 @@ class TrainerStats:
     history: list[dict] = field(default_factory=list)
     _max_history: int = 100  # Bound history length
 
+    # Evaluation metrics
+    last_eval: EvalStats | None = None
+    eval_history: list[dict] = field(default_factory=list)
+    _max_eval_history: int = 50  # Keep last 50 evaluations
+
     def append_history(self, entry: dict) -> None:
         """Append to history, maintaining max length bound."""
         self.history.append(entry)
         if len(self.history) > self._max_history:
             # Remove oldest entries to stay within bound
             self.history = self.history[-self._max_history :]
+
+    def append_eval(self, eval_stats: EvalStats) -> None:
+        """Append evaluation result to history."""
+        self.last_eval = eval_stats
+        self.eval_history.append(eval_stats.to_dict())
+        if len(self.eval_history) > self._max_eval_history:
+            self.eval_history = self.eval_history[-self._max_eval_history :]
 
     def to_dict(self) -> dict:
         return {
@@ -224,6 +269,8 @@ class TrainerStats:
             "last_checkpoint": self.last_checkpoint,
             "timestamp": self.timestamp,
             "history": self.history,  # Already bounded on append
+            "last_eval": self.last_eval.to_dict() if self.last_eval else None,
+            "eval_history": self.eval_history,
         }
 
 
@@ -284,6 +331,7 @@ class Trainer:
 
         # Checkpoint tracking
         self.checkpoints: list[Path] = []
+        self.latest_checkpoint: Path | None = None
 
     def _wait_with_backoff(
         self, condition_fn, description: str, check_interval: float | None = None
@@ -395,6 +443,7 @@ class Trainer:
             for step in range(1, self.config.total_steps + 1):
                 global_step = start_step + step
                 self.stats.step = global_step
+                checkpoint_path: Path | None = None
 
                 # Sample batch (filter by env_id and use correct num_actions)
                 batch = replay.sample_batch_tensors(
@@ -476,6 +525,19 @@ class Trainer:
                     self.stats.last_checkpoint = str(checkpoint_path)
                     logger.info(f"Saved checkpoint: {checkpoint_path}")
 
+                # Run evaluation
+                if (
+                    self.config.eval_interval > 0
+                    and step % self.config.eval_interval == 0
+                ):
+                    if checkpoint_path is None:
+                        checkpoint_path = self._save_checkpoint(global_step)
+                        self.stats.last_checkpoint = str(checkpoint_path)
+                        logger.info(f"Saved checkpoint for evaluation: {checkpoint_path}")
+
+                    self._evaluate_checkpoint(checkpoint_path, global_step)
+                    self._write_stats()
+
             # Final checkpoint
             final_global_step = start_step + self.config.total_steps
             self._save_checkpoint(final_global_step, is_final=True)
@@ -531,6 +593,49 @@ class Trainer:
         self.optimizer.step()
 
         return metrics
+
+    def _evaluate_checkpoint(self, checkpoint_path: Path, step: int) -> None:
+        """Run evaluation on a checkpoint and record results.
+
+        Args:
+            checkpoint_path: Path to the ONNX checkpoint to evaluate.
+            step: Current training step for recording.
+        """
+        logger.info(f"Running evaluation at step {step} ({self.config.eval_games} games)...")
+
+        try:
+            model_policy = OnnxPolicy(str(checkpoint_path), temperature=0.0)
+            random_policy = RandomPolicy()
+
+            results = evaluate(
+                player1=model_policy,
+                player2=random_policy,
+                env_id=self.config.env_id,
+                config=self.game_config,
+                num_games=self.config.eval_games,
+                verbose=False,
+            )
+
+            eval_stats = EvalStats(
+                step=step,
+                win_rate=results.player1_win_rate,
+                draw_rate=results.draw_rate,
+                loss_rate=results.player2_win_rate,
+                games_played=results.games_played,
+                avg_game_length=results.avg_game_length,
+                timestamp=time.time(),
+            )
+
+            self.stats.append_eval(eval_stats)
+
+            logger.info(
+                f"Evaluation complete: win_rate={eval_stats.win_rate:.1%}, "
+                f"draw_rate={eval_stats.draw_rate:.1%}, "
+                f"avg_length={eval_stats.avg_game_length:.1f}"
+            )
+
+        except Exception as e:
+            logger.warning(f"Evaluation failed: {e}")
 
     def _save_checkpoint(self, step: int, is_final: bool = False) -> Path:
         """Save model checkpoint with atomic write-then-rename.
@@ -597,6 +702,7 @@ class Trainer:
             # Track checkpoints for cleanup
             self.checkpoints.append(checkpoint_path)
             self._cleanup_old_checkpoints()
+            self.latest_checkpoint = checkpoint_path
 
             # Clean up orphaned .onnx.data files from PyTorch exporter
             self._cleanup_temp_onnx_data(model_dir)
