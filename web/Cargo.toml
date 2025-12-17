@@ -41,6 +41,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.8"
 rand_chacha = "0.3"
 
+# Configuration
+toml = "0.8"
+once_cell = "1.18"
+
 [dev-dependencies]
 # Testing
 http-body-util = "0.1"

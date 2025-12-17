@@ -17,10 +17,10 @@ Usage:
     # Via console entry point
     trainer-loop --iterations 100 --episodes 500 --steps 1000
 
-Environment Variables:
-    ACTOR_BINARY: Path to actor binary (default: auto-detect)
-    DATA_DIR: Base data directory (default: ./data)
-    ALPHAZERO_*: Override any CLI argument via ALPHAZERO_<ARG_NAME>
+Configuration:
+    Settings are loaded from config.toml (see central_config.py).
+    CLI arguments override config file values.
+    Legacy ALPHAZERO_* environment variables are still supported.
 """
 
 import argparse
@@ -36,8 +36,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .central_config import get_config as get_central_config
 from .evaluator import OnnxPolicy, RandomPolicy, evaluate as run_eval, create_game_state
-from .game_config import get_config
+from .game_config import get_config as get_game_config
 from .replay import ReplayBuffer, create_empty_db, GameMetadata
 
 logger = logging.getLogger(__name__)
@@ -114,31 +115,6 @@ class LoopConfig:
         return self.data_dir / "eval_stats.json"
 
 
-def get_env_with_prefix(key: str, default: str | None = None) -> str | None:
-    """Get environment variable with ALPHAZERO_ prefix."""
-    return os.environ.get(f"ALPHAZERO_{key}", default)
-
-
-def get_env_int(key: str, default: int) -> int:
-    """Get integer from environment variable."""
-    val = get_env_with_prefix(key)
-    if val is not None:
-        try:
-            return int(val)
-        except ValueError:
-            logger.warning(f"Invalid integer for ALPHAZERO_{key}: {val}, using default {default}")
-    return default
-
-
-def get_env_float(key: str, default: float) -> float:
-    """Get float from environment variable."""
-    val = get_env_with_prefix(key)
-    if val is not None:
-        try:
-            return float(val)
-        except ValueError:
-            logger.warning(f"Invalid float for ALPHAZERO_{key}: {val}, using default {default}")
-    return default
 
 
 class Orchestrator:
@@ -348,7 +324,7 @@ class Orchestrator:
 
         try:
             # Load game config
-            config = get_config(self.config.env_id)
+            config = get_game_config(self.config.env_id)
 
             # Create policies
             model_policy = OnnxPolicy(str(model_path), temperature=0.0)
@@ -584,23 +560,27 @@ class Orchestrator:
 
 
 def parse_args() -> LoopConfig:
-    """Parse command line arguments with environment variable fallbacks."""
+    """Parse command line arguments with config.toml defaults.
+
+    Priority (highest to lowest):
+    1. CLI arguments
+    2. Environment variables (CARTRIDGE_* and legacy ALPHAZERO_*)
+    3. config.toml values
+    4. Built-in defaults
+    """
+    # Load central config (includes env var overrides)
+    cfg = get_central_config()
+
     parser = argparse.ArgumentParser(
         description="Synchronized AlphaZero Training Loop",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Environment Variables:
-    ALPHAZERO_ENV_ID          Game environment (default: tictactoe)
-    ALPHAZERO_ITERATIONS      Number of training iterations
-    ALPHAZERO_EPISODES        Episodes per iteration
-    ALPHAZERO_STEPS           Training steps per iteration
-    ALPHAZERO_BATCH_SIZE      Training batch size
-    ALPHAZERO_LR              Learning rate
-    ALPHAZERO_DEVICE          Training device (cpu/cuda/mps)
-    ALPHAZERO_EVAL_INTERVAL   Evaluate every N iterations (0 to disable)
-    ALPHAZERO_EVAL_GAMES      Games per evaluation
-    ACTOR_BINARY              Path to actor binary
-    DATA_DIR                  Base data directory
+Configuration:
+    Settings are loaded from config.toml with the following override priority:
+    1. CLI arguments (highest)
+    2. Environment variables (CARTRIDGE_* or legacy ALPHAZERO_*)
+    3. config.toml values
+    4. Built-in defaults (lowest)
 
 Examples:
     # Basic training with evaluation every iteration
@@ -612,49 +592,45 @@ Examples:
     # Disable evaluation for faster training
     python -m trainer.orchestrator --eval-interval 0
 
-    # Via Docker
-    ALPHAZERO_EVAL_INTERVAL=1 docker compose up alphazero
+    # Via Docker (uses config.toml mounted to /app/config.toml)
+    docker compose up alphazero
         """,
     )
 
-    # Get defaults from environment variables
-    default_env_id = get_env_with_prefix("ENV_ID", "tictactoe")
-    default_data_dir = os.environ.get("DATA_DIR", "./data")
-
-    # Iteration settings
+    # Iteration settings (defaults from central config)
     parser.add_argument(
         "--iterations", type=int,
-        default=get_env_int("ITERATIONS", 100),
-        help="Number of training iterations (env: ALPHAZERO_ITERATIONS)",
+        default=cfg.training.iterations,
+        help="Number of training iterations",
     )
     parser.add_argument(
         "--start-iteration", type=int,
-        default=get_env_int("START_ITERATION", 1),
-        help="Starting iteration number (env: ALPHAZERO_START_ITERATION)",
+        default=cfg.training.start_iteration,
+        help="Starting iteration number",
     )
     parser.add_argument(
         "--episodes", type=int,
-        default=get_env_int("EPISODES", 500),
-        help="Episodes per iteration (env: ALPHAZERO_EPISODES)",
+        default=cfg.training.episodes_per_iteration,
+        help="Episodes per iteration",
     )
     parser.add_argument(
         "--steps", type=int,
-        default=get_env_int("STEPS", 1000),
-        help="Training steps per iteration (env: ALPHAZERO_STEPS)",
+        default=cfg.training.steps_per_iteration,
+        help="Training steps per iteration",
     )
 
     # Environment
     parser.add_argument(
         "--env-id", type=str,
-        default=default_env_id,
-        help="Environment ID: tictactoe, connect4 (env: ALPHAZERO_ENV_ID)",
+        default=cfg.common.env_id,
+        help="Environment ID: tictactoe, connect4",
     )
 
     # Paths
     parser.add_argument(
         "--data-dir", type=str,
-        default=default_data_dir,
-        help="Data directory (env: DATA_DIR)",
+        default=cfg.common.data_dir,
+        help="Data directory",
     )
     parser.add_argument(
         "--actor-binary", type=str,
@@ -665,49 +641,49 @@ Examples:
     # Actor settings
     parser.add_argument(
         "--actor-log-interval", type=int,
-        default=get_env_int("ACTOR_LOG_INTERVAL", 50),
+        default=cfg.actor.log_interval,
         help="Actor log interval in episodes",
     )
 
     # Trainer settings
     parser.add_argument(
         "--batch-size", type=int,
-        default=get_env_int("BATCH_SIZE", 64),
-        help="Training batch size (env: ALPHAZERO_BATCH_SIZE)",
+        default=cfg.training.batch_size,
+        help="Training batch size",
     )
     parser.add_argument(
         "--lr", type=float,
-        default=get_env_float("LR", 1e-3),
-        help="Learning rate (env: ALPHAZERO_LR)",
+        default=cfg.training.learning_rate,
+        help="Learning rate",
     )
     parser.add_argument(
         "--checkpoint-interval", type=int,
-        default=get_env_int("CHECKPOINT_INTERVAL", 100),
-        help="Steps between checkpoints (env: ALPHAZERO_CHECKPOINT_INTERVAL)",
+        default=cfg.training.checkpoint_interval,
+        help="Steps between checkpoints",
     )
     parser.add_argument(
         "--device", type=str,
-        default=get_env_with_prefix("DEVICE", "cpu"),
+        default=cfg.training.device,
         choices=["cpu", "cuda", "mps"],
-        help="Training device (env: ALPHAZERO_DEVICE)",
+        help="Training device",
     )
 
-    # Evaluation settings - NOTE: default is 1 (enabled)
+    # Evaluation settings
     parser.add_argument(
         "--eval-interval", type=int,
-        default=get_env_int("EVAL_INTERVAL", 1),
-        help="Evaluate every N iterations, 0 to disable (env: ALPHAZERO_EVAL_INTERVAL)",
+        default=cfg.evaluation.interval,
+        help="Evaluate every N iterations, 0 to disable",
     )
     parser.add_argument(
         "--eval-games", type=int,
-        default=get_env_int("EVAL_GAMES", 50),
-        help="Games per evaluation (env: ALPHAZERO_EVAL_GAMES)",
+        default=cfg.evaluation.games,
+        help="Games per evaluation",
     )
 
     # Logging
     parser.add_argument(
         "--log-level", type=str,
-        default=get_env_with_prefix("LOG_LEVEL", "INFO"),
+        default=cfg.common.log_level.upper(),
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Log level",
     )

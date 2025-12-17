@@ -13,6 +13,7 @@ use tokio::signal;
 use tracing::{error, info};
 
 mod actor;
+mod central_config;
 mod config;
 mod game_config;
 mod mcts_policy;

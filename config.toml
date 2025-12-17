@@ -1,0 +1,117 @@
+# Cartridge2 Configuration
+#
+# This is the single source of truth for all configuration values.
+# All components (actor, trainer, web server) read from this file.
+#
+# Environment variables can override any value using the pattern:
+#   CARTRIDGE_<SECTION>_<KEY> (e.g., CARTRIDGE_TRAINING_ITERATIONS=50)
+#
+# For Docker, mount this file to /app/config.toml
+
+# =============================================================================
+# Common Settings
+# =============================================================================
+[common]
+# Base data directory for all runtime files (replay.db, models/, stats.json)
+data_dir = "./data"
+
+# Game environment: tictactoe, connect4
+env_id = "tictactoe"
+
+# Logging level: trace, debug, info, warn, error
+log_level = "info"
+
+# =============================================================================
+# Training Loop Settings (AlphaZero synchronized training)
+# =============================================================================
+[training]
+# Number of training iterations
+iterations = 100
+
+# Starting iteration number (for resuming training)
+start_iteration = 1
+
+# Self-play episodes to generate per iteration
+episodes_per_iteration = 500
+
+# Training steps per iteration
+steps_per_iteration = 1000
+
+# Training batch size
+batch_size = 64
+
+# Learning rate
+learning_rate = 0.001
+
+# Weight decay for regularization
+weight_decay = 0.0001
+
+# Gradient clipping max norm (0 to disable)
+grad_clip_norm = 1.0
+
+# Device for training: cpu, cuda, mps
+device = "cpu"
+
+# Steps between checkpoint saves
+checkpoint_interval = 100
+
+# Maximum number of checkpoints to keep
+max_checkpoints = 10
+
+# =============================================================================
+# Evaluation Settings
+# =============================================================================
+[evaluation]
+# Evaluate every N iterations (0 to disable)
+interval = 1
+
+# Number of games per evaluation
+games = 50
+
+# =============================================================================
+# Actor Settings (Self-play episode runner)
+# =============================================================================
+[actor]
+# Unique actor identifier
+actor_id = "actor-1"
+
+# Maximum episodes to run (-1 for unlimited)
+max_episodes = -1
+
+# Timeout per episode in seconds
+episode_timeout_secs = 30
+
+# Interval to flush data to database in seconds
+flush_interval_secs = 5
+
+# Log progress every N episodes (0 to disable)
+log_interval = 50
+
+# =============================================================================
+# Web Server Settings
+# =============================================================================
+[web]
+# Server bind address
+host = "0.0.0.0"
+
+# Server port
+port = 8080
+
+# =============================================================================
+# MCTS Settings (Monte Carlo Tree Search)
+# =============================================================================
+[mcts]
+# Number of MCTS simulations per move
+num_simulations = 800
+
+# Exploration constant (c_puct)
+c_puct = 1.4
+
+# Temperature for action selection (higher = more exploration)
+temperature = 1.0
+
+# Dirichlet noise alpha (0 to disable)
+dirichlet_alpha = 0.3
+
+# Dirichlet noise weight
+dirichlet_weight = 0.25
