@@ -390,6 +390,7 @@ impl Game for Connect4 {
                 vec!['\u{1F534}', '\u{1F7E1}'], // Red circle, Yellow circle emoji
             )
             .with_description("Drop discs to connect four in a row!")
+            .with_board_type("drop_column")
     }
 
     fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {
