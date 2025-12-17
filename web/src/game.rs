@@ -207,25 +207,17 @@ impl GameSession {
             return Vec::new();
         }
 
-        // Extract legal moves from observation using metadata offsets
-        // Observation is encoded as f32 values in little-endian bytes
-        let offset = self.metadata.legal_mask_offset;
-        let num_actions = self.metadata.num_actions;
+        let Some(mask_bytes) = self.legal_mask_bytes() else {
+            return Vec::new();
+        };
 
-        (0..num_actions)
-            .filter(|&action| {
-                let byte_offset = (offset + action) * 4; // Each f32 is 4 bytes
-                if byte_offset + 4 <= self.obs.len() {
-                    let bytes: [u8; 4] = self.obs[byte_offset..byte_offset + 4]
-                        .try_into()
-                        .unwrap_or([0; 4]);
-                    let value = f32::from_le_bytes(bytes);
-                    value > 0.5 // Legal if 1.0, illegal if 0.0
-                } else {
-                    false
-                }
+        mask_bytes
+            .chunks_exact(4)
+            .enumerate()
+            .filter_map(|(action, bytes)| {
+                let value = f32::from_le_bytes(bytes.try_into().unwrap());
+                (value > 0.5).then_some(action as u8)
             })
-            .map(|a| a as u8)
             .collect()
     }
 
@@ -240,16 +232,26 @@ impl GameSession {
             return false;
         }
 
-        // Extract legal move from observation using metadata offsets
-        let byte_offset = (self.metadata.legal_mask_offset + action) * 4;
-        if byte_offset + 4 <= self.obs.len() {
-            let bytes: [u8; 4] = self.obs[byte_offset..byte_offset + 4]
-                .try_into()
-                .unwrap_or([0; 4]);
-            let value = f32::from_le_bytes(bytes);
-            value > 0.5
+        let Some(mask_bytes) = self.legal_mask_bytes() else {
+            return false;
+        };
+
+        let start = action * 4;
+        let bytes: [u8; 4] = mask_bytes[start..start + 4].try_into().unwrap();
+        let value = f32::from_le_bytes(bytes);
+        value > 0.5
+    }
+
+    /// Extract the legal moves slice from the observation buffer
+    fn legal_mask_bytes(&self) -> Option<&[u8]> {
+        let start = self.metadata.legal_mask_offset.checked_mul(4)?;
+        let len = self.metadata.num_actions.checked_mul(4)?;
+        let end = start.checked_add(len)?;
+
+        if end <= self.obs.len() {
+            Some(&self.obs[start..end])
         } else {
-            false
+            None
         }
     }
 
@@ -486,5 +488,17 @@ mod tests {
 
         // Position 4 is now occupied
         assert!(!session.is_legal_move(4));
+    }
+
+    #[test]
+    fn test_legal_moves_handles_short_obs() {
+        games_tictactoe::register_tictactoe();
+
+        let mut session = GameSession::new("tictactoe").unwrap();
+        // Corrupt the observation buffer to simulate a mismatch with metadata
+        session.obs.truncate(4);
+
+        assert_eq!(session.legal_moves(), Vec::<u8>::new());
+        assert!(!session.is_legal_move(0));
     }
 }
