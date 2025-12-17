@@ -8,9 +8,8 @@ use engine_core::EngineContext;
 use mcts::{run_mcts, MctsConfig, OnnxEvaluator, SearchResult};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use std::path::Path;
 use std::sync::{Arc, RwLock};
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Result from MCTS policy selection, including training data
 pub struct MctsPolicyResult {
@@ -89,26 +88,6 @@ impl MctsPolicy {
     pub fn with_config(mut self, config: MctsConfig) -> Self {
         self.config = config;
         self
-    }
-
-    /// Load an ONNX model from a file.
-    /// Note: The actor uses ModelWatcher for hot-reloading instead.
-    #[allow(dead_code)]
-    pub fn load_model<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let path_ref = path.as_ref();
-        info!("Loading ONNX model from {:?}", path_ref);
-
-        let evaluator = OnnxEvaluator::load(path_ref, self.obs_size)
-            .map_err(|e| anyhow!("Failed to load model: {}", e))?;
-
-        let mut guard = self
-            .evaluator
-            .write()
-            .map_err(|e| anyhow!("Failed to acquire write lock: {}", e))?;
-        *guard = Some(evaluator);
-
-        info!("ONNX model loaded successfully");
-        Ok(())
     }
 
     /// Check if a model is loaded (used for debugging/logging)

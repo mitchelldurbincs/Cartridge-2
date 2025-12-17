@@ -260,9 +260,9 @@ fn default_dirichlet_weight() -> f64 {
 
 /// Standard locations to search for config.toml
 const CONFIG_SEARCH_PATHS: &[&str] = &[
-    "config.toml",           // Current directory
-    "../config.toml",        // Parent directory (when running from actor/)
-    "/app/config.toml",      // Docker container
+    "config.toml",      // Current directory
+    "../config.toml",   // Parent directory (when running from actor/)
+    "/app/config.toml", // Docker container
 ];
 
 /// Load the central configuration from config.toml.
