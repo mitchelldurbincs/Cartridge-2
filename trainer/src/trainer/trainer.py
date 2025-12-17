@@ -320,8 +320,9 @@ class Trainer:
             policy_weight=config.policy_loss_weight,
         )
 
-        # Stats tracking
-        self.stats = TrainerStats(total_steps=config.total_steps)
+        # Stats tracking - load existing stats to preserve eval history
+        self.stats = self._load_existing_stats()
+        self.stats.total_steps = config.total_steps
         self.stats._max_history = config.max_history_length
         self.samples_seen = 0
 
@@ -332,6 +333,47 @@ class Trainer:
         # Checkpoint tracking
         self.checkpoints: list[Path] = []
         self.latest_checkpoint: Path | None = None
+
+    def _load_existing_stats(self) -> TrainerStats:
+        """Load existing stats from file to preserve eval history across iterations."""
+        stats_path = Path(self.config.stats_path)
+        if not stats_path.exists():
+            return TrainerStats()
+
+        try:
+            with open(stats_path) as f:
+                data = json.load(f)
+
+            stats = TrainerStats()
+
+            # Preserve eval history
+            if "last_eval" in data and data["last_eval"]:
+                stats.last_eval = EvalStats(
+                    step=data["last_eval"].get("step", 0),
+                    win_rate=data["last_eval"].get("win_rate", 0.0),
+                    draw_rate=data["last_eval"].get("draw_rate", 0.0),
+                    loss_rate=data["last_eval"].get("loss_rate", 0.0),
+                    games_played=data["last_eval"].get("games_played", 0),
+                    avg_game_length=data["last_eval"].get("avg_game_length", 0.0),
+                    timestamp=data["last_eval"].get("timestamp", 0.0),
+                )
+
+            if "eval_history" in data:
+                stats.eval_history = data["eval_history"]
+
+            # Optionally preserve training history too
+            if "history" in data:
+                stats.history = data["history"]
+
+            logger.info(
+                f"Loaded existing stats: {len(stats.eval_history)} eval records, "
+                f"{len(stats.history)} training records"
+            )
+            return stats
+
+        except Exception as e:
+            logger.warning(f"Failed to load existing stats: {e}")
+            return TrainerStats()
 
     def _wait_with_backoff(
         self, condition_fn, description: str, check_interval: float | None = None
@@ -525,10 +567,10 @@ class Trainer:
                     self.stats.last_checkpoint = str(checkpoint_path)
                     logger.info(f"Saved checkpoint: {checkpoint_path}")
 
-                # Run evaluation
+                # Run evaluation (based on global step count)
                 if (
                     self.config.eval_interval > 0
-                    and step % self.config.eval_interval == 0
+                    and global_step % self.config.eval_interval == 0
                 ):
                     if checkpoint_path is None:
                         checkpoint_path = self._save_checkpoint(global_step)

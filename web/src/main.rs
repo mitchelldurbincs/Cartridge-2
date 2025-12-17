@@ -462,11 +462,32 @@ async fn make_move(
 // Stats
 // ============================================================================
 
+/// Evaluation stats from a single evaluation run
+#[derive(Deserialize, Serialize, Clone, Default)]
+struct EvalStats {
+    #[serde(default)]
+    step: u32,
+    #[serde(default)]
+    win_rate: f64,
+    #[serde(default)]
+    draw_rate: f64,
+    #[serde(default)]
+    loss_rate: f64,
+    #[serde(default)]
+    games_played: u32,
+    #[serde(default)]
+    avg_game_length: f64,
+    #[serde(default)]
+    timestamp: f64,
+}
+
 /// Stats format written by Python trainer
 #[derive(Deserialize, Default)]
 struct TrainerStats {
     #[serde(default)]
     step: u32,
+    #[serde(default)]
+    total_steps: u32,
     #[serde(default)]
     total_loss: f64,
     #[serde(default)]
@@ -479,30 +500,46 @@ struct TrainerStats {
     learning_rate: f64,
     #[serde(default)]
     timestamp: f64,
+    #[serde(default)]
+    last_eval: Option<EvalStats>,
+    #[serde(default)]
+    eval_history: Vec<EvalStats>,
 }
 
 /// Stats format sent to frontend
 #[derive(Serialize, Default)]
 struct TrainingStats {
     epoch: u32,
+    step: u32,
+    total_steps: u32,
     loss: f64,
+    total_loss: f64,
     policy_loss: f64,
     value_loss: f64,
     games_played: u64,
+    replay_buffer_size: u64,
     learning_rate: f64,
     timestamp: f64,
+    last_eval: Option<EvalStats>,
+    eval_history: Vec<EvalStats>,
 }
 
 impl From<TrainerStats> for TrainingStats {
     fn from(t: TrainerStats) -> Self {
         Self {
             epoch: t.step,
+            step: t.step,
+            total_steps: t.total_steps,
             loss: t.total_loss,
+            total_loss: t.total_loss,
             policy_loss: t.policy_loss,
             value_loss: t.value_loss,
             games_played: t.replay_buffer_size,
+            replay_buffer_size: t.replay_buffer_size,
             learning_rate: t.learning_rate,
             timestamp: t.timestamp,
+            last_eval: t.last_eval,
+            eval_history: t.eval_history,
         }
     }
 }
