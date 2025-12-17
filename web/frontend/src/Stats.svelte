@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { getStats, getModelInfo, type TrainingStats, type ModelInfo } from './lib/api';
+  import LossChart from './LossChart.svelte';
 
   let stats: TrainingStats | null = $state(null);
   let modelInfo: ModelInfo | null = $state(null);
@@ -130,6 +131,11 @@
         <span class="value">{formatTimestamp(stats.timestamp)}</span>
       </div>
     </div>
+
+    <!-- Loss Chart -->
+    {#if stats.history && stats.history.length > 0}
+      <LossChart history={stats.history} />
+    {/if}
 
     <!-- Evaluation Section -->
     {#if stats.last_eval}

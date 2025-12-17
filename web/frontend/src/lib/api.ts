@@ -41,6 +41,14 @@ export interface EvalStats {
   timestamp: number;
 }
 
+export interface HistoryEntry {
+  step: number;
+  total_loss: number;
+  value_loss: number;
+  policy_loss: number;
+  learning_rate: number;
+}
+
 export interface TrainingStats {
   epoch: number;
   step: number;
@@ -56,6 +64,7 @@ export interface TrainingStats {
   env_id: string;
   last_eval: EvalStats | null;
   eval_history: EvalStats[];
+  history: HistoryEntry[];
 }
 
 export interface HealthResponse {
