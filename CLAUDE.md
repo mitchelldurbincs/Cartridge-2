@@ -145,7 +145,9 @@ cartridge2/
 │       ├── evaluator.py   # Model evaluation
 │       └── game_config.py # Game-specific configurations
 ├── scripts/               # Training scripts
-│   └── train_loop.py      # Synchronized AlphaZero training loop
+│   ├── train_loop.py      # Synchronized AlphaZero training loop (local)
+│   ├── docker_train.sh    # Docker entrypoint for synchronized training
+│   └── Dockerfile         # Combined actor+trainer image for Docker
 ├── docs/
 │   └── MVP.md             # Design document
 ├── data/                  # Runtime data (gitignored)
@@ -175,6 +177,27 @@ npm run dev
 ```
 
 Open http://localhost:5173 in your browser!
+
+### Train with Docker (Easiest)
+
+```bash
+# Train TicTacToe (default)
+docker compose up alphazero
+
+# Train Connect4
+ALPHAZERO_ENV_ID=connect4 docker compose up alphazero
+
+# Customize training parameters
+ALPHAZERO_ITERATIONS=50 ALPHAZERO_EPISODES=200 ALPHAZERO_STEPS=500 docker compose up alphazero
+
+# Run in background
+docker compose up alphazero -d
+docker compose logs -f alphazero  # Watch progress
+
+# Play against trained model (in another terminal)
+docker compose up web frontend
+# Open http://localhost in browser
+```
 
 ## Commands
 

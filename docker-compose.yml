@@ -1,28 +1,72 @@
 # Cartridge2 Docker Compose Configuration
 #
 # Services:
-#   - actor: Self-play episode runner (generates training data)
+#   - alphazero: Synchronized AlphaZero training (RECOMMENDED)
+#   - actor: Self-play episode runner (for continuous training)
+#   - trainer: Python training loop (for continuous training)
 #   - web: Backend API server (game logic, model serving)
 #   - frontend: Nginx serving Svelte frontend + proxying to web
-#   - trainer: Python training loop (trains neural network)
 #
 # Shared volume: ./data (SQLite DB, ONNX models, stats.json)
 #
 # Usage:
-#   docker-compose up -d              # Start all services
-#   docker-compose up -d web frontend # Start only web interface
-#   docker-compose logs -f trainer    # Watch trainer logs
-#   docker-compose down               # Stop all services
+#   # RECOMMENDED: Synchronized AlphaZero training
+#   docker-compose up alphazero           # Train with defaults (TicTacToe)
+#   docker-compose up alphazero -d        # Run in background
+#
+#   # For Connect4:
+#   ALPHAZERO_ENV_ID=connect4 docker-compose up alphazero
+#
+#   # Web interface (play against trained model)
+#   docker-compose up web frontend
+#
+#   # Legacy continuous training (actor + trainer run concurrently)
+#   docker-compose --profile continuous up
+#
+#   # View logs
+#   docker-compose logs -f alphazero
+#
+#   # Stop all
+#   docker-compose down
 
 services:
   # ==========================================================================
-  # Actor - Self-play episode runner
+  # AlphaZero - Synchronized Training (RECOMMENDED)
+  # ==========================================================================
+  # Each iteration: clear buffer -> generate episodes -> train -> repeat
+  # This ensures training data comes from the current model only
+  alphazero:
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile
+    container_name: cartridge-alphazero
+    volumes:
+      - ./data:/app/data
+    environment:
+      - ALPHAZERO_ENV_ID=${ALPHAZERO_ENV_ID:-tictactoe}
+      - ALPHAZERO_ITERATIONS=${ALPHAZERO_ITERATIONS:-100}
+      - ALPHAZERO_EPISODES=${ALPHAZERO_EPISODES:-500}
+      - ALPHAZERO_STEPS=${ALPHAZERO_STEPS:-1000}
+      - ALPHAZERO_BATCH_SIZE=${ALPHAZERO_BATCH_SIZE:-64}
+      - ALPHAZERO_LR=${ALPHAZERO_LR:-0.001}
+      - ALPHAZERO_DEVICE=${ALPHAZERO_DEVICE:-cpu}
+      - ALPHAZERO_EVAL_INTERVAL=${ALPHAZERO_EVAL_INTERVAL:-0}
+      - ALPHAZERO_EVAL_GAMES=${ALPHAZERO_EVAL_GAMES:-50}
+      - ALPHAZERO_CHECKPOINT_INTERVAL=${ALPHAZERO_CHECKPOINT_INTERVAL:-100}
+      - ALPHAZERO_START_ITERATION=${ALPHAZERO_START_ITERATION:-1}
+    networks:
+      - cartridge-net
+
+  # ==========================================================================
+  # Actor - Self-play episode runner (continuous mode only)
   # ==========================================================================
   actor:
     build:
       context: .
       dockerfile: actor/Dockerfile
     container_name: cartridge-actor
+    profiles:
+      - continuous
     restart: unless-stopped
     volumes:
       - ./data:/app/data
@@ -75,13 +119,15 @@ services:
       - cartridge-net
 
   # ==========================================================================
-  # Trainer - Python training loop (AlphaZero-style iterations)
+  # Trainer - Python training loop (continuous mode only)
   # ==========================================================================
   trainer:
     build:
       context: trainer
       dockerfile: Dockerfile
     container_name: cartridge-trainer
+    profiles:
+      - continuous
     restart: unless-stopped
     volumes:
       - ./data:/app/data
