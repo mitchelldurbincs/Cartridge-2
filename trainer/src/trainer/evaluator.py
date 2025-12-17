@@ -5,9 +5,9 @@ model plays games compared to random play. It loads game configuration from
 the replay database (like the Rust actor does), making it self-describing
 and supporting multiple games.
 
-Usage:
-    python -m trainer.evaluator --model data/models/latest.onnx --games 100
-    python -m trainer.evaluator --db data/replay.db --env-id connect4 --games 100
+Usage (defaults assume running from trainer/ directory):
+    python -m trainer.evaluator --model ../data/models/latest.onnx --games 100
+    python -m trainer.evaluator --db ../data/replay.db --env-id connect4 --games 100
 """
 
 import argparse
@@ -735,13 +735,13 @@ def main() -> int:
     parser.add_argument(
         "--model",
         type=str,
-        default="./data/models/latest.onnx",
+        default="../data/models/latest.onnx",
         help="Path to ONNX model file",
     )
     parser.add_argument(
         "--db",
         type=str,
-        default="./data/replay.db",
+        default="../data/replay.db",
         help="Path to replay database (for loading game metadata)",
     )
     parser.add_argument(
