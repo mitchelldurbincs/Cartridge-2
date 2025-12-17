@@ -271,12 +271,12 @@ impl Evaluator for OnnxEvaluator {
         // Build results for each batch item
         let mut results = Vec::with_capacity(batch_size);
 
-        for i in 0..batch_size {
+        for (i, &legal_mask) in legal_moves_masks.iter().enumerate().take(batch_size) {
             let logits_start = i * action_size;
             let logits_end = logits_start + action_size;
             let logits = &policy_flat[logits_start..logits_end];
 
-            let policy = Self::masked_softmax(logits, legal_moves_masks[i], num_actions);
+            let policy = Self::masked_softmax(logits, legal_mask, num_actions);
             let value = values.get(i).cloned().unwrap_or(0.0);
 
             results.push(EvalResult { policy, value });

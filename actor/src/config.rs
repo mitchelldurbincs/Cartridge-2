@@ -43,7 +43,11 @@ pub struct Config {
     pub log_interval: u32,
 
     /// Path to SQLite replay database (default assumes running from actor/ directory)
-    #[arg(long, env = "ACTOR_REPLAY_DB_PATH", default_value = "../data/replay.db")]
+    #[arg(
+        long,
+        env = "ACTOR_REPLAY_DB_PATH",
+        default_value = "../data/replay.db"
+    )]
     pub replay_db_path: String,
 
     /// Data directory for models and other files (default assumes running from actor/ directory)

@@ -14,6 +14,7 @@ use std::path::Path;
 
 /// Stored game metadata for self-describing replay databases
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields are part of the public API and may be read by consumers
 pub struct StoredGameMetadata {
     pub env_id: String,
     pub display_name: String,

@@ -3,7 +3,8 @@ members = [
     "engine-core",
     "games-tictactoe",
     "games-connect4",
-    "mcts"
+    "mcts",
+    "model-watcher"
 ]
 resolver = "2"
 
