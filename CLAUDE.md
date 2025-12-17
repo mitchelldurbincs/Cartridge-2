@@ -144,6 +144,8 @@ cartridge2/
 │       ├── replay.py      # SQLite interface
 │       ├── evaluator.py   # Model evaluation
 │       └── game_config.py # Game-specific configurations
+├── scripts/               # Training scripts
+│   └── train_loop.py      # Synchronized AlphaZero training loop
 ├── docs/
 │   └── MVP.md             # Design document
 ├── data/                  # Runtime data (gitignored)
@@ -202,10 +204,30 @@ cd web && cargo run
 # Start frontend dev server
 cd web/frontend && npm run dev
 
+# ======= RECOMMENDED: Synchronized AlphaZero Training =======
+# Each iteration: clear buffer -> generate episodes -> train -> repeat
+# This ensures training data comes from the current model only
+
+# Basic synchronized training (TicTacToe)
+python3 scripts/train_loop.py --iterations 50 --episodes 200 --steps 500
+
+# Connect4 with more data per iteration
+python3 scripts/train_loop.py --env-id connect4 --iterations 100 --episodes 500 --steps 1000
+
+# With GPU and evaluation
+python3 scripts/train_loop.py --device cuda --eval-interval 100 --eval-games 50
+
+# Resume from a specific iteration
+python3 scripts/train_loop.py --iterations 100 --start-iteration 25
+
+# ======= Alternative: Continuous (non-synchronized) training =======
+# Actor and trainer run concurrently - mixes data from multiple model versions
+# Less correct for AlphaZero but simpler for quick experiments
+
 # Run self-play to generate training data
 cd actor && cargo run -- --env-id tictactoe --max-episodes 1000
 
-# Train the model
+# Train the model (in separate terminal)
 cd trainer && python3 -m trainer --db ../data/replay.db --steps 1000
 
 # Evaluate model against random play

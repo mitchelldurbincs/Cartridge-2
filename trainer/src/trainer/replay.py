@@ -444,6 +444,18 @@ class ReplayBuffer:
         self._conn.commit()
         return cursor.rowcount
 
+    def clear_transitions(self) -> int:
+        """Delete all transitions from the buffer.
+
+        Preserves game_metadata table. Used for synchronized AlphaZero
+        training where each iteration trains only on data from the current model.
+
+        Returns the number of deleted transitions.
+        """
+        cursor = self._conn.execute("DELETE FROM transitions")
+        self._conn.commit()
+        return cursor.rowcount
+
 
 def create_empty_db(db_path: str | Path) -> None:
     """Create an empty replay database with the correct schema.
