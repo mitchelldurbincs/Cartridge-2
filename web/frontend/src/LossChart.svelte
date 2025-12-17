@@ -27,17 +27,19 @@
       return { xTicks: [], yTicks: [], paths: { total: '', policy: '', value: '' }, yMax: 1 };
     }
 
+    const sorted = [...data].sort((a, b) => a.step - b.step);
+
     // Get data ranges
-    const steps = data.map(d => d.step);
+    const steps = sorted.map(d => d.step);
     const minStep = Math.min(...steps);
     const maxStep = Math.max(...steps);
 
-    const allLosses = data.flatMap(d => [d.total_loss, d.policy_loss, d.value_loss]);
+    const allLosses = sorted.flatMap(d => [d.total_loss, d.policy_loss, d.value_loss]);
     const maxLoss = Math.max(...allLosses);
     const minLoss = Math.min(...allLosses);
 
     // Add some padding to y-axis
-    const yMax = maxLoss * 1.1;
+    const yMax = maxLoss === 0 ? 1 : maxLoss * 1.1;
     const yMin = Math.max(0, minLoss * 0.9);
     const yRange = yMax - yMin || 1;
 
@@ -53,7 +55,7 @@
 
     // Generate paths
     const makePath = (key: 'total_loss' | 'policy_loss' | 'value_loss') => {
-      return data.map((d, i) => {
+      return sorted.map((d, i) => {
         const x = xScale(d.step);
         const y = yScale(d[key]);
         return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
