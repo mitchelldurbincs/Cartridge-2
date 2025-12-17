@@ -31,14 +31,30 @@ export interface MoveResponse extends GameState {
   bot_move: number | null;
 }
 
+export interface EvalStats {
+  step: number;
+  win_rate: number;
+  draw_rate: number;
+  loss_rate: number;
+  games_played: number;
+  avg_game_length: number;
+  timestamp: number;
+}
+
 export interface TrainingStats {
   epoch: number;
+  step: number;
+  total_steps: number;
   loss: number;
+  total_loss: number;
   policy_loss: number;
   value_loss: number;
   games_played: number;
+  replay_buffer_size: number;
   learning_rate: number;
   timestamp: number;
+  last_eval: EvalStats | null;
+  eval_history: EvalStats[];
 }
 
 export interface HealthResponse {
