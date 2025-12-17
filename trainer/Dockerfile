@@ -10,15 +10,13 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy pyproject.toml first for better caching
-COPY pyproject.toml ./
+# Copy metadata and source before installing dependencies
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
 
 # Install Python dependencies
 # Using pip with --no-cache-dir to reduce image size
-RUN pip install --no-cache-dir -e .
-
-# Copy the source code
-COPY src/ ./src/
+RUN pip install --no-cache-dir .
 
 # Create data directory
 RUN mkdir -p /app/data/models
