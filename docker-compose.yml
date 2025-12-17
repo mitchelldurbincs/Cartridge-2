@@ -101,6 +101,9 @@ services:
       - TRAINER_WAIT_INTERVAL=2
       - TRAINER_MAX_WAIT=30
       - TRAINER_SLEEP_INTERVAL=5
+      # Evaluation settings
+      - TRAINER_EVAL_INTERVAL=50
+      - TRAINER_EVAL_GAMES=50
     entrypoint: ["/bin/bash", "/app/train-loop.sh"]
     command: []
     networks:

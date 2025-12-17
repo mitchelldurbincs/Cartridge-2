@@ -18,6 +18,8 @@ STATS_INTERVAL="${TRAINER_STATS_INTERVAL:-10}"
 WAIT_INTERVAL="${TRAINER_WAIT_INTERVAL:-2}"
 MAX_WAIT="${TRAINER_MAX_WAIT:-30}"
 SLEEP_INTERVAL="${TRAINER_SLEEP_INTERVAL:-5}"
+EVAL_INTERVAL="${TRAINER_EVAL_INTERVAL:-50}"
+EVAL_GAMES="${TRAINER_EVAL_GAMES:-50}"
 
 echo "=== Cartridge2 Training Loop ==="
 echo "Game: $ENV_ID"
@@ -48,6 +50,8 @@ while true; do
         --wait-interval "$WAIT_INTERVAL" \
         --max-wait "$MAX_WAIT" \
         --start-step "$global_step" \
+        --eval-interval "$EVAL_INTERVAL" \
+        --eval-games "$EVAL_GAMES" \
     || {
         echo "Training iteration $iteration failed or no data available, sleeping..."
         sleep "$SLEEP_INTERVAL"
