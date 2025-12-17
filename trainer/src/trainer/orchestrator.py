@@ -355,10 +355,12 @@ class Orchestrator:
                 "draw_rate": results.draw_rate,
                 "loss_rate": results.player2_win_rate,
                 "games": results.games_played,
+                "avg_game_length": results.avg_game_length,
                 "timestamp": datetime.now().isoformat(),
             }
             self.eval_history.append(eval_record)
             self._save_eval_stats()
+            self._update_stats_with_eval()
 
             return results.player1_win_rate, results.draw_rate, elapsed
 
@@ -403,6 +405,52 @@ class Orchestrator:
         """Save evaluation history to a separate file for web UI."""
         with open(self.config.eval_stats_path, "w") as f:
             json.dump({"evaluations": self.eval_history}, f, indent=2)
+
+    def _update_stats_with_eval(self) -> None:
+        """Update stats.json with evaluation results so frontend can display them.
+
+        The frontend reads stats.json and expects `last_eval` and `eval_history`
+        fields to display evaluation metrics.
+        """
+        if not self.eval_history:
+            return
+
+        try:
+            # Read existing stats.json
+            stats_data = {}
+            if self.config.stats_path.exists():
+                with open(self.config.stats_path) as f:
+                    stats_data = json.load(f)
+
+            # Convert eval_history to the format expected by frontend
+            # Frontend expects: step, win_rate, draw_rate, loss_rate, games_played, avg_game_length
+            formatted_history = []
+            for record in self.eval_history:
+                formatted_history.append({
+                    "step": record.get("iteration", 0) * self.config.steps_per_iteration,
+                    "win_rate": record.get("win_rate", 0.0),
+                    "draw_rate": record.get("draw_rate", 0.0),
+                    "loss_rate": record.get("loss_rate", 0.0),
+                    "games_played": record.get("games", 0),
+                    "avg_game_length": record.get("avg_game_length", 0.0),
+                    "timestamp": time.time(),
+                })
+
+            # Update stats with eval data
+            if formatted_history:
+                stats_data["last_eval"] = formatted_history[-1]
+                stats_data["eval_history"] = formatted_history
+
+            # Write back atomically
+            temp_path = self.config.stats_path.with_suffix(".json.tmp")
+            with open(temp_path, "w") as f:
+                json.dump(stats_data, f, indent=2)
+            temp_path.replace(self.config.stats_path)
+
+            logger.debug(f"Updated stats.json with {len(formatted_history)} eval records")
+
+        except Exception as e:
+            logger.warning(f"Failed to update stats.json with eval results: {e}")
 
     def run_iteration(self, iteration: int) -> IterationStats | None:
         """Run a single training iteration.
