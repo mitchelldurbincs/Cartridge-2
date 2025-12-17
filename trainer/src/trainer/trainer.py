@@ -331,6 +331,7 @@ class Trainer:
 
         # Checkpoint tracking
         self.checkpoints: list[Path] = []
+        self.latest_checkpoint: Path | None = None
 
     def _wait_with_backoff(
         self, condition_fn, description: str, check_interval: float | None = None
@@ -442,6 +443,7 @@ class Trainer:
             for step in range(1, self.config.total_steps + 1):
                 global_step = start_step + step
                 self.stats.step = global_step
+                checkpoint_path: Path | None = None
 
                 # Sample batch (filter by env_id and use correct num_actions)
                 batch = replay.sample_batch_tensors(
@@ -528,6 +530,11 @@ class Trainer:
                     self.config.eval_interval > 0
                     and step % self.config.eval_interval == 0
                 ):
+                    if checkpoint_path is None:
+                        checkpoint_path = self._save_checkpoint(global_step)
+                        self.stats.last_checkpoint = str(checkpoint_path)
+                        logger.info(f"Saved checkpoint for evaluation: {checkpoint_path}")
+
                     self._evaluate_checkpoint(checkpoint_path, global_step)
                     self._write_stats()
 
@@ -695,6 +702,7 @@ class Trainer:
             # Track checkpoints for cleanup
             self.checkpoints.append(checkpoint_path)
             self._cleanup_old_checkpoints()
+            self.latest_checkpoint = checkpoint_path
 
             # Clean up orphaned .onnx.data files from PyTorch exporter
             self._cleanup_temp_onnx_data(model_dir)
