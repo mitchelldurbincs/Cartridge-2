@@ -98,7 +98,8 @@ services:
       - TRAINER_LR=0.001
       - TRAINER_CHECKPOINT_INTERVAL=25
       - TRAINER_STATS_INTERVAL=10
-      - TRAINER_MIN_SAMPLES=100
+      - TRAINER_WAIT_INTERVAL=2
+      - TRAINER_MAX_WAIT=30
       - TRAINER_SLEEP_INTERVAL=5
     entrypoint: ["/bin/bash", "/app/train-loop.sh"]
     command: []

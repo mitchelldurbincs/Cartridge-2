@@ -77,6 +77,9 @@ class TrainerConfig:
     wait_interval: float = DEFAULT_WAIT_INTERVAL
     max_wait: float = DEFAULT_MAX_WAIT  # 0 = wait indefinitely
 
+    # Step offset for continuous training (checkpoint naming)
+    start_step: int = 0
+
     # Stats history settings
     max_history_length: int = 100
 
@@ -289,8 +292,10 @@ class Trainer:
 
             # Training loop
             consecutive_skips = 0
+            start_step = self.config.start_step
             for step in range(1, self.config.total_steps + 1):
-                self.stats.step = step
+                global_step = start_step + step
+                self.stats.step = global_step
 
                 # Sample batch (filter by env_id and use correct num_actions)
                 batch = replay.sample_batch_tensors(
@@ -346,7 +351,7 @@ class Trainer:
                     avg_value = sum(x["value"] for x in self._recent_losses) / n
                     avg_policy = sum(x["policy"] for x in self._recent_losses) / n
                     logger.info(
-                        f"Step {step}/{self.config.total_steps}: "
+                        f"Step {global_step} ({step}/{self.config.total_steps}): "
                         f"loss={metrics['loss/total']:.4f} "
                         f"(v={metrics['loss/value']:.4f}, p={metrics['loss/policy']:.4f}) "
                         f"avg100={avg_total:.4f} (v={avg_value:.4f}, p={avg_policy:.4f}) "
@@ -357,7 +362,7 @@ class Trainer:
                 if step % self.config.stats_interval == 0:
                     self.stats.append_history(
                         {
-                            "step": step,
+                            "step": global_step,
                             "total_loss": metrics["loss/total"],
                             "value_loss": metrics["loss/value"],
                             "policy_loss": metrics["loss/policy"],
@@ -368,12 +373,13 @@ class Trainer:
 
                 # Save checkpoint
                 if step % self.config.checkpoint_interval == 0:
-                    checkpoint_path = self._save_checkpoint(step)
+                    checkpoint_path = self._save_checkpoint(global_step)
                     self.stats.last_checkpoint = str(checkpoint_path)
                     logger.info(f"Saved checkpoint: {checkpoint_path}")
 
             # Final checkpoint
-            self._save_checkpoint(self.config.total_steps, is_final=True)
+            final_global_step = start_step + self.config.total_steps
+            self._save_checkpoint(final_global_step, is_final=True)
             self._write_stats()
 
         logger.info("Training complete")

@@ -14,10 +14,12 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 COPY train-loop.sh ./
-RUN chmod +x train-loop.sh
+RUN sed -i 's/\r$//' train-loop.sh && chmod +x train-loop.sh
 
-# Install Python dependencies
-# Using pip with --no-cache-dir to reduce image size
+# Install CPU-only PyTorch first (avoids downloading ~700MB of CUDA libraries)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install remaining Python dependencies
 RUN pip install --no-cache-dir .
 
 # Create data directory

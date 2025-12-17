@@ -122,6 +122,14 @@ def main() -> int:
         help="Max seconds to wait for DB/data (0 = wait forever)",
     )
 
+    # Step offset for continuous training
+    parser.add_argument(
+        "--start-step",
+        type=int,
+        default=0,
+        help="Starting step number (for checkpoint naming in continuous training)",
+    )
+
     # Environment
     parser.add_argument(
         "--env-id",
@@ -177,6 +185,7 @@ def main() -> int:
         max_checkpoints=args.max_checkpoints,
         wait_interval=args.wait_interval,
         max_wait=args.max_wait,
+        start_step=args.start_step,
         env_id=args.env_id,
         device=args.device,
     )

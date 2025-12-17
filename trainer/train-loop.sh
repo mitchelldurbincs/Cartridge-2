@@ -15,24 +15,25 @@ BATCH_SIZE="${TRAINER_BATCH_SIZE:-32}"
 LR="${TRAINER_LR:-0.001}"
 CHECKPOINT_INTERVAL="${TRAINER_CHECKPOINT_INTERVAL:-25}"
 STATS_INTERVAL="${TRAINER_STATS_INTERVAL:-10}"
-MIN_SAMPLES="${TRAINER_MIN_SAMPLES:-100}"
+WAIT_INTERVAL="${TRAINER_WAIT_INTERVAL:-2}"
+MAX_WAIT="${TRAINER_MAX_WAIT:-30}"
 SLEEP_INTERVAL="${TRAINER_SLEEP_INTERVAL:-5}"
 
 echo "=== Cartridge2 Training Loop ==="
 echo "Game: $ENV_ID"
 echo "Steps per iteration: $STEPS_PER_ITERATION"
 echo "Batch size: $BATCH_SIZE"
-echo "Min samples before training: $MIN_SAMPLES"
 echo "================================"
 
 iteration=0
+global_step=0
 
 while true; do
     iteration=$((iteration + 1))
     echo ""
-    echo "=== Training Iteration $iteration ==="
+    echo "=== Training Iteration $iteration (starting at step $global_step) ==="
 
-    # Run a short training session
+    # Run a short training session with start-step offset
     python -m trainer \
         --db "$DB_PATH" \
         --model-dir "$MODEL_DIR" \
@@ -44,14 +45,19 @@ while true; do
         --lr "$LR" \
         --checkpoint-interval "$CHECKPOINT_INTERVAL" \
         --stats-interval "$STATS_INTERVAL" \
-        --min-samples "$MIN_SAMPLES" \
+        --wait-interval "$WAIT_INTERVAL" \
+        --max-wait "$MAX_WAIT" \
+        --start-step "$global_step" \
     || {
         echo "Training iteration $iteration failed or no data available, sleeping..."
         sleep "$SLEEP_INTERVAL"
         continue
     }
 
-    echo "=== Iteration $iteration complete ==="
+    # Update global step counter
+    global_step=$((global_step + STEPS_PER_ITERATION))
+
+    echo "=== Iteration $iteration complete (total steps: $global_step) ==="
 
     # Brief pause between iterations
     sleep 1
