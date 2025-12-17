@@ -283,7 +283,7 @@ class Orchestrator:
             model_dir=str(self.config.models_dir),
             stats_path=str(self.config.stats_path),
             env_id=self.config.env_id,
-            steps=num_steps,
+            total_steps=num_steps,
             start_step=start_step,
             batch_size=self.config.batch_size,
             learning_rate=self.config.learning_rate,

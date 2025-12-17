@@ -189,7 +189,7 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     # Apply legacy overrides
     for env_var, (section, key) in legacy_mapping.items():
         value = os.environ.get(env_var)
-        if value is not None:
+        if value is not None and value != "":
             if section not in data:
                 data[section] = {}
             # Convert to appropriate type
@@ -200,6 +200,10 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     prefix = "CARTRIDGE_"
     for env_var, value in os.environ.items():
         if not env_var.startswith(prefix):
+            continue
+
+        # Skip empty values
+        if value == "":
             continue
 
         # Parse CARTRIDGE_SECTION_KEY format

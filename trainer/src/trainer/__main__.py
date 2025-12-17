@@ -106,7 +106,10 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 def cmd_loop(args: argparse.Namespace) -> int:
     """Run synchronized AlphaZero training loop."""
     from .orchestrator import main as orchestrator_main
-    # orchestrator has its own arg parsing, so we call it directly
+    # orchestrator has its own arg parsing, so we need to strip the 'loop' subcommand
+    # from sys.argv before calling it
+    if len(sys.argv) >= 2 and sys.argv[1] == "loop":
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
     return orchestrator_main()
 
 
