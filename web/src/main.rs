@@ -126,7 +126,10 @@ async fn main() -> anyhow::Result<()> {
     // Load configuration from config.toml with env var overrides
     let data_dir = get_data_dir();
     let default_game = get_default_game();
-    info!("Configuration: data_dir={}, default_game={}", data_dir, default_game);
+    info!(
+        "Configuration: data_dir={}, default_game={}",
+        data_dir, default_game
+    );
 
     // Set up shared evaluator for model hot-reloading
     let evaluator: Arc<RwLock<Option<OnnxEvaluator>>> = Arc::new(RwLock::new(None));

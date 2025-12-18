@@ -208,6 +208,7 @@ impl Actor {
                                 duration,
                                 "Episode completed"
                             );
+                            #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable
                             if self.config.log_interval > 0 && new_count % self.config.log_interval == 0 {
                                 info!("Completed {} episodes", new_count);
                             }

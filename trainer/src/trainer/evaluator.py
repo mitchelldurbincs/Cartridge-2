@@ -30,14 +30,16 @@ logger = logging.getLogger(__name__)
 
 class Player(IntEnum):
     """Player identifiers matching game implementations."""
-    FIRST = 1   # First player (X in TicTacToe, Red in Connect4)
+
+    FIRST = 1  # First player (X in TicTacToe, Red in Connect4)
     SECOND = 2  # Second player (O in TicTacToe, Yellow in Connect4)
 
 
 class Cell(IntEnum):
     """Cell states."""
+
     EMPTY = 0
-    FIRST = 1   # First player's piece
+    FIRST = 1  # First player's piece
     SECOND = 2  # Second player's piece
 
 
@@ -116,6 +118,7 @@ class GameState(Protocol):
 @dataclass
 class TicTacToeState:
     """Pure Python TicTacToe state for evaluation."""
+
     board: list[int]  # 9 cells, 0=empty, 1=first, 2=second
     current_player: Player
     _done: bool = False
@@ -245,6 +248,7 @@ class TicTacToeState:
 @dataclass
 class Connect4State:
     """Pure Python Connect4 state for evaluation."""
+
     board: list[int]  # 42 cells (7x6), column-major: board[col * 6 + row]
     current_player: Player
     _done: bool = False
@@ -292,13 +296,18 @@ class Connect4State:
         """Return indices of columns that aren't full."""
         if self._done:
             return []
-        return [col for col in range(self.WIDTH) if self._column_height(col) < self.HEIGHT]
+        return [
+            col for col in range(self.WIDTH) if self._column_height(col) < self.HEIGHT
+        ]
 
     def legal_moves_mask(self) -> list[float]:
         """Return mask where 1.0 = legal, 0.0 = illegal."""
         if self._done:
             return [0.0] * self.WIDTH
-        return [1.0 if self._column_height(col) < self.HEIGHT else 0.0 for col in range(self.WIDTH)]
+        return [
+            1.0 if self._column_height(col) < self.HEIGHT else 0.0
+            for col in range(self.WIDTH)
+        ]
 
     def make_move(self, col: int) -> None:
         """Drop a piece in the given column."""
@@ -327,18 +336,31 @@ class Connect4State:
 
     def _check_winner(self, col: int, row: int, player: Player) -> bool:
         """Check if the last move at (col, row) creates a win."""
-        directions = [(1, 0), (0, 1), (1, 1), (1, -1)]  # horizontal, vertical, diagonals
+        directions = [
+            (1, 0),
+            (0, 1),
+            (1, 1),
+            (1, -1),
+        ]  # horizontal, vertical, diagonals
         for dc, dr in directions:
             count = 1
             # Count in positive direction
             c, r = col + dc, row + dr
-            while 0 <= c < self.WIDTH and 0 <= r < self.HEIGHT and self._get_cell(c, r) == player:
+            while (
+                0 <= c < self.WIDTH
+                and 0 <= r < self.HEIGHT
+                and self._get_cell(c, r) == player
+            ):
                 count += 1
                 c += dc
                 r += dr
             # Count in negative direction
             c, r = col - dc, row - dr
-            while 0 <= c < self.WIDTH and 0 <= r < self.HEIGHT and self._get_cell(c, r) == player:
+            while (
+                0 <= c < self.WIDTH
+                and 0 <= r < self.HEIGHT
+                and self._get_cell(c, r) == player
+            ):
                 count += 1
                 c -= dc
                 r -= dr
@@ -376,7 +398,9 @@ class Connect4State:
         symbols = {Cell.EMPTY: ".", Cell.FIRST: "R", Cell.SECOND: "Y"}
         rows = []
         for row in range(self.HEIGHT - 1, -1, -1):
-            cells = [symbols[Cell(self._get_cell(col, row))] for col in range(self.WIDTH)]
+            cells = [
+                symbols[Cell(self._get_cell(col, row))] for col in range(self.WIDTH)
+            ]
             rows.append(" ".join(cells))
         rows.append("-" * (self.WIDTH * 2 - 1))
         rows.append(" ".join(str(i) for i in range(self.WIDTH)))
@@ -528,6 +552,7 @@ class OnnxPolicy:
 @dataclass
 class MatchResult:
     """Result of a single game."""
+
     winner: int | None  # 1=player1, 2=player2, None=draw
     moves: int
     player1_as: Player  # Which color player1 played
@@ -536,6 +561,7 @@ class MatchResult:
 @dataclass
 class EvalResults:
     """Aggregated evaluation results."""
+
     env_id: str
     player1_name: str
     player2_name: str
@@ -707,7 +733,9 @@ def evaluate(
         # Alternate sides
         player1_as = Player.FIRST if game_num < games_per_side else Player.SECOND
 
-        result = play_game(player1, player2, player1_as, env_id, config, verbose=verbose)
+        result = play_game(
+            player1, player2, player1_as, env_id, config, verbose=verbose
+        )
 
         results.games_played += 1
         total_moves += result.moves
@@ -825,7 +853,9 @@ def main() -> int:
 
     random_policy = RandomPolicy()
 
-    logger.info(f"Running {args.games} games: {model_policy.name} vs {random_policy.name}")
+    logger.info(
+        f"Running {args.games} games: {model_policy.name} vs {random_policy.name}"
+    )
     logger.info(f"Environment: {args.env_id}")
 
     # Run evaluation with game configuration
@@ -854,7 +884,9 @@ def main() -> int:
 
     # Game-specific analysis
     if args.env_id == "tictactoe" and results.draw_rate > 0.8:
-        print("\nNote: High draw rate suggests defensive play, which is optimal for TicTacToe.")
+        print(
+            "\nNote: High draw rate suggests defensive play, which is optimal for TicTacToe."
+        )
 
     return 0
 

@@ -98,9 +98,7 @@ def get_config(env_id: str) -> GameConfig:
     """
     if env_id not in GAME_CONFIGS:
         available = ", ".join(GAME_CONFIGS.keys())
-        raise ValueError(
-            f"Unknown game: {env_id}. Available games: {available}"
-        )
+        raise ValueError(f"Unknown game: {env_id}. Available games: {available}")
     return GAME_CONFIGS[env_id]
 
 

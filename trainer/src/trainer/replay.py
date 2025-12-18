@@ -111,7 +111,9 @@ class Transition:
     timestamp: int
     policy_probs: bytes | None  # f32[num_actions] MCTS visit distribution
     mcts_value: float  # MCTS value estimate at this position
-    game_outcome: float | None  # Final game outcome from this player's perspective (+1/-1/0)
+    game_outcome: (
+        float | None
+    )  # Final game outcome from this player's perspective (+1/-1/0)
 
 
 class ReplayBuffer:
@@ -505,7 +507,9 @@ class ReplayBuffer:
             action_idx = int.from_bytes(t.action, byteorder="little")
             policy_targets[0, action_idx] = 1.0
 
-        value_targets[0] = t.game_outcome if t.game_outcome is not None else t.mcts_value
+        value_targets[0] = (
+            t.game_outcome if t.game_outcome is not None else t.mcts_value
+        )
 
         # Process remaining transitions
         for i in range(1, batch_size):
@@ -532,7 +536,9 @@ class ReplayBuffer:
 
             # Use game_outcome as value target (propagated from terminal state)
             # Falls back to mcts_value for backward compatibility with old data
-            value_targets[i] = t.game_outcome if t.game_outcome is not None else t.mcts_value
+            value_targets[i] = (
+                t.game_outcome if t.game_outcome is not None else t.mcts_value
+            )
 
         return observations, policy_targets, value_targets
 
@@ -558,7 +564,9 @@ class ReplayBuffer:
             if max_batches is not None and batches_yielded >= max_batches:
                 break
 
-            batch = self.sample_batch_tensors(batch_size, num_actions=num_actions, env_id=env_id)
+            batch = self.sample_batch_tensors(
+                batch_size, num_actions=num_actions, env_id=env_id
+            )
             if batch is None:
                 break
 
@@ -683,7 +691,9 @@ def insert_test_transitions(db_path: str | Path, count: int = 100) -> None:
         mcts_value = float(np.random.uniform(-1.0, 1.0))
 
         # Game outcome (same as reward for terminal, random for non-terminal)
-        game_outcome = reward if reward != 0 else float(np.random.choice([-1.0, 0.0, 1.0]))
+        game_outcome = (
+            reward if reward != 0 else float(np.random.choice([-1.0, 0.0, 1.0]))
+        )
 
         conn.execute(
             """

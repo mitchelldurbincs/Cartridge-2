@@ -116,8 +116,6 @@ class LoopConfig:
         return self.data_dir / "eval_stats.json"
 
 
-
-
 class Orchestrator:
     """Synchronized AlphaZero training loop orchestrator."""
 
@@ -224,12 +222,18 @@ class Orchestrator:
 
         cmd = [
             str(actor_binary),
-            "--env-id", self.config.env_id,
-            "--max-episodes", str(num_episodes),
-            "--replay-db-path", str(self.config.replay_db_path),
-            "--data-dir", str(self.config.data_dir),
-            "--log-interval", str(self.config.actor_log_interval),
-            "--log-level", "info",
+            "--env-id",
+            self.config.env_id,
+            "--max-episodes",
+            str(num_episodes),
+            "--replay-db-path",
+            str(self.config.replay_db_path),
+            "--data-dir",
+            str(self.config.data_dir),
+            "--log-interval",
+            str(self.config.actor_log_interval),
+            "--log-level",
+            "info",
         ]
 
         logger.info(f"Starting actor: {' '.join(cmd)}")
@@ -304,14 +308,18 @@ class Orchestrator:
             stats = trainer.train()
             elapsed = time.time() - start_time
 
-            logger.info(f"Trainer completed in {elapsed:.1f}s, final loss: {stats.total_loss:.4f}")
+            logger.info(
+                f"Trainer completed in {elapsed:.1f}s, final loss: {stats.total_loss:.4f}"
+            )
             return True, elapsed
 
         except Exception as e:
             logger.error(f"Trainer failed: {e}")
             return False, time.time() - start_time
 
-    def _run_evaluation(self, iteration: int) -> tuple[float | None, float | None, float]:
+    def _run_evaluation(
+        self, iteration: int
+    ) -> tuple[float | None, float | None, float]:
         """Run evaluation against random baseline.
 
         Returns (win_rate, draw_rate, elapsed_seconds).
@@ -429,15 +437,18 @@ class Orchestrator:
             # Frontend expects: step, win_rate, draw_rate, loss_rate, games_played, avg_game_length
             formatted_history = []
             for record in self.eval_history:
-                formatted_history.append({
-                    "step": record.get("iteration", 0) * self.config.steps_per_iteration,
-                    "win_rate": record.get("win_rate", 0.0),
-                    "draw_rate": record.get("draw_rate", 0.0),
-                    "loss_rate": record.get("loss_rate", 0.0),
-                    "games_played": record.get("games", 0),
-                    "avg_game_length": record.get("avg_game_length", 0.0),
-                    "timestamp": time.time(),
-                })
+                formatted_history.append(
+                    {
+                        "step": record.get("iteration", 0)
+                        * self.config.steps_per_iteration,
+                        "win_rate": record.get("win_rate", 0.0),
+                        "draw_rate": record.get("draw_rate", 0.0),
+                        "loss_rate": record.get("loss_rate", 0.0),
+                        "games_played": record.get("games", 0),
+                        "avg_game_length": record.get("avg_game_length", 0.0),
+                        "timestamp": time.time(),
+                    }
+                )
 
             # Update stats with eval data
             if formatted_history:
@@ -450,7 +461,9 @@ class Orchestrator:
                 json.dump(stats_data, f, indent=2)
             temp_path.replace(self.config.stats_path)
 
-            logger.debug(f"Updated stats.json with {len(formatted_history)} eval records")
+            logger.debug(
+                f"Updated stats.json with {len(formatted_history)} eval records"
+            )
 
         except Exception as e:
             logger.warning(f"Failed to update stats.json with eval results: {e}")
@@ -473,7 +486,9 @@ class Orchestrator:
             return None
 
         # Step 2: Run actor for N episodes
-        logger.info(f"Step 2: Running actor for {self.config.episodes_per_iteration} episodes...")
+        logger.info(
+            f"Step 2: Running actor for {self.config.episodes_per_iteration} episodes..."
+        )
         actor_success, actor_time = self._run_actor(self.config.episodes_per_iteration)
 
         if not actor_success:
@@ -510,8 +525,7 @@ class Orchestrator:
         draw_rate = None
 
         should_eval = (
-            self.config.eval_interval > 0
-            and iteration % self.config.eval_interval == 0
+            self.config.eval_interval > 0 and iteration % self.config.eval_interval == 0
         )
 
         if should_eval:
@@ -519,9 +533,13 @@ class Orchestrator:
             win_rate, draw_rate, eval_time = self._run_evaluation(iteration)
         else:
             if self.config.eval_interval > 0:
-                remaining = self.config.eval_interval - iteration % self.config.eval_interval
+                remaining = (
+                    self.config.eval_interval - iteration % self.config.eval_interval
+                )
                 next_eval = iteration + remaining
-                logger.info(f"Step 4: Skipping evaluation (next at iteration {next_eval})")
+                logger.info(
+                    f"Step 4: Skipping evaluation (next at iteration {next_eval})"
+                )
             else:
                 logger.info("Step 4: Evaluation disabled (ALPHAZERO_EVAL_INTERVAL=0)")
 
@@ -569,9 +587,13 @@ class Orchestrator:
         if self.config.eval_interval > 0:
             interval = self.config.eval_interval
             games = self.config.eval_games
-            logger.info(f"Evaluation: ENABLED (every {interval} iteration(s), {games} games)")
+            logger.info(
+                f"Evaluation: ENABLED (every {interval} iteration(s), {games} games)"
+            )
         else:
-            logger.info("Evaluation: DISABLED (set ALPHAZERO_EVAL_INTERVAL > 0 to enable)")
+            logger.info(
+                "Evaluation: DISABLED (set ALPHAZERO_EVAL_INTERVAL > 0 to enable)"
+            )
 
         logger.info("=" * 60)
 
@@ -601,17 +623,23 @@ class Orchestrator:
 
         if self.iteration_history:
             total_episodes = sum(s.episodes_generated for s in self.iteration_history)
-            total_transitions = sum(s.transitions_generated for s in self.iteration_history)
+            total_transitions = sum(
+                s.transitions_generated for s in self.iteration_history
+            )
             total_steps = sum(s.training_steps for s in self.iteration_history)
             logger.info(f"Total episodes: {total_episodes}")
             logger.info(f"Total transitions: {total_transitions}")
             logger.info(f"Total training steps: {total_steps}")
 
             # Report final evaluation if available
-            final_with_eval = [s for s in self.iteration_history if s.eval_win_rate is not None]
+            final_with_eval = [
+                s for s in self.iteration_history if s.eval_win_rate is not None
+            ]
             if final_with_eval:
                 final = final_with_eval[-1]
-                logger.info(f"Final evaluation: {final.eval_win_rate:.1%} win rate vs random")
+                logger.info(
+                    f"Final evaluation: {final.eval_win_rate:.1%} win rate vs random"
+                )
 
 
 def parse_args() -> LoopConfig:
@@ -654,70 +682,82 @@ Examples:
 
     # Iteration settings (defaults from central config)
     parser.add_argument(
-        "--iterations", type=int,
+        "--iterations",
+        type=int,
         default=cfg.training.iterations,
         help="Number of training iterations",
     )
     parser.add_argument(
-        "--start-iteration", type=int,
+        "--start-iteration",
+        type=int,
         default=cfg.training.start_iteration,
         help="Starting iteration number",
     )
     parser.add_argument(
-        "--episodes", type=int,
+        "--episodes",
+        type=int,
         default=cfg.training.episodes_per_iteration,
         help="Episodes per iteration",
     )
     parser.add_argument(
-        "--steps", type=int,
+        "--steps",
+        type=int,
         default=cfg.training.steps_per_iteration,
         help="Training steps per iteration",
     )
 
     # Environment
     parser.add_argument(
-        "--env-id", type=str,
+        "--env-id",
+        type=str,
         default=cfg.common.env_id,
         help="Environment ID: tictactoe, connect4",
     )
 
     # Paths
     parser.add_argument(
-        "--data-dir", type=str,
+        "--data-dir",
+        type=str,
         default=cfg.common.data_dir,
         help="Data directory",
     )
     parser.add_argument(
-        "--actor-binary", type=str,
+        "--actor-binary",
+        type=str,
         default=os.environ.get("ACTOR_BINARY"),
         help="Path to actor binary (env: ACTOR_BINARY)",
     )
 
     # Actor settings
     parser.add_argument(
-        "--actor-log-interval", type=int,
+        "--actor-log-interval",
+        type=int,
         default=cfg.actor.log_interval,
         help="Actor log interval in episodes",
     )
 
     # Trainer settings
     parser.add_argument(
-        "--batch-size", type=int,
+        "--batch-size",
+        type=int,
         default=cfg.training.batch_size,
         help="Training batch size",
     )
     parser.add_argument(
-        "--lr", type=float,
+        "--lr",
+        type=float,
         default=cfg.training.learning_rate,
         help="Learning rate",
     )
     parser.add_argument(
-        "--checkpoint-interval", type=int,
+        "--checkpoint-interval",
+        type=int,
         default=cfg.training.checkpoint_interval,
         help="Steps between checkpoints",
     )
     parser.add_argument(
-        "--device", type=str,
+        "--device",
+        type=str,
         default=cfg.training.device,
         choices=["cpu", "cuda", "mps"],
         help="Training device",
@@ -725,19 +765,22 @@ Examples:
 
     # Evaluation settings
     parser.add_argument(
-        "--eval-interval", type=int,
+        "--eval-interval",
+        type=int,
         default=cfg.evaluation.interval,
         help="Evaluate every N iterations, 0 to disable",
     )
     parser.add_argument(
-        "--eval-games", type=int,
+        "--eval-games",
+        type=int,
         default=cfg.evaluation.games,
         help="Games per evaluation",
     )
 
     # Logging
     parser.add_argument(
-        "--log-level", type=str,
+        "--log-level",
+        type=str,
         default=cfg.common.log_level.upper(),
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Log level",

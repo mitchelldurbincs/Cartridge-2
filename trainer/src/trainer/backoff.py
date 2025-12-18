@@ -54,7 +54,9 @@ def wait_with_backoff(
             )
 
         remaining = max_wait - elapsed if max_wait > 0 else None
-        next_sleep = min(sleep_interval, remaining) if remaining is not None else sleep_interval
+        next_sleep = (
+            min(sleep_interval, remaining) if remaining is not None else sleep_interval
+        )
 
         if logger and wait_count % LOG_EVERY_N_WAITS == 0:
             if remaining is not None:
