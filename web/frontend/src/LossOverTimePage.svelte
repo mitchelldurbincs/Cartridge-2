@@ -180,9 +180,51 @@
   let innerWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1200);
   let innerHeight = $state(typeof window !== 'undefined' ? window.innerHeight : 800);
 
+  // Hover state for tooltip
+  let hoverIndex: number | null = $state(null);
+  let mouseX: number = $state(0);
+  let mouseY: number = $state(0);
+
   function handleResize() {
     innerWidth = window.innerWidth;
     innerHeight = window.innerHeight;
+  }
+
+  function handleMouseMove(event: MouseEvent) {
+    const svg = event.currentTarget as SVGSVGElement;
+    const rect = svg.getBoundingClientRect();
+
+    // Get mouse position relative to the chart area
+    const x = event.clientX - rect.left - padding.left;
+    const y = event.clientY - rect.top - padding.top;
+
+    mouseX = event.clientX - rect.left;
+    mouseY = event.clientY - rect.top;
+
+    // Only show hover if within chart bounds
+    if (x < 0 || x > chartWidth || y < 0 || y > chartHeight) {
+      hoverIndex = null;
+      return;
+    }
+
+    // Find the nearest data point by x position
+    if (chartData.points.total.length > 0) {
+      let nearestIdx = 0;
+      let minDist = Math.abs(chartData.points.total[0].x - x);
+
+      for (let i = 1; i < chartData.points.total.length; i++) {
+        const dist = Math.abs(chartData.points.total[i].x - x);
+        if (dist < minDist) {
+          minDist = dist;
+          nearestIdx = i;
+        }
+      }
+      hoverIndex = nearestIdx;
+    }
+  }
+
+  function handleMouseLeave() {
+    hoverIndex = null;
   }
 
   onMount(() => {
@@ -196,6 +238,15 @@
   let chartHeight = $derived(height - padding.top - padding.bottom);
   let filteredHistory = $derived(filterByRange(history, selectedRange));
   let chartData = $derived(getChartData(filteredHistory, chartWidth, chartHeight, showAvg100));
+
+  // Get hover data for the current index (must be after chartData)
+  let hoverData = $derived(hoverIndex !== null && chartData.points.total[hoverIndex] ? {
+    step: chartData.points.total[hoverIndex].step,
+    total: chartData.points.total[hoverIndex].value,
+    policy: chartData.points.policy[hoverIndex]?.value,
+    value: chartData.points.value[hoverIndex]?.value,
+    x: chartData.points.total[hoverIndex].x,
+  } : null);
 </script>
 
 <div class="page">
@@ -225,7 +276,16 @@
     <div class="error">{error}</div>
   {:else if filteredHistory.length > 1}
     <div class="chart-container">
-      <svg viewBox="0 0 {width} {height}" width={width} height={height}>
+      <svg
+        viewBox="0 0 {width} {height}"
+        width={width}
+        height={height}
+        onmousemove={handleMouseMove}
+        onmouseleave={handleMouseLeave}
+        style="cursor: crosshair;"
+        role="img"
+        aria-label="Loss over time chart with interactive hover"
+      >
         <g transform="translate({padding.left}, {padding.top})">
           <!-- Grid lines -->
           {#each chartData.yTicks as tick}
@@ -318,7 +378,84 @@
           >
             Loss
           </text>
+
+          <!-- Hover crosshair and highlights -->
+          {#if hoverData}
+            <!-- Vertical crosshair line -->
+            <line
+              x1={hoverData.x}
+              y1="0"
+              x2={hoverData.x}
+              y2={chartHeight}
+              stroke="#ffffff"
+              stroke-width="1"
+              stroke-opacity="0.5"
+              stroke-dasharray="4,4"
+            />
+
+            <!-- Highlight circles on each line -->
+            <circle
+              cx={hoverData.x}
+              cy={chartData.points.total[hoverIndex!].y}
+              r="6"
+              fill={colors.total}
+              stroke="#fff"
+              stroke-width="2"
+            />
+            <circle
+              cx={hoverData.x}
+              cy={chartData.points.policy[hoverIndex!].y}
+              r="5"
+              fill={colors.policy}
+              stroke="#fff"
+              stroke-width="2"
+            />
+            <circle
+              cx={hoverData.x}
+              cy={chartData.points.value[hoverIndex!].y}
+              r="5"
+              fill={colors.value}
+              stroke="#fff"
+              stroke-width="2"
+            />
+          {/if}
         </g>
+
+        <!-- Tooltip (outside the transform group for easier positioning) -->
+        {#if hoverData}
+          {@const tooltipX = mouseX + 15}
+          {@const tooltipY = mouseY - 10}
+          {@const tooltipWidth = 160}
+          {@const tooltipHeight = 90}
+          {@const adjustedX = tooltipX + tooltipWidth > width ? mouseX - tooltipWidth - 15 : tooltipX}
+          {@const adjustedY = tooltipY + tooltipHeight > height ? height - tooltipHeight - 10 : tooltipY}
+
+          <g transform="translate({adjustedX}, {adjustedY})">
+            <rect
+              x="0"
+              y="0"
+              width={tooltipWidth}
+              height={tooltipHeight}
+              rx="6"
+              fill="#1a1a2e"
+              stroke="#4a4a6a"
+              stroke-width="1"
+              opacity="0.95"
+            />
+            <text x="10" y="20" fill="#aaa" font-size="12">
+              Step: <tspan fill="#fff" font-weight="bold">{formatStep(hoverData.step)}</tspan>
+            </text>
+            <text x="10" y="40" fill={colors.total} font-size="12">
+              Total: <tspan font-weight="bold">{formatLoss(hoverData.total)}</tspan>
+            </text>
+            <text x="10" y="58" fill={colors.policy} font-size="12">
+              Policy: <tspan font-weight="bold">{formatLoss(hoverData.policy)}</tspan>
+            </text>
+            <text x="10" y="76" fill={colors.value} font-size="12">
+              Value: <tspan font-weight="bold">{formatLoss(hoverData.value)}</tspan>
+            </text>
+          </g>
+        {/if}
       </svg>
 
       <!-- Legend -->
