@@ -16,7 +16,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Default history bounds
-DEFAULT_MAX_HISTORY = 100
+DEFAULT_MAX_HISTORY = 2000  # Store up to 2000 training steps for full history visualization
 DEFAULT_MAX_EVAL_HISTORY = 50
 
 
