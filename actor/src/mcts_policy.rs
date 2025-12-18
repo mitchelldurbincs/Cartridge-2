@@ -157,28 +157,24 @@ impl MctsPolicy {
         legal_moves_mask: u64,
         move_number: u32,
     ) -> Result<MctsPolicyResult> {
-        // Check if model is loaded
-        let has_model = {
-            let guard = self
-                .evaluator
-                .read()
-                .map_err(|e| anyhow!("Failed to acquire read lock: {}", e))?;
-            guard.is_some()
-        };
-
-        if !has_model {
-            // No model loaded - fall back to random legal action
-            // Note: This is expected during early training before first model is exported
-            debug!("No model loaded, using random policy");
-            return self.random_action(legal_moves_mask);
-        }
-
-        // Re-acquire read lock for actual evaluation
+        // Acquire read lock once and hold it through the operation to avoid TOCTOU race.
+        // This prevents the model from being swapped out between checking and using it.
         let guard = self
             .evaluator
             .read()
             .map_err(|e| anyhow!("Failed to acquire read lock: {}", e))?;
-        let evaluator = guard.as_ref().unwrap();
+
+        let evaluator = match guard.as_ref() {
+            Some(eval) => eval,
+            None => {
+                // No model loaded - fall back to random legal action
+                // Note: This is expected during early training before first model is exported
+                // Drop the lock before calling random_action since it needs &mut self
+                drop(guard);
+                debug!("No model loaded, using random policy");
+                return self.random_action(legal_moves_mask);
+            }
+        };
 
         // Use the pre-created simulation context (avoids repeated registry lookups)
         let sim_ctx = self
