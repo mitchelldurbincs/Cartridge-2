@@ -109,7 +109,10 @@
 </script>
 
 <div class="loss-chart">
-  <h3>Loss Over Time</h3>
+  <div class="chart-header">
+    <h3>Loss Over Time</h3>
+    <a href="#/loss-over-time" class="expand-link" title="View full screen">⛶</a>
+  </div>
 
   {#if history.length > 1}
     <svg viewBox="0 0 {width} {height}" preserveAspectRatio="xMidYMid meet">
@@ -208,11 +211,32 @@
     margin-top: 1rem;
   }
 
+  .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+
   h3 {
     font-size: 0.9rem;
     color: #888;
-    margin: 0 0 0.75rem 0;
+    margin: 0;
     font-weight: normal;
+  }
+
+  .expand-link {
+    color: #888;
+    text-decoration: none;
+    font-size: 1.1rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    transition: all 0.2s;
+  }
+
+  .expand-link:hover {
+    color: #00d9ff;
+    background: #4a4a6a;
   }
 
   svg {
