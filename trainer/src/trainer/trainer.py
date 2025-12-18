@@ -31,17 +31,19 @@ import torch.nn.utils as nn_utils
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
+from .backoff import (
+    DEFAULT_WAIT_INTERVAL,
+    DEFAULT_MAX_WAIT,
+    LOG_EVERY_N_WAITS,
+    WaitTimeout,
+    wait_with_backoff,
+)
 from .game_config import GameConfig, get_config
 from .network import AlphaZeroLoss, PolicyValueNetwork, create_network
 from .replay import GameMetadata, ReplayBuffer
 from .evaluator import evaluate, OnnxPolicy, RandomPolicy
 
 logger = logging.getLogger(__name__)
-
-# Constants for backoff/wait behavior
-DEFAULT_WAIT_INTERVAL = 2.0  # seconds between checks
-DEFAULT_MAX_WAIT = 300.0  # 5 minutes max wait
-LOG_EVERY_N_WAITS = 5  # Log waiting message every N intervals
 
 
 def cli_field(
@@ -299,12 +301,6 @@ class TrainerStats:
         }
 
 
-class WaitTimeout(Exception):
-    """Raised when waiting for a condition exceeds max_wait."""
-
-    pass
-
-
 class Trainer:
     """AlphaZero-style trainer for game agents."""
 
@@ -415,7 +411,7 @@ class Trainer:
     def _wait_with_backoff(
         self, condition_fn, description: str, check_interval: float | None = None
     ) -> None:
-        """Wait for a condition with exponential backoff and timeout.
+        """Wait for a condition with periodic checks and timeout.
 
         Args:
             condition_fn: Callable returning True when condition is met.
@@ -426,31 +422,13 @@ class Trainer:
             WaitTimeout: If max_wait is exceeded (and max_wait > 0).
         """
         interval = check_interval or self.config.wait_interval
-        max_wait = self.config.max_wait
-        start_time = time.time()
-        wait_count = 0
-
-        while not condition_fn():
-            elapsed = time.time() - start_time
-            if max_wait > 0 and elapsed >= max_wait:
-                raise WaitTimeout(
-                    f"Timed out waiting for {description} after {elapsed:.1f}s"
-                )
-
-            wait_count += 1
-            if wait_count % LOG_EVERY_N_WAITS == 1:
-                if max_wait > 0:
-                    remaining = max_wait - elapsed
-                    logger.info(
-                        f"Waiting for {description}... "
-                        f"(elapsed: {elapsed:.1f}s, timeout in: {remaining:.1f}s)"
-                    )
-                else:
-                    logger.info(
-                        f"Waiting for {description}... (elapsed: {elapsed:.1f}s)"
-                    )
-
-            time.sleep(interval)
+        wait_with_backoff(
+            condition_fn=condition_fn,
+            description=description,
+            interval=interval,
+            max_wait=self.config.max_wait,
+            logger=logger,
+        )
 
     def train(self) -> TrainerStats:
         """Run the training loop.
