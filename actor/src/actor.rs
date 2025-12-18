@@ -259,7 +259,10 @@ impl Actor {
 
         // Reset the game and get max_horizon for step limit
         let (reset_result, max_horizon) = {
-            let mut engine = self.engine.lock().expect("engine lock poisoned");
+            let mut engine = self
+                .engine
+                .lock()
+                .map_err(|e| anyhow!("Engine lock poisoned: {}", e))?;
             let caps = engine.capabilities();
             let reset = engine.reset(seed, &[])?;
             (reset, caps.max_horizon)
@@ -327,7 +330,10 @@ impl Actor {
             // Select action using MCTS policy
             // Pass step_number for temperature schedule (lower temp in late game)
             let policy_result = {
-                let mut policy = self.mcts_policy.lock().expect("mcts_policy lock poisoned");
+                let mut policy = self
+                    .mcts_policy
+                    .lock()
+                    .map_err(|e| anyhow!("MCTS policy lock poisoned: {}", e))?;
                 policy.select_action(
                     &current_state,
                     &current_obs,
@@ -338,7 +344,10 @@ impl Actor {
 
             // Take step in environment
             let step_result = {
-                let mut engine = self.engine.lock().expect("engine lock poisoned");
+                let mut engine = self
+                    .engine
+                    .lock()
+                    .map_err(|e| anyhow!("Engine lock poisoned: {}", e))?;
                 engine.step(&current_state, &policy_result.action)?
             };
 
@@ -404,7 +413,10 @@ impl Actor {
                 // Batch store all transitions in a single transaction
                 // This dramatically reduces fsync overhead (1 fsync vs N fsyncs)
                 {
-                    let replay = self.replay.lock().expect("replay lock poisoned");
+                    let replay = self
+                        .replay
+                        .lock()
+                        .map_err(|e| anyhow!("Replay buffer lock poisoned: {}", e))?;
                     if let Err(e) = replay.store_batch(&transitions) {
                         error!(
                             "Failed to store transitions for episode {}: {}",
