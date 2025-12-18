@@ -157,7 +157,7 @@
     <div class="error">{error}</div>
   {:else if history.length > 1}
     <div class="chart-container">
-      <svg viewBox="0 0 {width} {height}" {width} {height}>
+      <svg viewBox="0 0 {width} {height}" width={width} height={height}>
         <g transform="translate({padding.left}, {padding.top})">
           <!-- Grid lines -->
           {#each chartData.yTicks as tick}
