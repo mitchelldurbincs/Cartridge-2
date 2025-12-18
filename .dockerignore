@@ -1,60 +1,109 @@
 # Root .dockerignore for Cartridge2
-# Used when building actor and web services (context is root)
+# Used by: Dockerfile.alphazero, actor/Dockerfile, web/Dockerfile
+# These Dockerfiles use the repo root as build context
 
-# Cargo build artifacts (large!)
+# =============================================================================
+# Rust build artifacts (large! ~1GB+ when populated)
+# =============================================================================
 target/
 **/target/
+Cargo.lock
 
-# Data directory (runtime data, not needed for build)
+# =============================================================================
+# Runtime data (mounted as volume, not copied into image)
+# =============================================================================
 data/
+*.onnx
 
+# =============================================================================
 # Git
+# =============================================================================
 .git/
 .gitignore
 .gitattributes
 
+# =============================================================================
 # IDE and editor files
+# =============================================================================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Documentation
+# =============================================================================
+# Documentation (not needed in container)
+# =============================================================================
 *.md
 docs/
+CLAUDE.md
 
+# =============================================================================
 # CI/CD
+# =============================================================================
 .github/
 
+# =============================================================================
 # Test artifacts
+# =============================================================================
 *.profraw
 *.profdata
 
+# =============================================================================
 # Logs and temp files
+# =============================================================================
 *.log
+logs/
 tmp/
 temp/
+*.tmp
+*.bak
 
+# =============================================================================
 # OS-specific
+# =============================================================================
 .DS_Store
 Thumbs.db
 
-# Python artifacts (trainer has its own context)
+# =============================================================================
+# Environment files (may contain secrets)
+# =============================================================================
+.env
+.env.local
+.env.*.local
+
+# =============================================================================
+# Python artifacts (trainer has its own context, but exclude from root builds)
+# =============================================================================
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
 *.egg-info/
+*.egg
+.eggs/
+*.so
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 .venv/
 venv/
-
-# Node.js artifacts (frontend has its own context)
-node_modules/
 dist/
-.svelte-kit/
+build/
 
-# Docker files (we don't want recursive docker builds)
+# =============================================================================
+# Node.js artifacts (frontend has its own context/Dockerfile)
+# =============================================================================
+node_modules/
+web/frontend/dist/
+web/frontend/.svelte-kit/
+.npm
+*.pnpm-debug.log*
+
+# =============================================================================
+# Docker files (not needed inside container)
+# =============================================================================
 docker-compose*.yml
 Dockerfile*
+.dockerignore
