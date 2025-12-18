@@ -77,18 +77,6 @@ class Trainer:
             weight_decay=config.weight_decay,
         )
 
-        # Initialize LR scheduler (cosine annealing with optional warmup)
-        self.scheduler = None
-
-        if config.use_lr_scheduler:
-            # Cosine annealing after warmup (T_max excludes warmup steps)
-            effective_steps = max(1, config.total_steps - self.warmup_steps)
-            self.scheduler = CosineAnnealingLR(
-                self.optimizer,
-                T_max=effective_steps,
-                eta_min=config.learning_rate * config.lr_min_ratio,
-            )
-
         # Try to load existing checkpoint (critical for training continuity!)
         self._checkpoint_loaded = False
         loaded_step = load_pytorch_checkpoint(
@@ -100,6 +88,28 @@ class Trainer:
         if loaded_step is not None:
             self._checkpoint_loaded = True
             logger.info(f"Resuming training from checkpoint (step {loaded_step})")
+            # Disable warmup for resumed training to avoid loss spikes
+            # Warmup is only needed when training from scratch
+            if self.warmup_steps > 0:
+                logger.info(
+                    "Disabling LR warmup for resumed training (checkpoint loaded)"
+                )
+                self.warmup_steps = 0
+                # Set LR to target (skip warmup)
+                for param_group in self.optimizer.param_groups:
+                    param_group["lr"] = self.target_lr
+
+        # Initialize LR scheduler (cosine annealing with optional warmup)
+        self.scheduler = None
+
+        if config.use_lr_scheduler:
+            # Cosine annealing after warmup (T_max excludes warmup steps)
+            effective_steps = max(1, config.total_steps - self.warmup_steps)
+            self.scheduler = CosineAnnealingLR(
+                self.optimizer,
+                T_max=effective_steps,
+                eta_min=config.learning_rate * config.lr_min_ratio,
+            )
 
         # Initialize loss function
         self.loss_fn = AlphaZeroLoss(
