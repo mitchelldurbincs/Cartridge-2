@@ -32,10 +32,10 @@ iterations = 200
 start_iteration = 1
 
 # Self-play episodes to generate per iteration
-episodes_per_iteration = 500
+episodes_per_iteration = 800
 
 # Training steps per iteration
-steps_per_iteration = 500 
+steps_per_iteration = 300
 
 # Training batch size
 batch_size = 64

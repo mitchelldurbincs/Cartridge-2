@@ -69,7 +69,7 @@ GAME_CONFIGS: Dict[str, GameConfig] = {
         num_actions=7,
         obs_size=93,  # 42 (Red) + 42 (Yellow) + 7 (legal) + 2 (player) = 93
         legal_mask_offset=84,  # Board views end at 42*2 = 84
-        hidden_size=256,
+        hidden_size=512,
     ),
     "othello": GameConfig(
         env_id="othello",

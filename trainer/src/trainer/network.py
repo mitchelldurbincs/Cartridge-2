@@ -25,7 +25,7 @@ class PolicyValueNetwork(nn.Module):
     """Policy-value network for board games.
 
     Architecture:
-        Input (obs_size) -> FC(hidden) -> ReLU -> FC(hidden/2) -> ReLU
+        Input (obs_size) -> FC(hidden) -> ReLU -> FC(hidden) -> ReLU -> FC(hidden/2) -> ReLU
             -> Policy head: FC(num_actions)
             -> Value head: FC(hidden/4) -> ReLU -> FC(1) -> Tanh
     """
@@ -36,9 +36,10 @@ class PolicyValueNetwork(nn.Module):
         self.obs_size = obs_size
         self.action_size = action_size
 
-        # Shared layers
+        # Shared layers (3 layers for more representational capacity)
         self.fc1 = nn.Linear(obs_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, hidden_size // 2)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size // 2)
 
         # Policy head
         self.policy_fc = nn.Linear(hidden_size // 2, action_size)
@@ -61,6 +62,7 @@ class PolicyValueNetwork(nn.Module):
         # Shared representation
         h = F.relu(self.fc1(x))
         h = F.relu(self.fc2(h))
+        h = F.relu(self.fc3(h))
 
         # Policy head (raw logits, softmax applied during loss)
         policy_logits = self.policy_fc(h)
