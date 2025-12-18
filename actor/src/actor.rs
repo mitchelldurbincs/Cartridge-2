@@ -328,7 +328,12 @@ impl Actor {
             // Pass step_number for temperature schedule (lower temp in late game)
             let policy_result = {
                 let mut policy = self.mcts_policy.lock().expect("mcts_policy lock poisoned");
-                policy.select_action(&current_state, &current_obs, current_legal_mask, step_number)?
+                policy.select_action(
+                    &current_state,
+                    &current_obs,
+                    current_legal_mask,
+                    step_number,
+                )?
             };
 
             // Take step in environment
@@ -450,8 +455,8 @@ mod tests {
             log_interval: 10,
             replay_db_path: db_path.into(),
             data_dir: "./data".into(),
-            num_simulations: 50,  // Fewer for tests
-            temp_threshold: 0,    // Disabled for tests
+            num_simulations: 50, // Fewer for tests
+            temp_threshold: 0,   // Disabled for tests
         }
     }
 

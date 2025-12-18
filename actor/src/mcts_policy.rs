@@ -121,6 +121,7 @@ impl MctsPolicy {
     }
 
     /// Update MCTS simulation count (for ramping during training)
+    #[allow(dead_code)]
     pub fn set_simulations(&mut self, num_simulations: u32) {
         self.config.num_simulations = num_simulations;
     }
