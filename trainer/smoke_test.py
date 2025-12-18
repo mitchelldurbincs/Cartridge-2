@@ -71,8 +71,8 @@ def test_replay():
             assert count == 100, f"Expected 100 transitions, got {count}"
             print(f"  Count transitions ({count}): OK")
 
-            # Sample batch
-            batch = replay.sample_batch_tensors(32)
+            # Sample batch (num_actions=9 for TicTacToe)
+            batch = replay.sample_batch_tensors(32, num_actions=9)
             assert batch is not None, "Should return batch"
             obs, policy_targets, value_targets = batch
             assert obs.shape == (32, 29), f"Expected (32, 29), got {obs.shape}"
