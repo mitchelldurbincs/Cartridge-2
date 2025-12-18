@@ -13,219 +13,33 @@ Training targets:
       that player's perspective, giving meaningful signal at every position.
 """
 
-import dataclasses
-import glob
 import logging
-import os
-import shutil
-import tempfile
 import time
-from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import numpy as np
-import onnx
 import torch
 import torch.nn.utils as nn_utils
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from .backoff import (
-    DEFAULT_MAX_WAIT,
-    DEFAULT_WAIT_INTERVAL,
-    LOG_EVERY_N_WAITS,
-    WaitTimeout,
-    wait_with_backoff,
+from .backoff import LOG_EVERY_N_WAITS, WaitTimeout, wait_with_backoff
+from .checkpoint import (
+    cleanup_old_checkpoints,
+    cleanup_temp_onnx_data,
+    save_onnx_checkpoint,
 )
+from .config import TrainerConfig
 from .evaluator import OnnxPolicy, RandomPolicy, evaluate
 from .game_config import GameConfig, get_config
 from .network import AlphaZeroLoss, create_network
 from .replay import ReplayBuffer
 from .stats import EvalStats, TrainerStats, load_stats, write_stats
 
-# Re-export WaitTimeout for convenience (used by tests)
+# Re-export for convenience (used by tests and external callers)
 __all__ = ["Trainer", "TrainerConfig", "EvalStats", "TrainerStats", "WaitTimeout"]
 
 logger = logging.getLogger(__name__)
-
-
-def cli_field(
-    default,
-    *,
-    cli: str | None = None,
-    help: str = "",
-    choices: list | None = None,
-    action: str | None = None,
-):
-    """Create a dataclass field with CLI metadata."""
-
-    metadata: dict[str, object] = {}
-    if cli is not None:
-        metadata["cli"] = cli
-        metadata["help"] = help
-        if choices:
-            metadata["choices"] = choices
-        if action:
-            metadata["action"] = action
-
-    return field(default=default, metadata=metadata)
-
-
-@dataclass
-class TrainerConfig:
-    """Configuration for the trainer."""
-
-    db_path: str = cli_field(
-        "./data/replay.db", cli="--db", help="Path to SQLite replay database"
-    )
-    model_dir: str = cli_field(
-        "./data/models", cli="--model-dir", help="Directory for ONNX model checkpoints"
-    )
-    stats_path: str = cli_field(
-        "./data/stats.json",
-        cli="--stats",
-        help="Path to write stats.json for web polling",
-    )
-
-    # Training hyperparameters
-    batch_size: int = cli_field(64, cli="--batch-size", help="Batch size for training")
-    learning_rate: float = cli_field(1e-3, cli="--lr", help="Learning rate")
-    weight_decay: float = cli_field(1e-4, cli="--weight-decay", help="Weight decay")
-    value_loss_weight: float = 1.0
-    policy_loss_weight: float = 1.0
-
-    # Gradient clipping (0 = disabled)
-    grad_clip_norm: float = cli_field(
-        1.0, cli="--grad-clip", help="Gradient clipping max norm (0 to disable)"
-    )
-
-    # Learning rate schedule
-    use_lr_scheduler: bool = cli_field(
-        True,
-        cli="--no-lr-schedule",
-        action="store_false",
-        help="Disable cosine annealing LR scheduler",
-    )
-    lr_min_ratio: float = cli_field(
-        0.1, cli="--lr-min-ratio", help="Final LR as ratio of initial LR"
-    )
-
-    # Training schedule
-    total_steps: int = cli_field(1000, cli="--steps", help="Total training steps")
-    checkpoint_interval: int = cli_field(
-        100, cli="--checkpoint-interval", help="Steps between checkpoint saves"
-    )
-    stats_interval: int = cli_field(
-        10, cli="--stats-interval", help="Steps between stats updates"
-    )
-    log_interval: int = cli_field(
-        10, cli="--log-interval", help="Steps between log messages"
-    )
-
-    # Checkpoint management
-    max_checkpoints: int = cli_field(
-        10, cli="--max-checkpoints", help="Maximum number of checkpoints to keep"
-    )
-
-    # Wait/backoff settings
-    wait_interval: float = cli_field(
-        DEFAULT_WAIT_INTERVAL,
-        cli="--wait-interval",
-        help="Seconds between checks when waiting for data",
-    )
-    max_wait: float = cli_field(
-        DEFAULT_MAX_WAIT,
-        cli="--max-wait",
-        help="Max seconds to wait for DB/data (0 = wait forever)",
-    )
-
-    # Replay buffer management
-    clear_replay_on_start: bool = cli_field(
-        False,
-        cli="--clear-replay",
-        action="store_true",
-        help="Delete all transitions before training (synchronized AlphaZero)",
-    )
-    replay_window: int = cli_field(
-        0,
-        cli="--replay-window",
-        help="Keep only the most recent N transitions (0 = disable cleanup)",
-    )
-    replay_cleanup_interval: int = cli_field(
-        0,
-        cli="--replay-cleanup-interval",
-        help=(
-            "Steps between replay cleanup when replay-window is set ("
-            "0 = align with stats-interval)"
-        ),
-    )
-
-    # Step offset for continuous training (checkpoint naming)
-    start_step: int = cli_field(
-        0, cli="--start-step", help="Starting step number for checkpoint naming"
-    )
-
-    # Evaluation settings
-    eval_interval: int = cli_field(
-        100, cli="--eval-interval", help="Steps between evaluations (0 to disable)"
-    )
-    eval_games: int = cli_field(
-        50, cli="--eval-games", help="Number of games per evaluation"
-    )
-
-    # Stats history settings
-    max_history_length: int = 100
-
-    # Environment
-    env_id: str = cli_field("tictactoe", cli="--env-id", help="Environment ID")
-    device: str = cli_field(
-        "cpu", cli="--device", choices=["cpu", "cuda", "mps"], help="Device to train on"
-    )
-
-    @classmethod
-    def configure_parser(cls, parser) -> None:
-        """Add CLI arguments to parser based on field metadata."""
-
-        for f in fields(cls):
-            cli_flag = f.metadata.get("cli")
-            if not cli_flag:
-                continue
-
-            kwargs: dict[str, object] = {
-                "help": f.metadata.get("help", ""),
-            }
-
-            if f.default is not dataclasses.MISSING:
-                kwargs["default"] = f.default
-
-            action = f.metadata.get("action")
-            if action:
-                kwargs["action"] = action
-                kwargs.pop("default", None)
-            else:
-                if f.type in (int, float, str):
-                    kwargs["type"] = f.type
-
-            if f.metadata.get("choices"):
-                kwargs["choices"] = f.metadata["choices"]
-
-            parser.add_argument(cli_flag, **kwargs)
-
-    @classmethod
-    def from_args(cls, args) -> "TrainerConfig":
-        """Construct a TrainerConfig from parsed argparse args."""
-
-        config_kwargs: dict[str, object] = {}
-        for f in fields(cls):
-            cli_flag = f.metadata.get("cli")
-            if not cli_flag:
-                continue
-
-            arg_name = cli_flag.lstrip("-").replace("-", "_")
-            if hasattr(args, arg_name):
-                config_kwargs[f.name] = getattr(args, arg_name)
-
-        return cls(**config_kwargs)
 
 
 class Trainer:
@@ -624,96 +438,35 @@ class Trainer:
 
         Exports ONNX once, then copies to latest.onnx to avoid duplicate work.
 
-        Returns the path to the saved checkpoint.
+        Args:
+            step: Current training step.
+            is_final: Whether this is the final checkpoint (unused, for future use).
+
+        Returns:
+            Path to the saved checkpoint.
         """
         model_dir = Path(self.config.model_dir)
 
-        # Export to ONNX
-        self.network.eval()
+        # Use checkpoint module for ONNX export
+        checkpoint_path = save_onnx_checkpoint(
+            network=self.network,
+            obs_size=self.network.obs_size,
+            step=step,
+            model_dir=model_dir,
+            device=self.device,
+        )
 
-        # Create deterministic dummy input for ONNX export
-        # Shape matches the network's expected observation size
-        dummy_input = torch.zeros(1, self.network.obs_size, device=self.device)
+        # Track checkpoints for cleanup
+        self.checkpoints.append(checkpoint_path)
+        self.checkpoints = cleanup_old_checkpoints(
+            self.checkpoints, self.config.max_checkpoints
+        )
+        self.latest_checkpoint = checkpoint_path
 
-        # Write to temp file first, then rename (atomic on most filesystems)
-        temp_fd, temp_path = tempfile.mkstemp(suffix=".onnx", dir=model_dir)
-        os.close(temp_fd)
+        # Clean up orphaned .onnx.data files from PyTorch exporter
+        cleanup_temp_onnx_data(model_dir)
 
-        try:
-            torch.onnx.export(
-                self.network,
-                dummy_input,
-                temp_path,
-                export_params=True,
-                opset_version=14,
-                do_constant_folding=True,
-                input_names=["observation"],
-                output_names=["policy_logits", "value"],
-                dynamic_axes={
-                    "observation": {0: "batch_size"},
-                    "policy_logits": {0: "batch_size"},
-                    "value": {0: "batch_size"},
-                },
-            )
-
-            # If PyTorch emitted external data, inline it so the checkpoint is
-            # self-contained and survives renames.
-            data_sidecar = f"{temp_path}.data"
-            if os.path.exists(data_sidecar):
-                model = onnx.load(temp_path, load_external_data=True)
-                onnx.save_model(model, temp_path, save_as_external_data=False)
-                os.unlink(data_sidecar)
-
-            # Atomic rename to final path
-            checkpoint_path = model_dir / f"model_step_{step:06d}.onnx"
-            os.replace(temp_path, checkpoint_path)
-
-            # Copy to latest.onnx (instead of exporting twice)
-            # Use atomic copy: copy to temp, then rename
-            latest_path = model_dir / "latest.onnx"
-            temp_fd2, temp_path2 = tempfile.mkstemp(suffix=".onnx", dir=model_dir)
-            os.close(temp_fd2)
-            try:
-                shutil.copy2(checkpoint_path, temp_path2)
-                os.replace(temp_path2, latest_path)
-            except Exception:
-                if os.path.exists(temp_path2):
-                    os.unlink(temp_path2)
-                raise
-
-            # Track checkpoints for cleanup
-            self.checkpoints.append(checkpoint_path)
-            self._cleanup_old_checkpoints()
-            self.latest_checkpoint = checkpoint_path
-
-            # Clean up orphaned .onnx.data files from PyTorch exporter
-            self._cleanup_temp_onnx_data(model_dir)
-
-            return checkpoint_path
-
-        except Exception as e:
-            # Clean up temp file on error
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-            raise e
-
-    def _cleanup_temp_onnx_data(self, model_dir: Path) -> None:
-        """Remove orphaned tmp*.onnx.data files created by PyTorch ONNX exporter."""
-        pattern = str(model_dir / "tmp*.onnx.data")
-        for data_file in glob.glob(pattern):
-            try:
-                os.unlink(data_file)
-                logger.debug(f"Removed orphaned ONNX data file: {data_file}")
-            except OSError as e:
-                logger.warning(f"Failed to remove {data_file}: {e}")
-
-    def _cleanup_old_checkpoints(self) -> None:
-        """Remove old checkpoints to save disk space."""
-        while len(self.checkpoints) > self.config.max_checkpoints:
-            old_checkpoint = self.checkpoints.pop(0)
-            if old_checkpoint.exists():
-                old_checkpoint.unlink()
-                logger.debug(f"Removed old checkpoint: {old_checkpoint}")
+        return checkpoint_path
 
     def _write_stats(self) -> None:
         """Write stats.json for web polling (atomic write)."""
