@@ -82,6 +82,16 @@ class LoopConfig:
     # Actor settings
     actor_log_interval: int = 50
 
+    # MCTS simulation ramping: start_sims + (iteration-1) * sim_ramp_rate, capped at max_sims
+    mcts_start_sims: int = 200  # Simulations for first iteration
+    mcts_max_sims: int = 800  # Maximum simulations (reached after ramping)
+    mcts_sim_ramp_rate: int = 30  # Simulations to add per iteration
+
+    # Temperature schedule: after temp_threshold moves, reduce temperature for exploitation
+    # Set to 0 to disable (always use temp=1.0)
+    # Recommended: ~60% of typical game length (tictactoe=5, connect4=20, othello=30)
+    temp_threshold: int = 0
+
     # Trainer settings
     batch_size: int = 64
     learning_rate: float = 1e-3
@@ -114,6 +124,15 @@ class LoopConfig:
     @property
     def eval_stats_path(self) -> Path:
         return self.data_dir / "eval_stats.json"
+
+    def get_num_simulations(self, iteration: int) -> int:
+        """Calculate MCTS simulations for given iteration (ramping schedule).
+
+        Starts at mcts_start_sims and increases by mcts_sim_ramp_rate per iteration,
+        capped at mcts_max_sims.
+        """
+        sims = self.mcts_start_sims + (iteration - 1) * self.mcts_sim_ramp_rate
+        return min(sims, self.mcts_max_sims)
 
 
 class Orchestrator:
@@ -213,12 +232,19 @@ class Orchestrator:
         with ReplayBuffer(self.config.replay_db_path) as replay:
             return replay.count(env_id=self.config.env_id)
 
-    def _run_actor(self, num_episodes: int) -> tuple[bool, float]:
+    def _run_actor(self, num_episodes: int, iteration: int) -> tuple[bool, float]:
         """Run the actor for a specified number of episodes.
+
+        Args:
+            num_episodes: Number of self-play episodes to run.
+            iteration: Current training iteration (for simulation ramping).
 
         Returns (success, elapsed_seconds).
         """
         actor_binary = self._find_actor_binary()
+
+        # Calculate MCTS simulations based on iteration (ramping schedule)
+        num_simulations = self.config.get_num_simulations(iteration)
 
         cmd = [
             str(actor_binary),
@@ -234,9 +260,17 @@ class Orchestrator:
             str(self.config.actor_log_interval),
             "--log-level",
             "info",
+            "--num-simulations",
+            str(num_simulations),
+            "--temp-threshold",
+            str(self.config.temp_threshold),
         ]
 
-        logger.info(f"Starting actor: {' '.join(cmd)}")
+        logger.info(
+            f"Starting actor: {num_simulations} sims (iter {iteration}), "
+            f"temp_threshold={self.config.temp_threshold}"
+        )
+        logger.info(f"Command: {' '.join(cmd)}")
         start_time = time.time()
 
         try:
@@ -489,7 +523,9 @@ class Orchestrator:
         logger.info(
             f"Step 2: Running actor for {self.config.episodes_per_iteration} episodes..."
         )
-        actor_success, actor_time = self._run_actor(self.config.episodes_per_iteration)
+        actor_success, actor_time = self._run_actor(
+            self.config.episodes_per_iteration, iteration
+        )
 
         if not actor_success:
             if self._shutdown_requested:
@@ -582,6 +618,27 @@ class Orchestrator:
         logger.info(f"Episodes per iteration: {self.config.episodes_per_iteration}")
         logger.info(f"Steps per iteration: {self.config.steps_per_iteration}")
         logger.info(f"Data directory: {self.config.data_dir}")
+
+        # Show MCTS simulation ramping settings
+        start_sims = self.config.mcts_start_sims
+        max_sims = self.config.mcts_max_sims
+        ramp_rate = self.config.mcts_sim_ramp_rate
+        iters_to_max = (
+            max(1, (max_sims - start_sims) // ramp_rate) if ramp_rate > 0 else 1
+        )
+        logger.info(
+            f"MCTS simulations: {start_sims} -> {max_sims} "
+            f"(+{ramp_rate}/iter, reaches max at iter {iters_to_max})"
+        )
+
+        # Show temperature schedule
+        if self.config.temp_threshold > 0:
+            logger.info(
+                f"Temperature schedule: temp=1.0 for moves 0-{self.config.temp_threshold - 1}, "
+                f"temp=0.1 after move {self.config.temp_threshold}"
+            )
+        else:
+            logger.info("Temperature schedule: DISABLED (temp=1.0 for all moves)")
 
         # Prominently show evaluation settings
         if self.config.eval_interval > 0:
@@ -736,6 +793,35 @@ Examples:
         help="Actor log interval in episodes",
     )
 
+    # MCTS simulation ramping settings
+    parser.add_argument(
+        "--mcts-start-sims",
+        type=int,
+        default=200,
+        help="MCTS simulations for first iteration (default: 200)",
+    )
+    parser.add_argument(
+        "--mcts-max-sims",
+        type=int,
+        default=cfg.mcts.num_simulations,
+        help="Maximum MCTS simulations after ramping (default: from config)",
+    )
+    parser.add_argument(
+        "--mcts-sim-ramp-rate",
+        type=int,
+        default=30,
+        help="MCTS simulations to add per iteration (default: 30)",
+    )
+
+    # Temperature schedule
+    parser.add_argument(
+        "--temp-threshold",
+        type=int,
+        default=0,
+        help="Move number to reduce temperature (0=disabled). "
+        "Recommended: tictactoe=5, connect4=20, othello=30",
+    )
+
     # Trainer settings
     parser.add_argument(
         "--batch-size",
@@ -797,6 +883,10 @@ Examples:
         data_dir=Path(args.data_dir),
         actor_binary=Path(args.actor_binary) if args.actor_binary else None,
         actor_log_interval=args.actor_log_interval,
+        mcts_start_sims=args.mcts_start_sims,
+        mcts_max_sims=args.mcts_max_sims,
+        mcts_sim_ramp_rate=args.mcts_sim_ramp_rate,
+        temp_threshold=args.temp_threshold,
         batch_size=args.batch_size,
         learning_rate=args.lr,
         checkpoint_interval=args.checkpoint_interval,
