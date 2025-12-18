@@ -71,7 +71,10 @@ async fn main() -> Result<()> {
     // Setup graceful shutdown
     let shutdown_actor = Arc::clone(&actor);
     let shutdown_handle = tokio::spawn(async move {
-        signal::ctrl_c().await.expect("Failed to listen for ctrl+c");
+        if let Err(e) = signal::ctrl_c().await {
+            error!("Failed to listen for ctrl+c signal: {}", e);
+            return;
+        }
         info!("Shutdown signal received, stopping actor...");
         shutdown_actor.shutdown();
     });
