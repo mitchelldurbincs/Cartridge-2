@@ -35,10 +35,10 @@ start_iteration = 1
 episodes_per_iteration = 800
 
 # Training steps per iteration
-steps_per_iteration = 300
+steps_per_iteration = 400
 
 # Training batch size
-batch_size = 64
+batch_size = 128
 
 # Learning rate
 learning_rate = 0.001
@@ -105,13 +105,13 @@ port = 8080
 num_simulations = 800
 
 # Exploration constant (c_puct)
-c_puct = 1.4
+c_puct = 1.25
 
 # Temperature for action selection (higher = more exploration)
 temperature = 1.0
 
 # Dirichlet noise alpha (0 to disable)
-dirichlet_alpha = 0.3
+dirichlet_alpha = 1.0 
 
 # Dirichlet noise weight
 dirichlet_weight = 0.25
