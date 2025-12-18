@@ -85,4 +85,14 @@ cargo test -- --nocapture
 ```bash
 # Run benchmarks
 cargo bench -p games-tictactoe
+
+# MCTS microbenchmarks (Criterion)
+cargo bench -p mcts --bench mcts
 ```
+
+Recent run (devcontainer, plotters backend) highlights:
+
+- `mcts_search_simulations` (Uniform policy): `50` sims ~126 µs; `100` sims ~295 µs; `200` sims ~579 µs; `400` sims ~1.11 ms; `800` sims ~2.21 ms.
+- `mcts_game_phases`: opening ~558 µs; midgame ~68 µs; near-terminal ~31 µs.
+- `mcts_tree_ops`: allocate node ~14.9 µs; select child ~57 ns; backpropagate depth 5 ~56 ns; root policy ~107 ns; root policy (τ=0.5) ~222 ns.
+- `mcts_configs`: training config ~593 µs; evaluation config ~567 µs; `c_puct` 0.5/1.25/2.5/4.0 around 559/572/546/554 µs respectively.

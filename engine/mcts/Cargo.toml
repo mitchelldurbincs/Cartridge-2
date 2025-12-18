@@ -30,3 +30,10 @@ ndarray = { version = "0.16", optional = true }
 [dev-dependencies]
 # For testing with actual games
 games-tictactoe = { path = "../games-tictactoe" }
+
+# Benchmarking
+criterion = { workspace = true }
+
+[[bench]]
+name = "mcts"
+harness = false
