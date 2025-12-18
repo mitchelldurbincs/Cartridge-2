@@ -129,10 +129,86 @@ class Orchestrator:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
+        # Auto-resume from previous state if start_iteration is default (1)
+        self._auto_resume_if_needed()
+
     def _signal_handler(self, signum: int, frame: Any) -> None:
         """Handle shutdown signals gracefully."""
         logger.warning(f"Received signal {signum}, requesting shutdown...")
         self._shutdown_requested = True
+
+    def _auto_resume_if_needed(self) -> None:
+        """Auto-resume from loop_stats.json if start_iteration is default (1).
+
+        This allows training to automatically continue from where it left off
+        after a restart (e.g., docker-compose down/up).
+        """
+        # Only auto-resume if start_iteration is the default value (1)
+        if self.config.start_iteration != 1:
+            logger.debug(
+                f"start_iteration={self.config.start_iteration} (not default), "
+                "skipping auto-resume"
+            )
+            return
+
+        # Check if loop_stats.json exists
+        if not self.config.loop_stats_path.exists():
+            logger.debug("No loop_stats.json found, starting fresh")
+            return
+
+        try:
+            with open(self.config.loop_stats_path) as f:
+                saved_state = json.load(f)
+
+            iterations = saved_state.get("iterations", [])
+            if not iterations:
+                logger.debug("loop_stats.json has no completed iterations")
+                return
+
+            # Find the last completed iteration
+            last_iteration = max(it.get("iteration", 0) for it in iterations)
+            if last_iteration <= 0:
+                return
+
+            # Resume from the next iteration
+            new_start = last_iteration + 1
+            logger.info(
+                f"Auto-resuming from iteration {new_start} "
+                f"(found {len(iterations)} completed iterations in loop_stats.json)"
+            )
+            self.config.start_iteration = new_start
+
+            # Also restore iteration history for continuity
+            for it_data in iterations:
+                stats = IterationStats(
+                    iteration=it_data.get("iteration", 0),
+                    episodes_generated=it_data.get("episodes", 0),
+                    transitions_generated=it_data.get("transitions", 0),
+                    training_steps=it_data.get("steps", 0),
+                    actor_time_seconds=it_data.get("actor_time", 0.0),
+                    trainer_time_seconds=it_data.get("trainer_time", 0.0),
+                    eval_time_seconds=it_data.get("eval_time", 0.0),
+                    total_time_seconds=it_data.get("total_time", 0.0),
+                    eval_win_rate=it_data.get("eval_win_rate"),
+                    eval_draw_rate=it_data.get("eval_draw_rate"),
+                    timestamp=it_data.get("timestamp", ""),
+                )
+                self.iteration_history.append(stats)
+
+            # Also restore eval history if available
+            if self.config.eval_stats_path.exists():
+                try:
+                    with open(self.config.eval_stats_path) as f:
+                        eval_data = json.load(f)
+                    self.eval_history = eval_data.get("evaluations", [])
+                    logger.debug(
+                        f"Restored {len(self.eval_history)} evaluation records"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to restore eval history: {e}")
+
+        except Exception as e:
+            logger.warning(f"Failed to load loop_stats.json for auto-resume: {e}")
 
     def _find_actor_binary(self) -> Path:
         """Find the actor binary, preferring release build.
@@ -578,7 +654,17 @@ class Orchestrator:
         logger.info("Synchronized AlphaZero Training")
         logger.info("=" * 60)
         logger.info(f"Environment: {self.config.env_id}")
-        logger.info(f"Iterations: {self.config.iterations}")
+
+        # Show resume status
+        if self.iteration_history:
+            logger.info(
+                f"RESUMING from iteration {self.config.start_iteration} "
+                f"({len(self.iteration_history)} previous iterations loaded)"
+            )
+        else:
+            logger.info(f"Starting from iteration {self.config.start_iteration}")
+
+        logger.info(f"Target iterations: {self.config.iterations}")
         logger.info(f"Episodes per iteration: {self.config.episodes_per_iteration}")
         logger.info(f"Steps per iteration: {self.config.steps_per_iteration}")
         logger.info(f"Data directory: {self.config.data_dir}")
@@ -613,13 +699,21 @@ class Orchestrator:
                 self._save_loop_stats()
 
         total_time = time.time() - loop_start
-        completed = len(self.iteration_history)
+        total_in_history = len(self.iteration_history)
+        # Count only iterations completed in this session
+        new_completed = total_in_history - (self.config.start_iteration - 1)
 
         logger.info(f"\n{'='*60}")
         logger.info("TRAINING COMPLETE")
         logger.info(f"{'='*60}")
-        logger.info(f"Completed iterations: {completed}")
-        logger.info(f"Total time: {total_time:.1f}s ({total_time/3600:.2f}h)")
+        if self.config.start_iteration > 1:
+            logger.info(
+                f"Completed iterations this session: {new_completed} "
+                f"(total in history: {total_in_history})"
+            )
+        else:
+            logger.info(f"Completed iterations: {total_in_history}")
+        logger.info(f"Session time: {total_time:.1f}s ({total_time/3600:.2f}h)")
 
         if self.iteration_history:
             total_episodes = sum(s.episodes_generated for s in self.iteration_history)
