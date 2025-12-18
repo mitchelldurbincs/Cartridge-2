@@ -1,0 +1,130 @@
+# Actor Deployment - Horizontally scalable self-play workers
+#
+# Each actor pod:
+# - Runs MCTS self-play episodes
+# - Writes transitions to shared replay buffer
+# - Watches for model updates and hot-reloads
+#
+# Scaling:
+#   kubectl scale deployment actor --replicas=5 -n cartridge
+#
+# Phase 1 (SQLite): Limited to ~3-5 replicas due to write contention
+# Phase 2 (PostgreSQL): Scale to 10+ replicas
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: actor
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: cartridge
+    app.kubernetes.io/component: actor
+spec:
+  replicas: 1  # Start with 1, scale up after testing
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cartridge
+      app.kubernetes.io/component: actor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cartridge
+        app.kubernetes.io/component: actor
+    spec:
+      # Prefer actor-labeled nodes (optional affinity)
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: workload
+                    operator: In
+                    values:
+                      - actor
+      containers:
+        - name: actor
+          image: cartridge/actor:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--env-id"
+            - "$(ENV_ID)"
+            - "--max-episodes"
+            - "-1"  # Run indefinitely
+            - "--replay-db-path"
+            - "/data/replay.db"
+            - "--model-path"
+            - "/data/models/latest.onnx"
+            - "--num-simulations"
+            - "$(MCTS_SIMULATIONS)"
+          env:
+            - name: ENV_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: cartridge-env
+                  key: env_id
+                  optional: true
+            - name: MCTS_SIMULATIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: cartridge-env
+                  key: mcts_simulations
+                  optional: true
+            # Unique actor ID based on pod name
+            - name: ACTOR_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: RUST_LOG
+              value: "info,actor=debug"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /app/config.toml
+              subPath: config.toml
+              readOnly: true
+          # Liveness: Check if process is running
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "pgrep actor"
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          # Readiness: Check if model is loaded
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /data/models/latest.onnx"
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: cartridge-data
+        - name: config
+          configMap:
+            name: cartridge-config
+      # Graceful shutdown for episode completion
+      terminationGracePeriodSeconds: 60
+---
+# Environment-specific overrides
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cartridge-env
+  namespace: cartridge
+data:
+  env_id: "tictactoe"
+  mcts_simulations: "800"

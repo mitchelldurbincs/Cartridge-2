@@ -1,0 +1,127 @@
+# Trainer Job - One-shot training on collected data
+#
+# This Job runs a single training iteration:
+# 1. Reads transitions from replay buffer
+# 2. Trains neural network for N steps
+# 3. Exports updated model to latest.onnx
+#
+# Triggered by: Orchestrator pod (or manually for testing)
+#
+# For GPU training, add nodeSelector and GPU resources
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trainer
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: cartridge
+    app.kubernetes.io/component: trainer
+spec:
+  backoffLimit: 2  # Retry twice on failure
+  activeDeadlineSeconds: 3600  # 1 hour timeout
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cartridge
+        app.kubernetes.io/component: trainer
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: trainer
+          image: cartridge/trainer:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - trainer
+            - train
+          args:
+            - "--db"
+            - "/data/replay.db"
+            - "--steps"
+            - "$(TRAINING_STEPS)"
+            - "--batch-size"
+            - "$(BATCH_SIZE)"
+            - "--model-dir"
+            - "/data/models"
+            - "--device"
+            - "$(DEVICE)"
+          env:
+            - name: TRAINING_STEPS
+              value: "1000"
+            - name: BATCH_SIZE
+              value: "64"
+            - name: DEVICE
+              value: "cpu"  # Change to "cuda" for GPU
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+            limits:
+              cpu: "4000m"
+              memory: "4Gi"
+              # For GPU training, uncomment:
+              # nvidia.com/gpu: 1
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /app/config.toml
+              subPath: config.toml
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: cartridge-data
+        - name: config
+          configMap:
+            name: cartridge-config
+      # GPU node selector (uncomment for GPU training)
+      # nodeSelector:
+      #   accelerator: nvidia-gpu
+---
+# Job template for creating trainer jobs programmatically
+# The orchestrator uses this template to spawn training jobs
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trainer-job-template
+  namespace: cartridge
+data:
+  job.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: trainer-iteration-{{ITERATION}}
+      namespace: cartridge
+      labels:
+        app.kubernetes.io/name: cartridge
+        app.kubernetes.io/component: trainer
+        iteration: "{{ITERATION}}"
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: trainer
+              image: cartridge/trainer:latest
+              command: ["python", "-m", "trainer", "train"]
+              args:
+                - "--db"
+                - "/data/replay.db"
+                - "--steps"
+                - "{{STEPS}}"
+                - "--batch-size"
+                - "{{BATCH_SIZE}}"
+                - "--model-dir"
+                - "/data/models"
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: cartridge-data

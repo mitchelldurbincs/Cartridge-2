@@ -80,6 +80,16 @@ impl ReplayBuffer {
 
         let conn = Connection::open(db_path)?;
 
+        // Enable WAL mode for better concurrent access
+        // WAL allows multiple readers + one writer simultaneously
+        // This is critical for k8s deployments with multiple actor pods
+        // Note: journal_mode returns a row, so we use query_row to consume it
+        let _: String = conn.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
+
+        // Set busy timeout to wait on locks instead of failing immediately
+        // 5 seconds should be enough for most write operations to complete
+        conn.pragma_update(None, "busy_timeout", 5000)?;
+
         // Create the transitions table if it doesn't exist
         conn.execute(
             "CREATE TABLE IF NOT EXISTS transitions (

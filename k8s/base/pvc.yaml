@@ -1,0 +1,42 @@
+# Persistent Volume Claims for shared data
+#
+# In Kind: Uses local-path-provisioner (RWO only)
+# In Cloud: Should use ReadWriteMany (NFS, EFS, etc.)
+#
+# Phase 1 (SQLite): All pods share one PVC for replay.db and models
+# Phase 2 (PostgreSQL): Only models PVC needed, replay moves to database
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cartridge-data
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: cartridge
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    # Kind limitation: local-path only supports RWO
+    # For multi-pod access, need NFS or similar
+    # Change to ReadWriteMany for cloud deployment
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName: local-path  # Kind default
+---
+# Separate PVC for models (smaller, needs RWX for actor scaling)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cartridge-models
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: cartridge
+    app.kubernetes.io/component: models
+spec:
+  accessModes:
+    - ReadWriteOnce  # Change to ReadWriteMany for cloud
+  resources:
+    requests:
+      storage: 1Gi

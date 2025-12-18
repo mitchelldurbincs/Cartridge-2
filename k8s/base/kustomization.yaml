@@ -1,0 +1,25 @@
+# Kustomize base configuration
+# Apply with: kubectl apply -k k8s/base
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cartridge
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - actor-deployment.yaml
+  - trainer-job.yaml
+  - orchestrator-deployment.yaml
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/part-of: cartridge-alphazero
+
+# Image customization (override in overlays)
+images:
+  - name: cartridge/actor
+    newTag: latest
+  - name: cartridge/trainer
+    newTag: latest

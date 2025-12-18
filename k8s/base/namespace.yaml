@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cartridge
+  labels:
+    app.kubernetes.io/name: cartridge
+    app.kubernetes.io/part-of: alphazero-training

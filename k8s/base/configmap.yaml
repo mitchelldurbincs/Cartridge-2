@@ -1,0 +1,42 @@
+# Shared configuration for all Cartridge components
+# This ConfigMap contains the config.toml that all pods mount
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cartridge-config
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: cartridge
+    app.kubernetes.io/component: config
+data:
+  config.toml: |
+    [common]
+    data_dir = "/data"
+    env_id = "tictactoe"
+    log_level = "info"
+
+    [training]
+    iterations = 100
+    episodes_per_iteration = 500
+    steps_per_iteration = 1000
+    batch_size = 64
+    learning_rate = 0.001
+    device = "cpu"
+
+    [evaluation]
+    interval = 1
+    games = 50
+
+    [actor]
+    actor_id = "actor-default"
+    max_episodes = -1
+    log_interval = 50
+
+    [web]
+    host = "0.0.0.0"
+    port = 8080
+
+    [mcts]
+    num_simulations = 800
+    c_puct = 1.4
+    temperature = 1.0

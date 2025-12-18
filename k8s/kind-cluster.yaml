@@ -1,0 +1,44 @@
+# Kind cluster configuration for local Kubernetes development
+#
+# Usage:
+#   kind create cluster --config k8s/kind-cluster.yaml --name cartridge
+#   kubectl cluster-info --context kind-cartridge
+#
+# Features:
+# - 1 control plane + 2 worker nodes (for testing pod distribution)
+# - Local registry support (optional)
+# - Extra port mappings for web access
+# - Local path provisioner for PVCs
+#
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: cartridge
+nodes:
+  # Control plane node
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # Web frontend access
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+      # NodePort range for services
+      - containerPort: 30443
+        hostPort: 8443
+        protocol: TCP
+
+  # Worker nodes for actor pods
+  - role: worker
+    labels:
+      workload: actor
+  - role: worker
+    labels:
+      workload: actor
+
+# Enable local storage provisioner (for PVCs)
+# Kind automatically provides local-path-provisioner
