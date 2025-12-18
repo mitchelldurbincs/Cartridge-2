@@ -38,19 +38,15 @@ fn init_tracing(level: &str) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    eprintln!("Actor service starting...");
-
     // Parse configuration
     let config = Config::parse();
-    eprintln!("Configuration parsed successfully");
 
     // Validate configuration
     config.validate()?;
-    eprintln!("Configuration validated successfully");
 
     // Initialize tracing
     init_tracing(&config.log_level)?;
-    info!(log_level = %config.log_level, "Tracing initialized");
+    info!(log_level = %config.log_level, "Actor service starting");
 
     // Log the max_episodes setting
     let max_episode_description = if config.max_episodes < 0 {

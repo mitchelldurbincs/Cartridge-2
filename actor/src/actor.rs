@@ -485,7 +485,8 @@ mod tests {
         let (steps, reward) = result.unwrap();
         assert!(steps > 0, "Episode should have at least one step");
         // TicTacToe gives reward at end of game
-        println!("Episode completed: {} steps, reward: {}", steps, reward);
+        // Steps and reward are validated by assertions above
+        debug!(steps, reward, "Episode completed");
     }
 
     #[test]
