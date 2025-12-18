@@ -16,7 +16,7 @@
 data_dir = "./data"
 
 # Game environment: tictactoe, connect4
-env_id = "tictactoe"
+env_id = "connect4"
 
 # Logging level: trace, debug, info, warn, error
 log_level = "info"
@@ -26,7 +26,7 @@ log_level = "info"
 # =============================================================================
 [training]
 # Number of training iterations
-iterations = 100
+iterations = 200
 
 # Starting iteration number (for resuming training)
 start_iteration = 1
@@ -35,7 +35,7 @@ start_iteration = 1
 episodes_per_iteration = 500
 
 # Training steps per iteration
-steps_per_iteration = 1000
+steps_per_iteration = 500 
 
 # Training batch size
 batch_size = 64
