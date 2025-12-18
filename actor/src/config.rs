@@ -65,6 +65,20 @@ fn default_data_dir() -> String {
     std::env::var("ACTOR_DATA_DIR").unwrap_or_else(|_| CENTRAL_CONFIG.common.data_dir.clone())
 }
 
+fn default_num_simulations() -> u32 {
+    std::env::var("ACTOR_NUM_SIMULATIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(CENTRAL_CONFIG.mcts.num_simulations)
+}
+
+fn default_temp_threshold() -> u32 {
+    std::env::var("ACTOR_TEMP_THRESHOLD")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0) // Disabled by default
+}
+
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(name = "actor")]
 #[command(about = "Cartridge2 Actor - Self-play episode runner")]
@@ -111,6 +125,15 @@ pub struct Config {
     /// Data directory for models and other files
     #[arg(long, default_value_t = default_data_dir())]
     pub data_dir: String,
+
+    /// Number of MCTS simulations per move
+    #[arg(long, default_value_t = default_num_simulations())]
+    pub num_simulations: u32,
+
+    /// Move number after which to use lower temperature (0 to disable)
+    /// When enabled, temperature drops to 0.1 after this many moves for more deterministic late-game play
+    #[arg(long, default_value_t = default_temp_threshold())]
+    pub temp_threshold: u32,
 }
 
 impl Config {
@@ -172,6 +195,8 @@ mod tests {
             log_interval: 10,
             replay_db_path: "../data/replay.db".into(),
             data_dir: "../data".into(),
+            num_simulations: 100,
+            temp_threshold: 0,
         }
     }
 

@@ -27,6 +27,12 @@ pub struct MctsPolicy {
     env_id: String,
     /// MCTS configuration
     config: MctsConfig,
+    /// Base temperature (used for early moves)
+    base_temperature: f32,
+    /// Temperature for late-game moves (after threshold)
+    late_temperature: f32,
+    /// Move number after which to use late_temperature
+    temp_threshold: u32,
     /// Number of actions in the game
     num_actions: usize,
     /// Observation size for the neural network
@@ -45,6 +51,7 @@ impl std::fmt::Debug for MctsPolicy {
             .field("env_id", &self.env_id)
             .field("num_actions", &self.num_actions)
             .field("obs_size", &self.obs_size)
+            .field("temp_threshold", &self.temp_threshold)
             .field(
                 "has_model",
                 &self.evaluator.read().map(|e| e.is_some()).unwrap_or(false),
@@ -58,9 +65,14 @@ impl MctsPolicy {
     pub fn new(env_id: String, num_actions: usize, obs_size: usize) -> Self {
         // Pre-create the simulation context to avoid repeated registry lookups
         let sim_ctx = EngineContext::new(&env_id);
+        let config = MctsConfig::for_training();
+        let base_temp = config.temperature;
         Self {
             env_id,
-            config: MctsConfig::for_training(),
+            base_temperature: base_temp,
+            late_temperature: 0.1, // More deterministic in late game
+            temp_threshold: 0,     // Disabled by default (0 = no threshold)
+            config,
             num_actions,
             obs_size,
             evaluator: Arc::new(RwLock::new(None)),
@@ -73,9 +85,14 @@ impl MctsPolicy {
     #[allow(dead_code)]
     pub fn with_seed(env_id: String, num_actions: usize, obs_size: usize, seed: u64) -> Self {
         let sim_ctx = EngineContext::new(&env_id);
+        let config = MctsConfig::for_training();
+        let base_temp = config.temperature;
         Self {
             env_id,
-            config: MctsConfig::for_training(),
+            base_temperature: base_temp,
+            late_temperature: 0.1,
+            temp_threshold: 0,
+            config,
             num_actions,
             obs_size,
             evaluator: Arc::new(RwLock::new(None)),
@@ -86,8 +103,26 @@ impl MctsPolicy {
 
     /// Set the MCTS configuration
     pub fn with_config(mut self, config: MctsConfig) -> Self {
+        self.base_temperature = config.temperature;
         self.config = config;
         self
+    }
+
+    /// Set the temperature schedule for move-dependent exploration
+    ///
+    /// After `threshold` moves, temperature drops from base to `late_temp`.
+    /// This encourages exploration early and exploitation late in games.
+    ///
+    /// Set threshold to 0 to disable (always use base temperature).
+    pub fn with_temp_schedule(mut self, threshold: u32, late_temp: f32) -> Self {
+        self.temp_threshold = threshold;
+        self.late_temperature = late_temp;
+        self
+    }
+
+    /// Update MCTS simulation count (for ramping during training)
+    pub fn set_simulations(&mut self, num_simulations: u32) {
+        self.config.num_simulations = num_simulations;
     }
 
     /// Check if a model is loaded (used for debugging/logging)
@@ -110,6 +145,7 @@ impl MctsPolicy {
     /// * `state` - Current game state bytes
     /// * `obs` - Current observation bytes
     /// * `legal_moves_mask` - Bit mask of legal actions
+    /// * `move_number` - Current move number in the game (0-indexed)
     ///
     /// # Returns
     /// `MctsPolicyResult` with action, policy distribution, and value estimate
@@ -118,6 +154,7 @@ impl MctsPolicy {
         state: &[u8],
         obs: &[u8],
         legal_moves_mask: u64,
+        move_number: u32,
     ) -> Result<MctsPolicyResult> {
         // Check if model is loaded
         let has_model = {
@@ -148,11 +185,17 @@ impl MctsPolicy {
             .as_mut()
             .ok_or_else(|| anyhow!("Game '{}' not registered", self.env_id))?;
 
+        // Apply temperature schedule: use lower temperature for late-game moves
+        let mut config = self.config.clone();
+        if self.temp_threshold > 0 && move_number >= self.temp_threshold {
+            config.temperature = self.late_temperature;
+        }
+
         // Run MCTS search
         let result: SearchResult = run_mcts(
             sim_ctx,
             evaluator,
-            self.config.clone(),
+            config,
             state.to_vec(),
             obs.to_vec(),
             legal_moves_mask,
@@ -164,6 +207,7 @@ impl MctsPolicy {
             action = result.action,
             value = result.value,
             simulations = result.simulations,
+            move_number = move_number,
             "MCTS selected action"
         );
 
@@ -237,7 +281,7 @@ mod tests {
         let legal_mask = 0b111111111u64; // All 9 positions legal
 
         // Without a model, should return random action
-        let result = policy.select_action(&state, &obs, legal_mask);
+        let result = policy.select_action(&state, &obs, legal_mask, 0);
         assert!(result.is_ok());
 
         let result = result.unwrap();

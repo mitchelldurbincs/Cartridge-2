@@ -100,12 +100,19 @@ impl Actor {
         let obs_size = game_config.obs_size;
 
         // Create MCTS policy with training configuration
+        // num_simulations and temp_threshold are configurable via CLI/env for orchestrator control
         let mcts_config = MctsConfig::for_training()
-            .with_simulations(100) // Start with fewer simulations for speed
-            .with_temperature(1.0); // Exploration temperature
+            .with_simulations(config.num_simulations)
+            .with_temperature(1.0); // Base exploration temperature
 
-        let mcts_policy =
-            MctsPolicy::new(config.env_id.clone(), num_actions, obs_size).with_config(mcts_config);
+        let mcts_policy = MctsPolicy::new(config.env_id.clone(), num_actions, obs_size)
+            .with_config(mcts_config)
+            .with_temp_schedule(config.temp_threshold, 0.1); // Late-game temp
+
+        info!(
+            "MCTS config: {} simulations, temp_threshold={} (0=disabled)",
+            config.num_simulations, config.temp_threshold
+        );
 
         // Create model watcher
         let model_dir = format!("{}/models", config.data_dir);
@@ -318,9 +325,10 @@ impl Actor {
             }
 
             // Select action using MCTS policy
+            // Pass step_number for temperature schedule (lower temp in late game)
             let policy_result = {
                 let mut policy = self.mcts_policy.lock().expect("mcts_policy lock poisoned");
-                policy.select_action(&current_state, &current_obs, current_legal_mask)?
+                policy.select_action(&current_state, &current_obs, current_legal_mask, step_number)?
             };
 
             // Take step in environment
@@ -442,6 +450,8 @@ mod tests {
             log_interval: 10,
             replay_db_path: db_path.into(),
             data_dir: "./data".into(),
+            num_simulations: 50,  // Fewer for tests
+            temp_threshold: 0,    // Disabled for tests
         }
     }
 
