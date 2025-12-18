@@ -24,24 +24,27 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import numpy as np
-import torch
 import onnx
+import torch
 import torch.nn.utils as nn_utils
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from .backoff import (
-    DEFAULT_WAIT_INTERVAL,
     DEFAULT_MAX_WAIT,
+    DEFAULT_WAIT_INTERVAL,
     LOG_EVERY_N_WAITS,
     WaitTimeout,
     wait_with_backoff,
 )
+from .evaluator import OnnxPolicy, RandomPolicy, evaluate
 from .game_config import GameConfig, get_config
-from .network import AlphaZeroLoss, PolicyValueNetwork, create_network
-from .replay import GameMetadata, ReplayBuffer
-from .evaluator import evaluate, OnnxPolicy, RandomPolicy
+from .network import AlphaZeroLoss, create_network
+from .replay import ReplayBuffer
 from .stats import EvalStats, TrainerStats, load_stats, write_stats
+
+# Re-export WaitTimeout for convenience (used by tests)
+__all__ = ["Trainer", "TrainerConfig", "EvalStats", "TrainerStats", "WaitTimeout"]
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +82,9 @@ class TrainerConfig:
         "./data/models", cli="--model-dir", help="Directory for ONNX model checkpoints"
     )
     stats_path: str = cli_field(
-        "./data/stats.json", cli="--stats", help="Path to write stats.json for web polling"
+        "./data/stats.json",
+        cli="--stats",
+        help="Path to write stats.json for web polling",
     )
 
     # Training hyperparameters
@@ -110,8 +115,12 @@ class TrainerConfig:
     checkpoint_interval: int = cli_field(
         100, cli="--checkpoint-interval", help="Steps between checkpoint saves"
     )
-    stats_interval: int = cli_field(10, cli="--stats-interval", help="Steps between stats updates")
-    log_interval: int = cli_field(10, cli="--log-interval", help="Steps between log messages")
+    stats_interval: int = cli_field(
+        10, cli="--stats-interval", help="Steps between stats updates"
+    )
+    log_interval: int = cli_field(
+        10, cli="--log-interval", help="Steps between log messages"
+    )
 
     # Checkpoint management
     max_checkpoints: int = cli_field(
@@ -319,11 +328,14 @@ class Trainer:
         logger.info(f"Starting training for {self.config.total_steps} steps")
         logger.info(f"Loading replay buffer from {self.config.db_path}")
         if self.config.grad_clip_norm > 0:
-            logger.info(f"Gradient clipping enabled: max_norm={self.config.grad_clip_norm}")
+            logger.info(
+                f"Gradient clipping enabled: max_norm={self.config.grad_clip_norm}"
+            )
         if self.scheduler:
+            min_lr = self.config.learning_rate * self.config.lr_min_ratio
             logger.info(
                 f"LR scheduler enabled: cosine annealing "
-                f"{self.config.learning_rate} -> {self.config.learning_rate * self.config.lr_min_ratio}"
+                f"{self.config.learning_rate} -> {min_lr}"
             )
 
         # Wait for replay buffer to exist with proper backoff
@@ -364,7 +376,9 @@ class Trainer:
                 )
 
             buffer_size = replay.count(env_id=env_id)
-            logger.info(f"Replay buffer contains {buffer_size} transitions for {env_id}")
+            logger.info(
+                f"Replay buffer contains {buffer_size} transitions for {env_id}"
+            )
 
             # Wait for enough data with proper backoff
             if buffer_size < self.config.batch_size:
@@ -373,7 +387,9 @@ class Trainer:
                     f"sufficient data ({self.config.batch_size} samples for {env_id})",
                 )
                 buffer_size = replay.count(env_id=env_id)
-                logger.info(f"Replay buffer now has {buffer_size} transitions for {env_id}")
+                logger.info(
+                    f"Replay buffer now has {buffer_size} transitions for {env_id}"
+                )
 
             # Initialize buffer size cache
             self._buffer_size_cache = buffer_size
@@ -428,11 +444,13 @@ class Trainer:
                 self.stats.replay_buffer_size = self._buffer_size_cache
 
                 # Track recent losses for rolling average
-                self._recent_losses.append({
-                    "total": metrics["loss/total"],
-                    "value": metrics["loss/value"],
-                    "policy": metrics["loss/policy"],
-                })
+                self._recent_losses.append(
+                    {
+                        "total": metrics["loss/total"],
+                        "value": metrics["loss/value"],
+                        "policy": metrics["loss/policy"],
+                    }
+                )
                 if len(self._recent_losses) > self._rolling_window:
                     self._recent_losses.pop(0)
 
@@ -493,7 +511,9 @@ class Trainer:
                     if checkpoint_path is None:
                         checkpoint_path = self._save_checkpoint(global_step)
                         self.stats.last_checkpoint = str(checkpoint_path)
-                        logger.info(f"Saved checkpoint for evaluation: {checkpoint_path}")
+                        logger.info(
+                            f"Saved checkpoint for evaluation: {checkpoint_path}"
+                        )
 
                     self._evaluate_checkpoint(checkpoint_path, global_step)
                     self._write_stats()
@@ -561,7 +581,9 @@ class Trainer:
             checkpoint_path: Path to the ONNX checkpoint to evaluate.
             step: Current training step for recording.
         """
-        logger.info(f"Running evaluation at step {step} ({self.config.eval_games} games)...")
+        logger.info(
+            f"Running evaluation at step {step} ({self.config.eval_games} games)..."
+        )
 
         try:
             model_policy = OnnxPolicy(str(checkpoint_path), temperature=0.0)
