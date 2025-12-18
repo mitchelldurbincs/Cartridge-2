@@ -6,6 +6,7 @@
 //! 3. Evaluation: Get value estimate from evaluator
 //! 4. Backpropagation: Update statistics along the path
 
+use engine_core::game_utils::info_bits;
 use engine_core::{ActionSpace, EngineContext};
 use rand::Rng;
 use rand_chacha::ChaCha20Rng;
@@ -237,7 +238,8 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
                 .map_err(|e| SearchError::EngineError(e.to_string()))?;
 
             // Extract legal moves from info bits (num_actions bits)
-            let child_legal_mask = step_result.info & ((1u64 << self.num_actions) - 1);
+            let child_legal_mask =
+                info_bits::extract_legal_mask(step_result.info, self.num_actions as u32);
 
             // Determine terminal value:
             // The reward is from the perspective of the player who just moved (the parent).
@@ -485,7 +487,11 @@ mod tests {
         }
 
         // Extract legal mask from info
-        let legal_mask = info & 0x1FF;
+        let num_actions = match ctx.action_space() {
+            ActionSpace::Discrete(n) => n as u32,
+            _ => panic!("Expected discrete action space"),
+        };
+        let legal_mask = info_bits::extract_legal_mask(info, num_actions);
 
         // Verify position 2 is legal
         assert!(
