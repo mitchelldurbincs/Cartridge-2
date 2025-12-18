@@ -50,9 +50,12 @@ def cmd_train(args: argparse.Namespace) -> int:
 def cmd_evaluate(args: argparse.Namespace) -> int:
     """Run model evaluation."""
     from pathlib import Path
+
     from .evaluator import (
-        OnnxPolicy, RandomPolicy, evaluate,
-        get_game_metadata_or_config
+        OnnxPolicy,
+        RandomPolicy,
+        evaluate,
+        get_game_metadata_or_config,
     )
 
     logger = logging.getLogger(__name__)

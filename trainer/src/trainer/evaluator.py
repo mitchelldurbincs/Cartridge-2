@@ -172,7 +172,10 @@ class TicTacToeState:
             self._winner = None
         else:
             # Switch player
-            self.current_player = Player.SECOND if self.current_player == Player.FIRST else Player.FIRST
+            if self.current_player == Player.FIRST:
+                self.current_player = Player.SECOND
+            else:
+                self.current_player = Player.FIRST
 
     def _check_winner(self, player: Player) -> bool:
         """Check if the given player has won."""
@@ -180,18 +183,26 @@ class TicTacToeState:
         p = player
 
         # Rows
-        if b[0] == b[1] == b[2] == p: return True
-        if b[3] == b[4] == b[5] == p: return True
-        if b[6] == b[7] == b[8] == p: return True
+        if b[0] == b[1] == b[2] == p:
+            return True
+        if b[3] == b[4] == b[5] == p:
+            return True
+        if b[6] == b[7] == b[8] == p:
+            return True
 
         # Columns
-        if b[0] == b[3] == b[6] == p: return True
-        if b[1] == b[4] == b[7] == p: return True
-        if b[2] == b[5] == b[8] == p: return True
+        if b[0] == b[3] == b[6] == p:
+            return True
+        if b[1] == b[4] == b[7] == p:
+            return True
+        if b[2] == b[5] == b[8] == p:
+            return True
 
         # Diagonals
-        if b[0] == b[4] == b[8] == p: return True
-        if b[2] == b[4] == b[6] == p: return True
+        if b[0] == b[4] == b[8] == p:
+            return True
+        if b[2] == b[4] == b[6] == p:
+            return True
 
         return False
 
@@ -309,7 +320,10 @@ class Connect4State:
             self._winner = None
         else:
             # Switch player
-            self.current_player = Player.SECOND if self.current_player == Player.FIRST else Player.FIRST
+            if self.current_player == Player.FIRST:
+                self.current_player = Player.SECOND
+            else:
+                self.current_player = Player.FIRST
 
     def _check_winner(self, col: int, row: int, player: Player) -> bool:
         """Check if the last move at (col, row) creates a win."""
@@ -561,17 +575,17 @@ class EvalResults:
             f"Game: {self.env_id}",
             f"{'=' * 50}",
             f"Games played: {self.games_played}",
-            f"",
+            "",
             f"{self.player1_name}:",
             f"  Wins: {self.player1_wins} ({self.player1_win_rate:.1%})",
             f"    As first player: {self.player1_wins_as_first}",
             f"    As second player: {self.player1_wins_as_second}",
-            f"",
+            "",
             f"{self.player2_name}:",
             f"  Wins: {self.player2_wins} ({self.player2_win_rate:.1%})",
             f"    As first player: {self.player2_wins_as_first}",
             f"    As second player: {self.player2_wins_as_second}",
-            f"",
+            "",
             f"Draws: {self.draws} ({self.draw_rate:.1%})",
             f"Average game length: {self.avg_game_length:.1f} moves",
             f"{'=' * 50}",
@@ -610,7 +624,8 @@ def play_game(
         first_policy, second_policy = player2, player1
 
     if verbose:
-        logger.info(f"Game start: {player1.name} as {'first' if player1_as == Player.FIRST else 'second'}")
+        role = "first" if player1_as == Player.FIRST else "second"
+        logger.info(f"Game start: {player1.name} as {role}")
         logger.info(f"\n{state.display()}")
 
     while not state.done:

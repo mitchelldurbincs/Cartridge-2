@@ -25,23 +25,22 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import numpy as np
-import torch
 import onnx
+import torch
 import torch.nn.utils as nn_utils
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from .backoff import (
-    DEFAULT_WAIT_INTERVAL,
     DEFAULT_MAX_WAIT,
+    DEFAULT_WAIT_INTERVAL,
     LOG_EVERY_N_WAITS,
-    WaitTimeout,
     wait_with_backoff,
 )
+from .evaluator import OnnxPolicy, RandomPolicy, evaluate
 from .game_config import GameConfig, get_config
-from .network import AlphaZeroLoss, PolicyValueNetwork, create_network
-from .replay import GameMetadata, ReplayBuffer
-from .evaluator import evaluate, OnnxPolicy, RandomPolicy
+from .network import AlphaZeroLoss, create_network
+from .replay import ReplayBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -444,9 +443,10 @@ class Trainer:
         if self.config.grad_clip_norm > 0:
             logger.info(f"Gradient clipping enabled: max_norm={self.config.grad_clip_norm}")
         if self.scheduler:
+            min_lr = self.config.learning_rate * self.config.lr_min_ratio
             logger.info(
                 f"LR scheduler enabled: cosine annealing "
-                f"{self.config.learning_rate} -> {self.config.learning_rate * self.config.lr_min_ratio}"
+                f"{self.config.learning_rate} -> {min_lr}"
             )
 
         # Wait for replay buffer to exist with proper backoff

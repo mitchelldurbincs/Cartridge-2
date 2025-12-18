@@ -24,6 +24,7 @@ pub struct CommonConfig {
     pub data_dir: String,
     #[serde(default = "default_env_id")]
     pub env_id: String,
+    #[allow(dead_code)]
     #[serde(default = "default_log_level")]
     pub log_level: String,
 }

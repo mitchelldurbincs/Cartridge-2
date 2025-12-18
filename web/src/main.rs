@@ -25,10 +25,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
-#[cfg(not(feature = "onnx"))]
 use tracing::info;
 #[cfg(feature = "onnx")]
-use tracing::{info, warn};
+use tracing::warn;
 
 mod central_config;
 mod game;

@@ -23,7 +23,7 @@ jobs:
         with:
           components: rustfmt
       - name: Check formatting (engine)
-        run: cargo fmt --check --manifest-path engine/Cargo.toml
+        run: cargo fmt --check --all --manifest-path engine/Cargo.toml
       - name: Check formatting (actor)
         run: cargo fmt --check --manifest-path actor/Cargo.toml
       - name: Check formatting (web)

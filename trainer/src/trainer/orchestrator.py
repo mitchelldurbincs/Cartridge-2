@@ -37,9 +37,9 @@ from pathlib import Path
 from typing import Any
 
 from .central_config import get_config as get_central_config
-from .evaluator import OnnxPolicy, RandomPolicy, evaluate as run_eval, create_game_state
+from .evaluator import OnnxPolicy, RandomPolicy, evaluate as run_eval
 from .game_config import get_config as get_game_config
-from .replay import ReplayBuffer, create_empty_db, GameMetadata
+from .replay import ReplayBuffer, create_empty_db
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,9 @@ class Orchestrator:
         if self.config.actor_binary:
             if self.config.actor_binary.exists():
                 return self.config.actor_binary
-            raise FileNotFoundError(f"Configured actor binary not found: {self.config.actor_binary}")
+            raise FileNotFoundError(
+                f"Configured actor binary not found: {self.config.actor_binary}"
+            )
 
         # Check environment variable
         env_path = os.environ.get("ACTOR_BINARY")
@@ -512,11 +514,13 @@ class Orchestrator:
         )
 
         if should_eval:
-            logger.info(f"Step 4: Running evaluation...")
+            logger.info("Step 4: Running evaluation...")
             win_rate, draw_rate, eval_time = self._run_evaluation(iteration)
         else:
             if self.config.eval_interval > 0:
-                logger.info(f"Step 4: Skipping evaluation (next at iteration {iteration + (self.config.eval_interval - iteration % self.config.eval_interval)})")
+                remaining = self.config.eval_interval - iteration % self.config.eval_interval
+                next_eval = iteration + remaining
+                logger.info(f"Step 4: Skipping evaluation (next at iteration {next_eval})")
             else:
                 logger.info("Step 4: Evaluation disabled (ALPHAZERO_EVAL_INTERVAL=0)")
 
@@ -562,7 +566,9 @@ class Orchestrator:
 
         # Prominently show evaluation settings
         if self.config.eval_interval > 0:
-            logger.info(f"Evaluation: ENABLED (every {self.config.eval_interval} iteration(s), {self.config.eval_games} games)")
+            interval = self.config.eval_interval
+            games = self.config.eval_games
+            logger.info(f"Evaluation: ENABLED (every {interval} iteration(s), {games} games)")
         else:
             logger.info("Evaluation: DISABLED (set ALPHAZERO_EVAL_INTERVAL > 0 to enable)")
 
