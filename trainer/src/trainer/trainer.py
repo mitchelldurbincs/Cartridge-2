@@ -68,7 +68,9 @@ class Trainer:
         self.target_lr = config.learning_rate
 
         # Initialize optimizer (start at warmup LR if warmup enabled)
-        initial_lr = self.warmup_start_lr if self.warmup_steps > 0 else config.learning_rate
+        initial_lr = (
+            self.warmup_start_lr if self.warmup_steps > 0 else config.learning_rate
+        )
         self.optimizer = optim.Adam(
             self.network.parameters(),
             lr=initial_lr,
@@ -97,9 +99,7 @@ class Trainer:
         )
         if loaded_step is not None:
             self._checkpoint_loaded = True
-            logger.info(
-                f"Resuming training from checkpoint (step {loaded_step})"
-            )
+            logger.info(f"Resuming training from checkpoint (step {loaded_step})")
 
         # Initialize loss function
         self.loss_fn = AlphaZeroLoss(
