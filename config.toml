@@ -63,7 +63,7 @@ max_checkpoints = 10
 # =============================================================================
 [evaluation]
 # Evaluate every N iterations (0 to disable)
-interval = 1
+interval = 3 
 
 # Number of games per evaluation
 games = 50
