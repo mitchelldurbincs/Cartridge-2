@@ -100,6 +100,16 @@ class Trainer:
         if loaded_step is not None:
             self._checkpoint_loaded = True
             logger.info(f"Resuming training from checkpoint (step {loaded_step})")
+            # Disable warmup for resumed training to avoid loss spikes
+            # Warmup is only needed when training from scratch
+            if self.warmup_steps > 0:
+                logger.info(
+                    "Disabling LR warmup for resumed training (checkpoint loaded)"
+                )
+                self.warmup_steps = 0
+                # Set LR to target (skip warmup)
+                for param_group in self.optimizer.param_groups:
+                    param_group["lr"] = self.target_lr
 
         # Initialize loss function
         self.loss_fn = AlphaZeroLoss(
