@@ -12,6 +12,7 @@ from typing import Callable
 # Constants for backoff/wait behavior
 DEFAULT_WAIT_INTERVAL = 2.0  # seconds between checks
 DEFAULT_MAX_WAIT = 300.0  # 5 minutes max wait
+MAX_BACKOFF_INTERVAL = 60.0  # cap exponential backoff to avoid huge sleeps
 LOG_EVERY_N_WAITS = 5  # Log waiting message every N intervals
 
 
@@ -42,6 +43,8 @@ def wait_with_backoff(
     """
     start_time = time.time()
     wait_count = 0
+    sleep_interval = interval
+    max_interval = max_wait if max_wait > 0 else MAX_BACKOFF_INTERVAL
 
     while not condition_fn():
         elapsed = time.time() - start_time
@@ -50,17 +53,22 @@ def wait_with_backoff(
                 f"Timed out waiting for {description} after {elapsed:.1f}s"
             )
 
-        wait_count += 1
-        if logger and wait_count % LOG_EVERY_N_WAITS == 1:
-            if max_wait > 0:
-                remaining = max_wait - elapsed
+        remaining = max_wait - elapsed if max_wait > 0 else None
+        next_sleep = min(sleep_interval, remaining) if remaining is not None else sleep_interval
+
+        if logger and wait_count % LOG_EVERY_N_WAITS == 0:
+            if remaining is not None:
                 logger.info(
                     f"Waiting for {description}... "
-                    f"(elapsed: {elapsed:.1f}s, timeout in: {remaining:.1f}s)"
+                    f"(elapsed: {elapsed:.1f}s, next sleep: {next_sleep:.1f}s, "
+                    f"timeout in: {remaining:.1f}s)"
                 )
             else:
                 logger.info(
-                    f"Waiting for {description}... (elapsed: {elapsed:.1f}s)"
+                    f"Waiting for {description}... "
+                    f"(elapsed: {elapsed:.1f}s, next sleep: {next_sleep:.1f}s)"
                 )
 
-        time.sleep(interval)
+        time.sleep(next_sleep)
+        wait_count += 1
+        sleep_interval = min(sleep_interval * 2, max_interval)
