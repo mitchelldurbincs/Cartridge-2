@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HistoryEntry } from './lib/api';
+  import { chartColors, formatStep, formatLoss, generateTicks } from './lib/utils';
 
   interface Props {
     history: HistoryEntry[];
@@ -13,13 +14,6 @@
   const padding = { top: 20, right: 20, bottom: 40, left: 50 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-
-  // Colors matching the dark theme
-  const colors = {
-    total: '#00d9ff',   // Cyan - primary brand color
-    policy: '#ff6b6b', // Red
-    value: '#4ecdc4',  // Teal
-  };
 
   // Compute scales and paths
   function getChartData(data: HistoryEntry[]) {
@@ -85,25 +79,6 @@
     };
   }
 
-  // Generate nice tick values
-  function generateTicks(min: number, max: number, count: number): number[] {
-    if (min === max) return [min];
-    const step = (max - min) / (count - 1);
-    return Array.from({ length: count }, (_, i) => min + step * i);
-  }
-
-  // Format tick labels
-  function formatStep(value: number): string {
-    if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
-    return Math.round(value).toString();
-  }
-
-  function formatLoss(value: number): string {
-    if (value < 0.01) return value.toExponential(1);
-    if (value < 1) return value.toFixed(3);
-    return value.toFixed(2);
-  }
-
   // Reactive chart data
   let chartData = $derived(getChartData(history));
 </script>
@@ -130,9 +105,9 @@
         {/each}
 
         <!-- Loss lines -->
-        <path d={chartData.paths.total} fill="none" stroke={colors.total} stroke-width="2" />
-        <path d={chartData.paths.policy} fill="none" stroke={colors.policy} stroke-width="1.5" stroke-opacity="0.8" />
-        <path d={chartData.paths.value} fill="none" stroke={colors.value} stroke-width="1.5" stroke-opacity="0.8" />
+        <path d={chartData.paths.total} fill="none" stroke={chartColors.total} stroke-width="2" />
+        <path d={chartData.paths.policy} fill="none" stroke={chartColors.policy} stroke-width="1.5" stroke-opacity="0.8" />
+        <path d={chartData.paths.value} fill="none" stroke={chartColors.value} stroke-width="1.5" stroke-opacity="0.8" />
 
         <!-- X-axis -->
         <line x1="0" y1={chartHeight} x2={chartWidth} y2={chartHeight} stroke="#666" />
@@ -186,15 +161,15 @@
     <!-- Legend -->
     <div class="legend">
       <div class="legend-item">
-        <span class="legend-line" style="background: {colors.total}"></span>
+        <span class="legend-line" style="background: {chartColors.total}"></span>
         <span>Total</span>
       </div>
       <div class="legend-item">
-        <span class="legend-line" style="background: {colors.policy}"></span>
+        <span class="legend-line" style="background: {chartColors.policy}"></span>
         <span>Policy</span>
       </div>
       <div class="legend-item">
-        <span class="legend-line" style="background: {colors.value}"></span>
+        <span class="legend-line" style="background: {chartColors.value}"></span>
         <span>Value</span>
       </div>
     </div>

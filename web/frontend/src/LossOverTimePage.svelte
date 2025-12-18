@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { getStats, type HistoryEntry } from './lib/api';
+  import { chartColors, formatStep, formatLoss, generateTicks } from './lib/utils';
 
   let history: HistoryEntry[] = $state([]);
   let error: string | null = $state(null);
@@ -8,12 +9,6 @@
 
   // Full-screen chart dimensions
   const padding = { top: 40, right: 60, bottom: 60, left: 80 };
-
-  const colors = {
-    total: '#00d9ff',
-    policy: '#ff6b6b',
-    value: '#4ecdc4',
-  };
 
   async function fetchData() {
     try {
@@ -107,25 +102,6 @@
     };
   }
 
-  function generateTicks(min: number, max: number, count: number): number[] {
-    if (min === max) return [min];
-    const step = (max - min) / (count - 1);
-    return Array.from({ length: count }, (_, i) => min + step * i);
-  }
-
-  function formatStep(value: number): string {
-    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-    if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
-    return Math.round(value).toString();
-  }
-
-  function formatLoss(value: number): string {
-    if (value < 0.001) return value.toExponential(2);
-    if (value < 0.01) return value.toFixed(4);
-    if (value < 1) return value.toFixed(3);
-    return value.toFixed(2);
-  }
-
   // Reactive dimensions based on window size
   let innerWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1200);
   let innerHeight = $state(typeof window !== 'undefined' ? window.innerHeight : 800);
@@ -182,20 +158,20 @@
           {/each}
 
           <!-- Loss lines -->
-          <path d={chartData.paths.total} fill="none" stroke={colors.total} stroke-width="3" />
-          <path d={chartData.paths.policy} fill="none" stroke={colors.policy} stroke-width="2" stroke-opacity="0.9" />
-          <path d={chartData.paths.value} fill="none" stroke={colors.value} stroke-width="2" stroke-opacity="0.9" />
+          <path d={chartData.paths.total} fill="none" stroke={chartColors.total} stroke-width="3" />
+          <path d={chartData.paths.policy} fill="none" stroke={chartColors.policy} stroke-width="2" stroke-opacity="0.9" />
+          <path d={chartData.paths.value} fill="none" stroke={chartColors.value} stroke-width="2" stroke-opacity="0.9" />
 
           <!-- Data points (show when not too many) -->
           {#if history.length <= 50}
             {#each chartData.points.total as point}
-              <circle cx={point.x} cy={point.y} r="4" fill={colors.total} />
+              <circle cx={point.x} cy={point.y} r="4" fill={chartColors.total} />
             {/each}
             {#each chartData.points.policy as point}
-              <circle cx={point.x} cy={point.y} r="3" fill={colors.policy} />
+              <circle cx={point.x} cy={point.y} r="3" fill={chartColors.policy} />
             {/each}
             {#each chartData.points.value as point}
-              <circle cx={point.x} cy={point.y} r="3" fill={colors.value} />
+              <circle cx={point.x} cy={point.y} r="3" fill={chartColors.value} />
             {/each}
           {/if}
 
@@ -251,15 +227,15 @@
       <!-- Legend -->
       <div class="legend">
         <div class="legend-item">
-          <span class="legend-line" style="background: {colors.total}"></span>
+          <span class="legend-line" style="background: {chartColors.total}"></span>
           <span>Total Loss</span>
         </div>
         <div class="legend-item">
-          <span class="legend-line" style="background: {colors.policy}"></span>
+          <span class="legend-line" style="background: {chartColors.policy}"></span>
           <span>Policy Loss</span>
         </div>
         <div class="legend-item">
-          <span class="legend-line" style="background: {colors.value}"></span>
+          <span class="legend-line" style="background: {chartColors.value}"></span>
           <span>Value Loss</span>
         </div>
       </div>
@@ -273,15 +249,15 @@
           </div>
           <div class="stat">
             <span class="stat-label">Total Loss</span>
-            <span class="stat-value" style="color: {colors.total}">{formatLoss(latest.total_loss)}</span>
+            <span class="stat-value" style="color: {chartColors.total}">{formatLoss(latest.total_loss)}</span>
           </div>
           <div class="stat">
             <span class="stat-label">Policy Loss</span>
-            <span class="stat-value" style="color: {colors.policy}">{formatLoss(latest.policy_loss)}</span>
+            <span class="stat-value" style="color: {chartColors.policy}">{formatLoss(latest.policy_loss)}</span>
           </div>
           <div class="stat">
             <span class="stat-label">Value Loss</span>
-            <span class="stat-value" style="color: {colors.value}">{formatLoss(latest.value_loss)}</span>
+            <span class="stat-value" style="color: {chartColors.value}">{formatLoss(latest.value_loss)}</span>
           </div>
           <div class="stat">
             <span class="stat-label">Data Points</span>

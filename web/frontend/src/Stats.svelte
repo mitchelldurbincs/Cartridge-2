@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { getStats, getModelInfo, type TrainingStats, type ModelInfo } from './lib/api';
   import LossChart from './LossChart.svelte';
+  import { formatNumber, formatPercent, formatTimestamp, formatTimeAgo, getWinRateColor } from './lib/utils';
 
   let stats: TrainingStats | null = $state(null);
   let modelInfo: ModelInfo | null = $state(null);
@@ -31,38 +32,6 @@
   onDestroy(() => {
     if (pollInterval) clearInterval(pollInterval);
   });
-
-  function formatNumber(n: number | undefined): string {
-    if (n === undefined || n === 0) return '-';
-    return n.toFixed(4);
-  }
-
-  function formatPercent(n: number | undefined): string {
-    if (n === undefined) return '-';
-    return `${(n * 100).toFixed(1)}%`;
-  }
-
-  function formatTimestamp(ts: number | null | undefined): string {
-    if (!ts) return '-';
-    const date = new Date(ts * 1000);
-    return date.toLocaleTimeString();
-  }
-
-  function formatTimeAgo(ts: number | null | undefined): string {
-    if (!ts) return '-';
-    const now = Date.now() / 1000;
-    const diff = now - ts;
-    if (diff < 60) return `${Math.floor(diff)}s ago`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return `${Math.floor(diff / 86400)}d ago`;
-  }
-
-  function getWinRateColor(winRate: number): string {
-    if (winRate >= 0.7) return '#4f4';  // Green - good
-    if (winRate >= 0.5) return '#fa0';  // Orange - okay
-    return '#f66';  // Red - poor
-  }
 </script>
 
 <div class="stats-panel">
