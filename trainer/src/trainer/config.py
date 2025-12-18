@@ -85,6 +85,16 @@ class TrainerConfig:
     lr_min_ratio: float = cli_field(
         0.1, cli="--lr-min-ratio", help="Final LR as ratio of initial LR"
     )
+    lr_warmup_steps: int = cli_field(
+        100,
+        cli="--lr-warmup-steps",
+        help="Number of warmup steps at start of training (0 to disable)",
+    )
+    lr_warmup_start_ratio: float = cli_field(
+        0.1,
+        cli="--lr-warmup-start-ratio",
+        help="Starting LR as ratio of target LR during warmup",
+    )
 
     # Training schedule
     total_steps: int = cli_field(1000, cli="--steps", help="Total training steps")
