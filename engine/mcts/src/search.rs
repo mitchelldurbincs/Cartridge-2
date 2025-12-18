@@ -236,8 +236,8 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
                 .step(&state, &action_bytes)
                 .map_err(|e| SearchError::EngineError(e.to_string()))?;
 
-            // Extract legal moves from info bits (bits 0-8 for TicTacToe)
-            let child_legal_mask = step_result.info & 0x1FF;
+            // Extract legal moves from info bits (num_actions bits)
+            let child_legal_mask = step_result.info & ((1u64 << self.num_actions) - 1);
 
             // Determine terminal value:
             // The reward is from the perspective of the player who just moved (the parent).
