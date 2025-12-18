@@ -47,9 +47,7 @@ class PolicyValueNetwork(nn.Module):
         self.value_fc1 = nn.Linear(hidden_size // 2, hidden_size // 4)
         self.value_fc2 = nn.Linear(hidden_size // 4, 1)
 
-    def forward(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass.
 
         Args:

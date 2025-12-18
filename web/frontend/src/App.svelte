@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import GenericBoard from './GenericBoard.svelte';
   import Stats from './Stats.svelte';
-  import { getGameState, newGame, makeMove, getHealth, getGameInfo, getGames, getStats, type GameState, type MoveResponse, type GameInfo } from './lib/api';
+  import { newGame, makeMove, getHealth, getGameInfo, getGames, getStats, type GameState, type MoveResponse, type GameInfo } from './lib/api';
 
   let gameState: GameState | null = $state(null);
   let gameInfo: GameInfo | null = $state(null);

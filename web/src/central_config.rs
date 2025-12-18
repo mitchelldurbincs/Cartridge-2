@@ -24,6 +24,7 @@ pub struct CommonConfig {
     pub data_dir: String,
     #[serde(default = "default_env_id")]
     pub env_id: String,
+    #[allow(dead_code)]
     #[serde(default = "default_log_level")]
     pub log_level: String,
 }
@@ -74,9 +75,9 @@ fn default_port() -> u16 {
 
 /// Standard locations to search for config.toml
 const CONFIG_SEARCH_PATHS: &[&str] = &[
-    "config.toml",           // Current directory
-    "../config.toml",        // Parent directory (when running from web/)
-    "/app/config.toml",      // Docker container
+    "config.toml",      // Current directory
+    "../config.toml",   // Parent directory (when running from web/)
+    "/app/config.toml", // Docker container
 ];
 
 /// Load the central configuration from config.toml.

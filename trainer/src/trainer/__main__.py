@@ -50,9 +50,12 @@ def cmd_train(args: argparse.Namespace) -> int:
 def cmd_evaluate(args: argparse.Namespace) -> int:
     """Run model evaluation."""
     from pathlib import Path
+
     from .evaluator import (
-        OnnxPolicy, RandomPolicy, evaluate,
-        get_game_metadata_or_config
+        OnnxPolicy,
+        RandomPolicy,
+        evaluate,
+        get_game_metadata_or_config,
     )
 
     logger = logging.getLogger(__name__)
@@ -81,7 +84,9 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
     random_policy = RandomPolicy()
 
-    logger.info(f"Running {args.games} games: {model_policy.name} vs {random_policy.name}")
+    logger.info(
+        f"Running {args.games} games: {model_policy.name} vs {random_policy.name}"
+    )
 
     results = evaluate(
         player1=model_policy,
@@ -107,6 +112,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 def cmd_loop(args: argparse.Namespace) -> int:
     """Run synchronized AlphaZero training loop."""
     from .orchestrator import main as orchestrator_main
+
     # orchestrator has its own arg parsing, so we need to strip the 'loop' subcommand
     # from sys.argv before calling it
     if len(sys.argv) >= 2 and sys.argv[1] == "loop":
@@ -125,7 +131,9 @@ def setup_train_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     TrainerConfig.configure_parser(parser)
     parser.add_argument(
-        "--log-level", type=str, default="INFO",
+        "--log-level",
+        type=str,
+        default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level",
     )
@@ -140,32 +148,45 @@ def setup_evaluate_parser(subparsers: argparse._SubParsersAction) -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--model", type=str, default="./data/models/latest.onnx",
+        "--model",
+        type=str,
+        default="./data/models/latest.onnx",
         help="Path to ONNX model file",
     )
     parser.add_argument(
-        "--db", type=str, default="./data/replay.db",
+        "--db",
+        type=str,
+        default="./data/replay.db",
         help="Path to replay database (for game metadata)",
     )
     parser.add_argument(
-        "--env-id", type=str, default="tictactoe",
+        "--env-id",
+        type=str,
+        default="tictactoe",
         choices=["tictactoe", "connect4"],
         help="Game environment",
     )
     parser.add_argument(
-        "--games", type=int, default=100,
+        "--games",
+        type=int,
+        default=100,
         help="Number of games to play",
     )
     parser.add_argument(
-        "--temperature", type=float, default=0.0,
+        "--temperature",
+        type=float,
+        default=0.0,
         help="Sampling temperature (0 = greedy)",
     )
     parser.add_argument(
-        "--verbose", action="store_true",
+        "--verbose",
+        action="store_true",
         help="Print individual game moves",
     )
     parser.add_argument(
-        "--log-level", type=str, default="INFO",
+        "--log-level",
+        type=str,
+        default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level",
     )
@@ -197,7 +218,13 @@ def main() -> int:
     """Main entry point with subcommand support."""
     # Check if we're being called with a subcommand
     # For backwards compatibility, default to 'train' if no subcommand given
-    if len(sys.argv) >= 2 and sys.argv[1] in ("train", "evaluate", "loop", "-h", "--help"):
+    if len(sys.argv) >= 2 and sys.argv[1] in (
+        "train",
+        "evaluate",
+        "loop",
+        "-h",
+        "--help",
+    ):
         # Subcommand mode
         parser = argparse.ArgumentParser(
             description="Cartridge2 AlphaZero Trainer",
@@ -240,7 +267,9 @@ def main() -> int:
 
         TrainerConfig.configure_parser(parser)
         parser.add_argument(
-            "--log-level", type=str, default="INFO",
+            "--log-level",
+            type=str,
+            default="INFO",
             choices=["DEBUG", "INFO", "WARNING", "ERROR"],
             help="Logging level",
         )
