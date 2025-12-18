@@ -56,7 +56,7 @@ trainer-install: $(VENV)
 
 # Train a small model and write stats/model artifacts
 trainer: data
-	$(VENV_PYTHON) -m trainer --db data/replay.db --model-dir data/models --stats data/stats.json --steps $(TRAIN_STEPS) --batch-size $(TRAIN_BATCH) --device $(TRAIN_DEVICE) --env-id $(ENV_ID)
+	$(VENV_PYTHON) -m trainer train --db data/replay.db --model-dir data/models --stats data/stats.json --steps $(TRAIN_STEPS) --batch-size $(TRAIN_BATCH) --device $(TRAIN_DEVICE) --env-id $(ENV_ID)
 
 # Start the Rust backend (Axum). Blocks until stopped.
 web-backend: data

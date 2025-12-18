@@ -17,16 +17,27 @@ The trainer:
 pip install -e .
 
 # Run training (defaults assume running from trainer/ directory)
-python -m trainer --steps 1000
+trainer train --steps 1000
+# Or: python -m trainer train --steps 1000
 
 # With custom settings
-python -m trainer \
+trainer train \
     --steps 5000 \
     --batch-size 128 \
     --lr 0.001
 ```
 
-## CLI Arguments
+## Available Subcommands
+
+| Command | Description |
+|---------|-------------|
+| `trainer train` | Train on replay buffer data |
+| `trainer evaluate` | Evaluate model against random baseline |
+| `trainer loop` | Run synchronized AlphaZero training (actor + trainer + eval) |
+
+All commands support `--help` for detailed argument information.
+
+## CLI Arguments (`trainer train`)
 
 | Argument | Default | Description |
 |----------|---------|-------------|
@@ -45,10 +56,10 @@ python -m trainer \
 
 ```bash
 # Disable cosine annealing
-python -m trainer --no-lr-schedule
+trainer train --no-lr-schedule
 
 # Custom min LR ratio
-python -m trainer --lr-min-ratio 0.01
+trainer train --lr-min-ratio 0.01
 ```
 
 ### Wait Settings
@@ -57,7 +68,7 @@ The trainer waits for the replay database to exist and contain data:
 
 ```bash
 # Custom wait interval and timeout
-python -m trainer --wait-interval 5.0 --max-wait 600
+trainer train --wait-interval 5.0 --max-wait 600
 ```
 
 ## Architecture
@@ -152,16 +163,17 @@ The evaluator measures how well a trained model plays against random opponents.
 
 ```bash
 # Basic evaluation (100 games)
-python -m trainer.evaluator --model ../data/models/latest.onnx --games 100
+trainer evaluate --model ../data/models/latest.onnx --games 100
+# Or: python -m trainer evaluate --model ../data/models/latest.onnx --games 100
 
 # More games for statistical confidence
-python -m trainer.evaluator --model ../data/models/latest.onnx --games 500
+trainer evaluate --model ../data/models/latest.onnx --games 500
 
 # Verbose mode to see individual game moves
-python -m trainer.evaluator --model ../data/models/latest.onnx --games 10 --verbose
+trainer evaluate --model ../data/models/latest.onnx --games 10 --verbose
 
 # Compare different checkpoints
-python -m trainer.evaluator --model ../data/models/model_step_000100.onnx --games 100
+trainer evaluate --model ../data/models/model_step_000100.onnx --games 100
 ```
 
 ### CLI Arguments
@@ -221,13 +233,13 @@ Compare checkpoints to see learning progress:
 
 ```bash
 # Early checkpoint
-python -m trainer.evaluator --model ./data/models/model_step_000100.onnx --games 100
+trainer evaluate --model ./data/models/model_step_000100.onnx --games 100
 
 # Mid checkpoint
-python -m trainer.evaluator --model ./data/models/model_step_000500.onnx --games 100
+trainer evaluate --model ./data/models/model_step_000500.onnx --games 100
 
 # Final model
-python -m trainer.evaluator --model ./data/models/latest.onnx --games 100
+trainer evaluate --model ./data/models/latest.onnx --games 100
 ```
 
 ## Integration with Actor
@@ -239,7 +251,26 @@ cargo run -- --env-id tictactoe --replay-db-path ../data/replay.db
 
 # Terminal 2: Trainer consumes data (defaults work from trainer/ directory)
 cd trainer
-python -m trainer
+trainer train
+# Or: python -m trainer train
 ```
 
 The actor will hot-reload `model.onnx` when it changes.
+
+## Synchronized AlphaZero Loop
+
+For the recommended synchronized training workflow (where each iteration clears
+the buffer, generates fresh episodes, trains, and evaluates):
+
+```bash
+# Basic loop (5 iterations)
+trainer loop --iterations 5 --episodes 200 --steps 500
+
+# Connect4 with GPU
+trainer loop --env-id connect4 --device cuda --iterations 20
+
+# Disable evaluation for faster training
+trainer loop --eval-interval 0 --iterations 50
+```
+
+See `trainer loop --help` for all options.
