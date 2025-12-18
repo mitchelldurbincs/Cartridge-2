@@ -503,7 +503,7 @@ mod tests {
         let tree = search.tree();
         let root = tree.get(tree.root());
 
-        // Debug output: print all children's values
+        // Debug output: log all children's values
         for (action, child_id) in &root.children {
             let child = tree.get(*child_id);
             let q_value = if child.visit_count > 0 {
@@ -511,9 +511,14 @@ mod tests {
             } else {
                 0.0
             };
-            eprintln!(
-                "Action {} (terminal={}): visits={}, value_sum={:.2}, Q={:.3}, prior={:.3}",
-                action, child.is_terminal, child.visit_count, child.value_sum, q_value, child.prior
+            trace!(
+                action,
+                terminal = child.is_terminal,
+                visits = child.visit_count,
+                value_sum = child.value_sum,
+                q_value,
+                prior = child.prior,
+                "Child node stats"
             );
         }
 
@@ -547,11 +552,11 @@ mod tests {
         );
 
         // The root's mean_value should be positive (we have a winning move)
-        eprintln!(
-            "Root: visits={}, value_sum={:.2}, mean_value={:.3}",
-            root.visit_count,
-            root.value_sum,
-            root.mean_value()
+        trace!(
+            visits = root.visit_count,
+            value_sum = root.value_sum,
+            mean_value = root.mean_value(),
+            "Root node stats"
         );
 
         // The winning move (position 2) should be selected
