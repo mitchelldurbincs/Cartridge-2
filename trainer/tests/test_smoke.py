@@ -474,6 +474,7 @@ class TestLRScheduler:
                 total_steps=50,
                 learning_rate=1e-3,
                 lr_min_ratio=0.1,
+                lr_warmup_steps=0,  # Disable warmup for this test
                 use_lr_scheduler=True,
                 checkpoint_interval=100,  # No checkpoints
                 stats_interval=10,

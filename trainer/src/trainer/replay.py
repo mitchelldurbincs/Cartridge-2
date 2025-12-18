@@ -685,6 +685,9 @@ def insert_test_transitions(db_path: str | Path, count: int = 100) -> None:
         if legal_mask.sum() > 0:
             raw_probs = np.random.random(9).astype(np.float32) * legal_mask
             policy = raw_probs / (raw_probs.sum() + 1e-8)
+        else:
+            # No legal moves - use uniform distribution to avoid NaN in training
+            policy = np.ones(9, dtype=np.float32) / 9.0
         policy_bytes = policy.tobytes()
 
         # Random MCTS value estimate

@@ -2,6 +2,7 @@
 
 This module handles ONNX model export and checkpoint management:
 - Atomic write-then-rename for safe checkpointing
+- PyTorch state dict saving/loading for training continuity
 - Checkpoint rotation to limit disk usage
 - Cleanup of orphaned temporary files from PyTorch ONNX exporter
 """
@@ -19,8 +20,12 @@ import torch
 
 if TYPE_CHECKING:
     from torch import nn
+    from torch.optim import Optimizer
 
 logger = logging.getLogger(__name__)
+
+# PyTorch checkpoint filename (kept alongside ONNX checkpoints)
+PYTORCH_CHECKPOINT_NAME = "latest.pt"
 
 
 def save_onnx_checkpoint(
@@ -105,6 +110,86 @@ def save_onnx_checkpoint(
         if os.path.exists(temp_path):
             os.unlink(temp_path)
         raise e
+
+
+def save_pytorch_checkpoint(
+    network: "nn.Module",
+    optimizer: "Optimizer",
+    step: int,
+    model_dir: Path,
+) -> Path:
+    """Save PyTorch model and optimizer state for training continuity.
+
+    Uses atomic write-then-rename to prevent corruption.
+
+    Args:
+        network: The neural network to save.
+        optimizer: The optimizer with its state.
+        step: Current training step.
+        model_dir: Directory to save checkpoint.
+
+    Returns:
+        Path to the saved checkpoint file.
+    """
+    checkpoint_path = model_dir / PYTORCH_CHECKPOINT_NAME
+
+    # Write to temp file first, then rename (atomic)
+    temp_fd, temp_path = tempfile.mkstemp(suffix=".pt", dir=model_dir)
+    os.close(temp_fd)
+
+    try:
+        torch.save(
+            {
+                "step": step,
+                "model_state_dict": network.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+            },
+            temp_path,
+        )
+        os.replace(temp_path, checkpoint_path)
+        logger.debug(f"Saved PyTorch checkpoint: {checkpoint_path}")
+        return checkpoint_path
+
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise e
+
+
+def load_pytorch_checkpoint(
+    network: "nn.Module",
+    optimizer: "Optimizer",
+    model_dir: Path,
+    device: torch.device,
+) -> int | None:
+    """Load PyTorch model and optimizer state from checkpoint.
+
+    Args:
+        network: The neural network to load weights into.
+        optimizer: The optimizer to load state into.
+        model_dir: Directory containing the checkpoint.
+        device: Device to map tensors to.
+
+    Returns:
+        The training step from the checkpoint, or None if no checkpoint exists.
+    """
+    checkpoint_path = model_dir / PYTORCH_CHECKPOINT_NAME
+
+    if not checkpoint_path.exists():
+        logger.debug(f"No PyTorch checkpoint found at {checkpoint_path}")
+        return None
+
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
+        network.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        step = checkpoint.get("step", 0)
+        logger.info(f"Loaded PyTorch checkpoint from step {step}: {checkpoint_path}")
+        return step
+
+    except Exception as e:
+        logger.warning(f"Failed to load PyTorch checkpoint: {e}")
+        return None
 
 
 def cleanup_old_checkpoints(
