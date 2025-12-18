@@ -27,6 +27,8 @@ Cartridge2 is a simplified AlphaZero training and visualization platform. It ena
 │  - Stats API    │  │ - ONNX export │  │                 │
 └─────────────────┘  └───────────────┘  └─────────────────┘
 ```
+## Programming 
+**IMPORTANT** Make sure to run tests / linters (can find a list in `.github/workflows/ci.yml`) for the code changes you make. 
 
 ## Components
 
