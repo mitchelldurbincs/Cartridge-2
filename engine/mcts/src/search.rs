@@ -488,7 +488,7 @@ mod tests {
 
         // Extract legal mask from info
         let num_actions = match ctx.action_space() {
-            ActionSpace::Discrete(n) => n as u32,
+            ActionSpace::Discrete(n) => n,
             _ => panic!("Expected discrete action space"),
         };
         let legal_mask = info_bits::extract_legal_mask(info, num_actions);
