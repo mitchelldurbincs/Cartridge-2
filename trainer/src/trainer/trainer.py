@@ -15,7 +15,6 @@ Training targets:
 
 import dataclasses
 import glob
-import json
 import logging
 import os
 import shutil
@@ -42,6 +41,7 @@ from .game_config import GameConfig, get_config
 from .network import AlphaZeroLoss, PolicyValueNetwork, create_network
 from .replay import GameMetadata, ReplayBuffer
 from .evaluator import evaluate, OnnxPolicy, RandomPolicy
+from .stats import EvalStats, TrainerStats, load_stats, write_stats
 
 logger = logging.getLogger(__name__)
 
@@ -219,88 +219,6 @@ class TrainerConfig:
         return cls(**config_kwargs)
 
 
-@dataclass
-class EvalStats:
-    """Evaluation statistics from a single evaluation run."""
-
-    step: int = 0
-    win_rate: float = 0.0
-    draw_rate: float = 0.0
-    loss_rate: float = 0.0
-    games_played: int = 0
-    avg_game_length: float = 0.0
-    timestamp: float = field(default_factory=time.time)
-
-    def to_dict(self) -> dict:
-        return {
-            "step": self.step,
-            "win_rate": self.win_rate,
-            "draw_rate": self.draw_rate,
-            "loss_rate": self.loss_rate,
-            "games_played": self.games_played,
-            "avg_game_length": self.avg_game_length,
-            "timestamp": self.timestamp,
-        }
-
-
-@dataclass
-class TrainerStats:
-    """Training statistics for web visualization."""
-
-    step: int = 0
-    total_steps: int = 0
-    total_loss: float = 0.0
-    value_loss: float = 0.0
-    policy_loss: float = 0.0
-    learning_rate: float = 0.0
-    samples_seen: int = 0
-    replay_buffer_size: int = 0
-    last_checkpoint: str = ""
-    timestamp: float = field(default_factory=time.time)
-    history: list[dict] = field(default_factory=list)
-    _max_history: int = 100  # Bound history length
-
-    # Environment being trained
-    env_id: str = ""
-
-    # Evaluation metrics
-    last_eval: EvalStats | None = None
-    eval_history: list[dict] = field(default_factory=list)
-    _max_eval_history: int = 50  # Keep last 50 evaluations
-
-    def append_history(self, entry: dict) -> None:
-        """Append to history, maintaining max length bound."""
-        self.history.append(entry)
-        if len(self.history) > self._max_history:
-            # Remove oldest entries to stay within bound
-            self.history = self.history[-self._max_history :]
-
-    def append_eval(self, eval_stats: EvalStats) -> None:
-        """Append evaluation result to history."""
-        self.last_eval = eval_stats
-        self.eval_history.append(eval_stats.to_dict())
-        if len(self.eval_history) > self._max_eval_history:
-            self.eval_history = self.eval_history[-self._max_eval_history :]
-
-    def to_dict(self) -> dict:
-        return {
-            "step": self.step,
-            "total_steps": self.total_steps,
-            "total_loss": self.total_loss,
-            "value_loss": self.value_loss,
-            "policy_loss": self.policy_loss,
-            "learning_rate": self.learning_rate,
-            "samples_seen": self.samples_seen,
-            "replay_buffer_size": self.replay_buffer_size,
-            "last_checkpoint": self.last_checkpoint,
-            "timestamp": self.timestamp,
-            "history": self.history,  # Already bounded on append
-            "env_id": self.env_id,
-            "last_eval": self.last_eval.to_dict() if self.last_eval else None,
-            "eval_history": self.eval_history,
-        }
-
-
 class Trainer:
     """AlphaZero-style trainer for game agents."""
 
@@ -342,7 +260,7 @@ class Trainer:
         )
 
         # Stats tracking - load existing stats to preserve eval history
-        self.stats = self._load_existing_stats()
+        self.stats = load_stats(config.stats_path)
         self.stats.total_steps = config.total_steps
         self.stats.env_id = config.env_id
         self.stats._max_history = config.max_history_length
@@ -366,47 +284,6 @@ class Trainer:
         # Checkpoint tracking
         self.checkpoints: list[Path] = []
         self.latest_checkpoint: Path | None = None
-
-    def _load_existing_stats(self) -> TrainerStats:
-        """Load existing stats from file to preserve eval history across iterations."""
-        stats_path = Path(self.config.stats_path)
-        if not stats_path.exists():
-            return TrainerStats()
-
-        try:
-            with open(stats_path) as f:
-                data = json.load(f)
-
-            stats = TrainerStats()
-
-            # Preserve eval history
-            if "last_eval" in data and data["last_eval"]:
-                stats.last_eval = EvalStats(
-                    step=data["last_eval"].get("step", 0),
-                    win_rate=data["last_eval"].get("win_rate", 0.0),
-                    draw_rate=data["last_eval"].get("draw_rate", 0.0),
-                    loss_rate=data["last_eval"].get("loss_rate", 0.0),
-                    games_played=data["last_eval"].get("games_played", 0),
-                    avg_game_length=data["last_eval"].get("avg_game_length", 0.0),
-                    timestamp=data["last_eval"].get("timestamp", 0.0),
-                )
-
-            if "eval_history" in data:
-                stats.eval_history = data["eval_history"]
-
-            # Optionally preserve training history too
-            if "history" in data:
-                stats.history = data["history"]
-
-            logger.info(
-                f"Loaded existing stats: {len(stats.eval_history)} eval records, "
-                f"{len(stats.history)} training records"
-            )
-            return stats
-
-        except Exception as e:
-            logger.warning(f"Failed to load existing stats: {e}")
-            return TrainerStats()
 
     def _wait_with_backoff(
         self, condition_fn, description: str, check_interval: float | None = None
@@ -818,17 +695,4 @@ class Trainer:
 
     def _write_stats(self) -> None:
         """Write stats.json for web polling (atomic write)."""
-        stats_path = Path(self.config.stats_path)
-
-        # Write to temp file then rename
-        temp_fd, temp_path = tempfile.mkstemp(
-            suffix=".json", dir=stats_path.parent
-        )
-        try:
-            with os.fdopen(temp_fd, "w") as f:
-                json.dump(self.stats.to_dict(), f, indent=2)
-            os.replace(temp_path, stats_path)
-        except Exception:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-            raise
+        write_stats(self.stats, self.config.stats_path)
