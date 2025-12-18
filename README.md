@@ -60,15 +60,21 @@ cargo run -- --env-id tictactoe --max-episodes 1000
 ```bash
 cd trainer
 pip install -e .
-python -m trainer --db ../data/replay.db --steps 1000
+
+# Train on existing replay data
+trainer train --db ../data/replay.db --steps 1000
+# Or: python -m trainer train --db ../data/replay.db --steps 1000
+
 # Exports model to ./data/models/latest.onnx
 ```
 
 ### Evaluate the Model
 
 ```bash
-cd trainer
-python -m trainer.evaluator --model ../data/models/latest.onnx --games 100
+# Evaluate model against random baseline
+trainer evaluate --model ../data/models/latest.onnx --games 100
+# Or: python -m trainer evaluate --model ../data/models/latest.onnx --games 100
+
 # Plays 100 games against random, reports win rate
 ```
 
@@ -215,18 +221,21 @@ the random baseline.
 Run locally (with defaults targeting TicTacToe):
 
 ```bash
-python -m trainer.orchestrator --iterations 5 --episodes 200 --steps 500
-# Or via console entry point after `pip install -e trainer`
+# Using the subcommand interface
+trainer loop --iterations 5 --episodes 200 --steps 500
+# Or: python -m trainer loop --iterations 5 --episodes 200 --steps 500
+
+# Legacy entry point also works
 trainer-loop --iterations 5 --episodes 200 --steps 500
 ```
 
 Configuration can be supplied via flags or environment variables (prefixed with
-`ALPHAZERO_`). For example, to train Connect4 with GPU acceleration and disable
-evaluation for speed:
+`ALPHAZERO_` or `CARTRIDGE_`). For example, to train Connect4 with GPU acceleration
+and disable evaluation for speed:
 
 ```bash
 ALPHAZERO_ENV_ID=connect4 ALPHAZERO_DEVICE=cuda ALPHAZERO_EVAL_INTERVAL=0 \
-    trainer-loop --iterations 20 --episodes 300 --steps 1000
+    trainer loop --iterations 20 --episodes 300 --steps 1000
 ```
 
 Docker usage mirrors the same interface. The root-level `docker-compose.yml`
