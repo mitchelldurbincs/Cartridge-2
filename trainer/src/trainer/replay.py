@@ -39,7 +39,6 @@ from typing import Iterator
 
 import numpy as np
 
-
 # Expected columns in the transitions table (order matters for validation)
 EXPECTED_COLUMNS = [
     ("id", "TEXT"),

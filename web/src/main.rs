@@ -26,8 +26,6 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
-#[cfg(feature = "onnx")]
-use tracing::warn;
 
 mod central_config;
 mod game;

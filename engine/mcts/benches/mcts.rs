@@ -116,15 +116,9 @@ fn bench_mcts_game_phases(c: &mut Criterion) {
             let (state, obs, legal_mask) = play_moves(&mut ctx, 42, &[4, 0, 2, 6]);
             let mut rng = ChaCha20Rng::seed_from_u64(42);
 
-            let mut search = MctsSearch::new(
-                &mut ctx,
-                &evaluator,
-                config.clone(),
-                state,
-                obs,
-                legal_mask,
-            )
-            .unwrap();
+            let mut search =
+                MctsSearch::new(&mut ctx, &evaluator, config.clone(), state, obs, legal_mask)
+                    .unwrap();
 
             black_box(search.run(&mut rng).unwrap())
         });
@@ -141,15 +135,9 @@ fn bench_mcts_game_phases(c: &mut Criterion) {
             let (state, obs, legal_mask) = play_moves(&mut ctx, 42, &[0, 3, 1, 4]);
             let mut rng = ChaCha20Rng::seed_from_u64(42);
 
-            let mut search = MctsSearch::new(
-                &mut ctx,
-                &evaluator,
-                config.clone(),
-                state,
-                obs,
-                legal_mask,
-            )
-            .unwrap();
+            let mut search =
+                MctsSearch::new(&mut ctx, &evaluator, config.clone(), state, obs, legal_mask)
+                    .unwrap();
 
             black_box(search.run(&mut rng).unwrap())
         });

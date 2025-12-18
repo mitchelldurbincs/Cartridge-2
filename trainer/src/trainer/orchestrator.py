@@ -37,7 +37,8 @@ from pathlib import Path
 from typing import Any
 
 from .central_config import get_config as get_central_config
-from .evaluator import OnnxPolicy, RandomPolicy, evaluate as run_eval
+from .evaluator import OnnxPolicy, RandomPolicy
+from .evaluator import evaluate as run_eval
 from .game_config import get_config as get_game_config
 from .replay import ReplayBuffer, create_empty_db
 

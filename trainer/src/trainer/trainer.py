@@ -35,12 +35,16 @@ from .backoff import (
     DEFAULT_MAX_WAIT,
     DEFAULT_WAIT_INTERVAL,
     LOG_EVERY_N_WAITS,
+    WaitTimeout,
     wait_with_backoff,
 )
 from .evaluator import OnnxPolicy, RandomPolicy, evaluate
 from .game_config import GameConfig, get_config
 from .network import AlphaZeroLoss, create_network
 from .replay import ReplayBuffer
+
+# Re-export WaitTimeout for convenience (used by tests)
+__all__ = ["Trainer", "TrainerConfig", "TrainerStats", "WaitTimeout"]
 
 logger = logging.getLogger(__name__)
 
