@@ -87,6 +87,9 @@ class Trainer:
                 eta_min=config.learning_rate * config.lr_min_ratio,
             )
 
+        # Track how many steps have already completed (from CLI offset or checkpoint)
+        self.start_step = config.start_step
+
         # Try to load existing checkpoint (critical for training continuity!)
         self._checkpoint_loaded = False
         loaded_step = load_pytorch_checkpoint(
@@ -97,6 +100,8 @@ class Trainer:
         )
         if loaded_step is not None:
             self._checkpoint_loaded = True
+            # Prefer the larger of CLI-provided start_step or checkpoint step
+            self.start_step = max(self.start_step, loaded_step)
             logger.info(
                 f"Resuming training from checkpoint (step {loaded_step})"
             )
@@ -106,6 +111,13 @@ class Trainer:
             value_weight=config.value_loss_weight,
             policy_weight=config.policy_loss_weight,
         )
+
+        # Align scheduler progress with resumed training
+        if self.scheduler:
+            if self.start_step > self.warmup_steps:
+                self.scheduler.last_epoch = self.start_step - self.warmup_steps
+            else:
+                self.scheduler.last_epoch = -1
 
         # Stats tracking - load existing stats to preserve eval history
         self.stats = load_stats(config.stats_path)
@@ -243,7 +255,7 @@ class Trainer:
 
             # Training loop
             consecutive_skips = 0
-            start_step = self.config.start_step
+            start_step = self.start_step
             for step in range(1, self.config.total_steps + 1):
                 global_step = start_step + step
                 self.stats.step = global_step
@@ -273,7 +285,7 @@ class Trainer:
                 metrics = self._train_step(observations, policy_targets, value_targets)
 
                 # Update learning rate (warmup then cosine annealing)
-                self._update_learning_rate(step)
+                self._update_learning_rate(step, global_step)
 
                 # Update stats
                 self.stats.total_loss = metrics["loss/total"]
@@ -371,15 +383,16 @@ class Trainer:
         logger.info("Training complete")
         return self.stats
 
-    def _update_learning_rate(self, step: int) -> None:
+    def _update_learning_rate(self, step: int, global_step: int) -> None:
         """Update learning rate with warmup and cosine annealing.
 
         Args:
             step: Current training step (1-indexed within this training run).
+            global_step: Total steps completed across runs (start_step + step).
         """
-        if step <= self.warmup_steps:
+        if global_step <= self.warmup_steps:
             # Linear warmup: interpolate from warmup_start_lr to target_lr
-            warmup_progress = step / self.warmup_steps
+            warmup_progress = global_step / self.warmup_steps
             lr = self.warmup_start_lr + warmup_progress * (
                 self.target_lr - self.warmup_start_lr
             )
