@@ -31,6 +31,7 @@ Training targets:
       that position's player's perspective.
 """
 
+import logging
 import random
 import sqlite3
 from dataclasses import dataclass
@@ -38,6 +39,8 @@ from pathlib import Path
 from typing import Iterator
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Expected columns in the transitions table (order matters for validation)
 EXPECTED_COLUMNS = [
@@ -132,7 +135,12 @@ class ReplayBuffer:
         if not self.db_path.exists():
             raise FileNotFoundError(f"Replay database not found: {db_path}")
 
-        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        # Use timeout to handle concurrent access from actor, and WAL mode for
+        # better concurrency (allows readers while writer is active)
+        self._conn = sqlite3.connect(
+            str(self.db_path), check_same_thread=False, timeout=30.0
+        )
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.row_factory = sqlite3.Row
 
         if validate_schema:
@@ -499,6 +507,11 @@ class ReplayBuffer:
             if len(policy) == num_actions:
                 policy_targets[0] = policy
             else:
+                # Policy shape mismatch - log warning and fall back to one-hot
+                logger.warning(
+                    f"Policy shape mismatch: got {len(policy)}, expected {num_actions}. "
+                    f"Falling back to one-hot for transition {t.id}"
+                )
                 policy_targets[0] = 0.0
                 action_idx = int.from_bytes(t.action, byteorder="little")
                 policy_targets[0, action_idx] = 1.0
@@ -507,9 +520,9 @@ class ReplayBuffer:
             action_idx = int.from_bytes(t.action, byteorder="little")
             policy_targets[0, action_idx] = 1.0
 
-        value_targets[0] = (
-            t.game_outcome if t.game_outcome is not None else t.mcts_value
-        )
+        # Clamp value targets to valid range [-1, 1] to prevent training instability
+        raw_value = t.game_outcome if t.game_outcome is not None else t.mcts_value
+        value_targets[0] = np.clip(raw_value, -1.0, 1.0)
 
         # Process remaining transitions
         for i in range(1, batch_size):
@@ -524,7 +537,11 @@ class ReplayBuffer:
                 if len(policy) == num_actions:
                     policy_targets[i] = policy
                 else:
-                    # Fallback to one-hot if shape mismatch
+                    # Policy shape mismatch - log warning and fall back to one-hot
+                    logger.warning(
+                        f"Policy shape mismatch: got {len(policy)}, expected {num_actions}. "
+                        f"Falling back to one-hot for transition {t.id}"
+                    )
                     policy_targets[i] = 0.0
                     action_idx = int.from_bytes(t.action, byteorder="little")
                     policy_targets[i, action_idx] = 1.0
@@ -536,9 +553,9 @@ class ReplayBuffer:
 
             # Use game_outcome as value target (propagated from terminal state)
             # Falls back to mcts_value for backward compatibility with old data
-            value_targets[i] = (
-                t.game_outcome if t.game_outcome is not None else t.mcts_value
-            )
+            # Clamp to valid range [-1, 1] to prevent training instability
+            raw_value = t.game_outcome if t.game_outcome is not None else t.mcts_value
+            value_targets[i] = np.clip(raw_value, -1.0, 1.0)
 
         return observations, policy_targets, value_targets
 

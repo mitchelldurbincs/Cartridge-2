@@ -148,9 +148,10 @@ class AlphaZeroLoss:
         log_probs = F.log_softmax(policy_logits, dim=-1)
 
         # Cross-entropy with soft targets: -sum(target * log_pred)
-        # Clamp log_probs to avoid NaN from 0 * -inf when target is 0 on masked positions
-        log_probs_clamped = torch.clamp(log_probs, min=-100.0)
-        policy_loss = -torch.sum(target_policy * log_probs_clamped, dim=-1).mean()
+        # Use nan_to_num to handle 0 * -inf = NaN when target is 0 on masked positions
+        # This is more robust than clamping as it handles edge cases in gradients
+        log_probs_safe = torch.nan_to_num(log_probs, nan=0.0, posinf=0.0, neginf=-100.0)
+        policy_loss = -torch.sum(target_policy * log_probs_safe, dim=-1).mean()
 
         # Combined loss
         total_loss = self.value_weight * value_loss + self.policy_weight * policy_loss

@@ -546,7 +546,12 @@ class OnnxPolicy:
             [self.value_output],
             {self.input_name: obs_batch},
         )
-        return float(outputs[0][0][0])
+        # Handle both (1, 1) and (1,) output shapes from different ONNX exports
+        value = outputs[0]
+        if value.ndim == 2:
+            return float(value[0, 0])
+        else:
+            return float(value[0])
 
 
 @dataclass
