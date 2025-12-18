@@ -236,8 +236,14 @@
   let height = $derived(Math.min(innerHeight - 160, 800));
   let chartWidth = $derived(width - padding.left - padding.right);
   let chartHeight = $derived(height - padding.top - padding.bottom);
+  // Note: We inline the filter call rather than using a separate $derived to ensure
+  // Svelte 5 properly tracks selectedRange as a dependency for chartData.
   let filteredHistory = $derived.by(() => filterByRange(history, selectedRange));
-  let chartData = $derived.by(() => getChartData(filteredHistory, chartWidth, chartHeight, showAvg100));
+  let chartData = $derived.by(() => {
+    // Read selectedRange to register it as a dependency for this derived value
+    void selectedRange;
+    return getChartData(filteredHistory, chartWidth, chartHeight, showAvg100);
+  });
 
   // Get hover data for the current index (must be after chartData)
   let hoverData = $derived(hoverIndex !== null && chartData.points.total[hoverIndex] ? {
