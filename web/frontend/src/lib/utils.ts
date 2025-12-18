@@ -10,6 +10,7 @@ export const chartColors = {
   total: '#00d9ff',   // Cyan - primary brand color
   policy: '#ff6b6b', // Red
   value: '#4ecdc4',  // Teal
+  avg100: '#ffd700', // Gold - rolling average
 };
 
 // ============================================================================

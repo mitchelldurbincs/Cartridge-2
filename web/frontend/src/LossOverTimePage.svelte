@@ -7,6 +7,18 @@
   let error: string | null = $state(null);
   let pollInterval: number | undefined;
 
+  // Chart controls
+  type RangeOption = 'last100' | 'last500' | 'last1000' | 'all';
+  let selectedRange: RangeOption = $state('all');
+  let showAvg100: boolean = $state(true);
+
+  const rangeOptions: { value: RangeOption; label: string }[] = [
+    { value: 'last100', label: 'Last 100' },
+    { value: 'last500', label: 'Last 500' },
+    { value: 'last1000', label: 'Last 1000' },
+    { value: 'all', label: 'All' },
+  ];
+
   // Full-screen chart dimensions
   const padding = { top: 40, right: 60, bottom: 60, left: 80 };
 
@@ -31,18 +43,45 @@
     if (pollInterval) clearInterval(pollInterval);
   });
 
-  function getChartData(data: HistoryEntry[], chartWidth: number, chartHeight: number) {
+  function filterByRange(data: HistoryEntry[], range: RangeOption): HistoryEntry[] {
+    if (range === 'all' || data.length === 0) return data;
+    const count = range === 'last100' ? 100 : range === 'last500' ? 500 : 1000;
+    return data.slice(-count);
+  }
+
+  function computeRollingAverage(data: HistoryEntry[], window: number = 100): { step: number; avg: number }[] {
+    if (data.length === 0) return [];
+    const sorted = [...data].sort((a, b) => a.step - b.step);
+    const result: { step: number; avg: number }[] = [];
+
+    for (let i = 0; i < sorted.length; i++) {
+      const start = Math.max(0, i - window + 1);
+      const windowData = sorted.slice(start, i + 1);
+      const avg = windowData.reduce((sum, d) => sum + d.total_loss, 0) / windowData.length;
+      result.push({ step: sorted[i].step, avg });
+    }
+    return result;
+  }
+
+  function getChartData(data: HistoryEntry[], chartWidth: number, chartHeight: number, includeAvg100: boolean) {
     if (data.length === 0) {
-      return { xTicks: [], yTicks: [], paths: { total: '', policy: '', value: '' }, points: { total: [], policy: [], value: [] } };
+      return { xTicks: [], yTicks: [], paths: { total: '', policy: '', value: '', avg100: '' }, points: { total: [], policy: [], value: [] } };
     }
 
     const sorted = [...data].sort((a, b) => a.step - b.step);
+
+    // Compute rolling average if needed
+    const avg100Data = includeAvg100 ? computeRollingAverage(sorted) : [];
 
     const steps = sorted.map(d => d.step);
     const minStep = Math.min(...steps);
     const maxStep = Math.max(...steps);
 
+    // Include avg100 values in loss range calculation
     const allLosses = sorted.flatMap(d => [d.total_loss, d.policy_loss, d.value_loss]);
+    if (includeAvg100 && avg100Data.length > 0) {
+      allLosses.push(...avg100Data.map(d => d.avg));
+    }
     const maxLoss = Math.max(...allLosses);
     const minLoss = Math.min(...allLosses);
 
@@ -63,6 +102,15 @@
       return sorted.map((d, i) => {
         const x = xScale(d.step);
         const y = yScale(d[key]);
+        return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+      }).join(' ');
+    };
+
+    const makeAvg100Path = () => {
+      if (!includeAvg100 || avg100Data.length === 0) return '';
+      return avg100Data.map((d, i) => {
+        const x = xScale(d.step);
+        const y = yScale(d.avg);
         return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
       }).join(' ');
     };
@@ -93,6 +141,7 @@
         total: makePath('total_loss'),
         policy: makePath('policy_loss'),
         value: makePath('value_loss'),
+        avg100: makeAvg100Path(),
       },
       points: {
         total: makePoints('total_loss'),
@@ -120,18 +169,36 @@
   let height = $derived(Math.min(innerHeight - 160, 800));
   let chartWidth = $derived(width - padding.left - padding.right);
   let chartHeight = $derived(height - padding.top - padding.bottom);
-  let chartData = $derived(getChartData(history, chartWidth, chartHeight));
+  let filteredHistory = $derived(filterByRange(history, selectedRange));
+  let chartData = $derived(getChartData(filteredHistory, chartWidth, chartHeight, showAvg100));
 </script>
 
 <div class="page">
   <header>
     <a href="#/" class="back-link">← Back to Game</a>
     <h1>Loss Over Time</h1>
+    <div class="controls">
+      <label class="control-group">
+        <span>Range:</span>
+        <select bind:value={selectedRange}>
+          {#each rangeOptions as option}
+            <option value={option.value}>{option.label}</option>
+          {/each}
+        </select>
+      </label>
+      <label class="control-group checkbox">
+        <input type="checkbox" bind:checked={showAvg100} />
+        <span>Show Avg100</span>
+      </label>
+      <span class="data-info">
+        Showing {filteredHistory.length} of {history.length} points
+      </span>
+    </div>
   </header>
 
   {#if error}
     <div class="error">{error}</div>
-  {:else if history.length > 1}
+  {:else if filteredHistory.length > 1}
     <div class="chart-container">
       <svg viewBox="0 0 {width} {height}" width={width} height={height}>
         <g transform="translate({padding.left}, {padding.top})">
@@ -162,8 +229,13 @@
           <path d={chartData.paths.policy} fill="none" stroke={chartColors.policy} stroke-width="2" stroke-opacity="0.9" />
           <path d={chartData.paths.value} fill="none" stroke={chartColors.value} stroke-width="2" stroke-opacity="0.9" />
 
+          <!-- Avg100 line (dashed, rendered on top) -->
+          {#if showAvg100 && chartData.paths.avg100}
+            <path d={chartData.paths.avg100} fill="none" stroke={chartColors.avg100} stroke-width="2.5" stroke-dasharray="8,4" />
+          {/if}
+
           <!-- Data points (show when not too many) -->
-          {#if history.length <= 50}
+          {#if filteredHistory.length <= 50}
             {#each chartData.points.total as point}
               <circle cx={point.x} cy={point.y} r="4" fill={chartColors.total} />
             {/each}
@@ -238,6 +310,12 @@
           <span class="legend-line" style="background: {chartColors.value}"></span>
           <span>Value Loss</span>
         </div>
+        {#if showAvg100}
+          <div class="legend-item">
+            <span class="legend-line dashed" style="background: {chartColors.avg100}"></span>
+            <span>Avg100</span>
+          </div>
+        {/if}
       </div>
 
       <div class="stats-summary">
@@ -287,6 +365,52 @@
     align-items: center;
     gap: 2rem;
     margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-left: auto;
+  }
+
+  .control-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #aaa;
+    font-size: 0.9rem;
+  }
+
+  .control-group select {
+    background: #3a3a5a;
+    color: #fff;
+    border: 1px solid #4a4a6a;
+    border-radius: 6px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .control-group select:hover {
+    border-color: #00d9ff;
+  }
+
+  .control-group.checkbox {
+    cursor: pointer;
+  }
+
+  .control-group.checkbox input {
+    width: 16px;
+    height: 16px;
+    accent-color: #00d9ff;
+    cursor: pointer;
+  }
+
+  .data-info {
+    color: #666;
+    font-size: 0.85rem;
   }
 
   .back-link {
@@ -339,6 +463,11 @@
     width: 24px;
     height: 4px;
     border-radius: 2px;
+  }
+
+  .legend-line.dashed {
+    height: 0;
+    border-top: 4px dashed;
   }
 
   .stats-summary {

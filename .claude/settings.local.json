@@ -7,7 +7,8 @@
       "Bash(cargo fmt:*)",
       "Bash(pip install:*)",
       "Bash(python3 -m pytest:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(.venv/bin/black src/trainer/stats.py)"
     ],
     "deny": [],
     "ask": []
