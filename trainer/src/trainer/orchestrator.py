@@ -623,7 +623,9 @@ class Orchestrator:
         start_sims = self.config.mcts_start_sims
         max_sims = self.config.mcts_max_sims
         ramp_rate = self.config.mcts_sim_ramp_rate
-        iters_to_max = max(1, (max_sims - start_sims) // ramp_rate) if ramp_rate > 0 else 1
+        iters_to_max = (
+            max(1, (max_sims - start_sims) // ramp_rate) if ramp_rate > 0 else 1
+        )
         logger.info(
             f"MCTS simulations: {start_sims} -> {max_sims} "
             f"(+{ramp_rate}/iter, reaches max at iter {iters_to_max})"
