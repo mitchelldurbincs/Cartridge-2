@@ -816,7 +816,8 @@ Examples:
         "--temp-threshold",
         type=int,
         default=0,
-        help="Move number to reduce temperature (0=disabled). Recommended: tictactoe=5, connect4=20, othello=30",
+        help="Move number to reduce temperature (0=disabled). "
+        "Recommended: tictactoe=5, connect4=20, othello=30",
     )
 
     # Trainer settings
