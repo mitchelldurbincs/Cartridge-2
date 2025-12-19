@@ -6,7 +6,7 @@ Python training loop for Cartridge2. Implements AlphaZero-style learning from se
 
 The trainer:
 1. Reads transitions from SQLite replay buffer
-2. Trains a PyTorch neural network
+2. Trains a PyTorch neural network (MLP or ResNet based on game)
 3. Exports ONNX models for the Rust actor
 4. Writes stats.json for the web frontend
 
@@ -37,6 +37,95 @@ trainer train \
 
 All commands support `--help` for detailed argument information.
 
+## Neural Network Architecture
+
+The trainer automatically selects the appropriate network architecture based on the game's configuration. Two architectures are available:
+
+### MLP (Multi-Layer Perceptron)
+
+Used for simpler games like TicTacToe. A fully-connected feedforward network.
+
+```
+Input (obs_size)
+    -> FC(hidden) -> ReLU
+    -> FC(hidden) -> ReLU
+    -> FC(hidden/2) -> ReLU
+    -> Policy head: FC(num_actions)
+    -> Value head: FC(hidden/4) -> ReLU -> FC(1) -> Tanh
+```
+
+**When to use:** Small board games where spatial relationships are less critical.
+
+### ResNet (Convolutional Residual Network)
+
+Used for spatially-structured games like Connect4 and Othello. Follows the AlphaZero paper architecture with residual blocks and batch normalization.
+
+```
+Input: (batch, obs_size) [flat tensor]
+    -> Reshape to (batch, channels, height, width)
+    -> Initial Conv Block: Conv2d(3x3) -> BatchNorm -> ReLU
+    -> Residual Tower: N residual blocks
+    -> Policy Head: Conv2d(1x1) -> BN -> ReLU -> Flatten -> FC(num_actions)
+    -> Value Head: Conv2d(1x1) -> BN -> ReLU -> Flatten -> FC(256) -> ReLU -> FC(1) -> Tanh
+```
+
+Each **Residual Block** contains:
+```
+Input
+    -> Conv2d(3x3, padding=1) -> BatchNorm -> ReLU
+    -> Conv2d(3x3, padding=1) -> BatchNorm
+    -> + skip connection (identity)
+    -> ReLU
+```
+
+**When to use:** Board games with spatial structure where convolutions can learn local patterns (adjacent pieces, lines, etc.).
+
+### Automatic Network Selection
+
+The network type is determined by the game's configuration in `game_config.py`:
+
+| Game | Network | Res Blocks | Filters | Input Channels | Hidden Size |
+|------|---------|------------|---------|----------------|-------------|
+| TicTacToe | MLP | - | - | - | 128 |
+| Connect4 | ResNet | 4 | 128 | 2 | 512 |
+| Othello | ResNet | 6 | 256 | 2 | 512 |
+
+The `create_network(env_id)` factory function handles this automatically:
+
+```python
+from trainer.network import create_network
+
+# Automatically creates appropriate network based on game config
+network = create_network("tictactoe")  # Returns PolicyValueNetwork (MLP)
+network = create_network("connect4")   # Returns ConvPolicyValueNetwork (ResNet)
+```
+
+### ResNet Configuration Details
+
+For games using the ResNet architecture, the following parameters are configurable in `game_config.py`:
+
+| Parameter | Description | Connect4 | Othello |
+|-----------|-------------|----------|---------|
+| `network_type` | Architecture to use | `"resnet"` | `"resnet"` |
+| `num_res_blocks` | Number of residual blocks in tower | 4 | 6 |
+| `num_filters` | Filters per convolutional layer | 128 | 256 |
+| `input_channels` | Board encoding channels | 2 | 2 |
+| `board_height` | Board height for reshaping | 6 | 8 |
+| `board_width` | Board width for reshaping | 7 | 8 |
+
+**Input Channel Encoding:** For two-player games, the observation is encoded as 2 channels:
+- Channel 0: Current player's pieces (1 where piece present, 0 elsewhere)
+- Channel 1: Opponent's pieces (1 where piece present, 0 elsewhere)
+
+This spatial encoding allows the convolutions to learn patterns like connected pieces, blocking moves, and positional strategy.
+
+### Weight Initialization
+
+The ResNet uses He (Kaiming) initialization for all layers:
+- Conv2d: `kaiming_normal_` with `fan_out` mode
+- BatchNorm2d: weight=1, bias=0
+- Linear: `kaiming_normal_` with `fan_out` mode
+
 ## CLI Arguments (`trainer train`)
 
 | Argument | Default | Description |
@@ -51,15 +140,28 @@ All commands support `--help` for detailed argument information.
 | `--grad-clip` | 1.0 | Gradient clipping norm |
 | `--checkpoint-interval` | 100 | Steps between saves |
 | `--device` | cpu | Training device (cpu/cuda/mps) |
+| `--env-id` | tictactoe | Game environment |
 
 ### LR Schedule
+
+The trainer supports cosine annealing with optional warmup:
 
 ```bash
 # Disable cosine annealing
 trainer train --no-lr-schedule
 
-# Custom min LR ratio
+# Custom min LR ratio (final LR = initial_lr * ratio)
 trainer train --lr-min-ratio 0.01
+
+# LR warmup (gradually increase LR at start of training)
+trainer train --lr-warmup-steps 100 --lr-warmup-start-ratio 0.1
+```
+
+For multi-iteration training (`trainer loop`), the LR schedule can span the entire training run:
+
+```bash
+# Continuous decay across 50 iterations of 500 steps each
+trainer loop --iterations 50 --steps 500 --lr-total-steps 25000
 ```
 
 ### Wait Settings
@@ -78,12 +180,12 @@ trainer train --wait-interval 5.0 --max-wait 600
 |  SQLite Replay    |---->|  PyTorch Model   |---->|  ONNX Export     |
 |  (transitions)    |     |  (policy+value)  |     |  (model.onnx)    |
 +-------------------+     +------------------+     +------------------+
-                                  |
-                                  v
-                          +------------------+
-                          |   stats.json     |
-                          |   (telemetry)    |
-                          +------------------+
+                                 |
+                                 v
+                         +------------------+
+                         |   stats.json     |
+                         |   (telemetry)    |
+                         +------------------+
 ```
 
 ## Loss Function
@@ -93,9 +195,15 @@ AlphaZero-style combined loss:
 ```
 L = L_policy + L_value
 
-L_policy = -sum(pi * log(p))    # Cross-entropy with MCTS policy
+L_policy = -sum(pi * log(p))    # Cross-entropy with MCTS policy (soft targets)
 L_value  = (z - v)^2            # MSE with game outcome
 ```
+
+Where:
+- `pi`: Target policy from MCTS visit count distribution
+- `p`: Predicted policy (softmax of logits)
+- `z`: Target value (game outcome: +1 win, -1 loss, 0 draw)
+- `v`: Predicted value
 
 ## Model Export
 
@@ -107,6 +215,11 @@ Models are exported with atomic write-then-rename:
 
 This prevents the Rust actor from loading a partially-written file.
 
+Both ONNX (for actor inference) and PyTorch checkpoints (for training continuity) are saved:
+- `model_step_NNNNNN.onnx` - ONNX checkpoint for the actor
+- `checkpoint.pt` - PyTorch state for resuming training
+- `latest.onnx` - Symlink/copy to most recent ONNX model
+
 ## Stats Output
 
 The trainer writes `stats.json` for the web frontend:
@@ -114,25 +227,107 @@ The trainer writes `stats.json` for the web frontend:
 ```json
 {
   "step": 1000,
+  "total_steps": 5000,
   "total_loss": 0.523,
   "policy_loss": 0.412,
   "value_loss": 0.111,
   "learning_rate": 0.0001,
-  "timestamp": 1699999999
+  "samples_seen": 64000,
+  "replay_buffer_size": 10000,
+  "last_checkpoint": "./data/models/model_step_001000.onnx",
+  "timestamp": 1699999999,
+  "env_id": "connect4",
+  "history": [
+    {"step": 100, "total_loss": 1.2, "value_loss": 0.8, "policy_loss": 0.4, "learning_rate": 0.001},
+    {"step": 200, "total_loss": 0.9, "value_loss": 0.5, "policy_loss": 0.4, "learning_rate": 0.001}
+  ],
+  "last_eval": {
+    "step": 1000,
+    "win_rate": 0.72,
+    "draw_rate": 0.16,
+    "loss_rate": 0.12,
+    "games_played": 100,
+    "avg_game_length": 6.8,
+    "timestamp": 1699999999
+  },
+  "eval_history": [...]
 }
 ```
+
+Stats history is bounded (default 2000 training entries, 50 evaluation entries) to prevent unbounded growth.
 
 ## Module Structure
 
 ```
 src/trainer/
-|-- __init__.py
-|-- __main__.py    # CLI entrypoint
-|-- trainer.py     # Training loop, TrainerConfig
-|-- network.py     # Neural network architecture
-|-- replay.py      # SQLite replay buffer interface
-|-- evaluator.py   # Model evaluation against baselines
-+-- game_config.py # Game-specific configurations (TicTacToe, Connect4)
+├── __init__.py       # Package exports
+├── __main__.py       # CLI entrypoint (train, evaluate, loop)
+├── trainer.py        # Training loop, Trainer class
+├── network.py        # MLP network + AlphaZeroLoss + create_network() factory
+├── resnet.py         # ResNet architecture (ConvPolicyValueNetwork, ResidualBlock)
+├── replay.py         # SQLite replay buffer interface
+├── evaluator.py      # Model evaluation against baselines
+├── game_config.py    # Game-specific configurations (dimensions, network type)
+├── stats.py          # TrainerStats, EvalStats, load/write functions
+├── config.py         # TrainerConfig dataclass
+├── checkpoint.py     # ONNX/PyTorch checkpoint save/load utilities
+├── backoff.py        # Wait-with-backoff utilities for data availability
+├── orchestrator.py   # Synchronized AlphaZero training orchestrator
+└── central_config.py # Central config.toml loading
+```
+
+## Game Configuration
+
+Games are configured in `game_config.py` with the following properties:
+
+```python
+@dataclass
+class GameConfig:
+    # Game identity
+    env_id: str              # e.g., "connect4"
+    display_name: str        # e.g., "Connect 4"
+
+    # Board dimensions
+    board_width: int         # e.g., 7
+    board_height: int        # e.g., 6
+
+    # Neural network dimensions
+    num_actions: int         # e.g., 7 (columns in Connect4)
+    obs_size: int            # Total observation vector size
+    legal_mask_offset: int   # Where legal moves start in obs
+
+    # Network architecture
+    hidden_size: int = 128   # MLP hidden layer size
+    network_type: str = "mlp"  # "mlp" or "resnet"
+
+    # CNN-specific (when network_type="resnet")
+    num_res_blocks: int = 4    # Residual blocks in tower
+    num_filters: int = 128     # Filters per conv layer
+    input_channels: int = 2    # Board encoding channels
+```
+
+### Adding a New Game
+
+1. Add a `GameConfig` entry in `game_config.py`
+2. Choose `network_type="mlp"` for simple games or `network_type="resnet"` for spatial games
+3. For ResNet, set appropriate `num_res_blocks`, `num_filters`, and `input_channels`
+4. Ensure `obs_size` matches the Rust engine's observation encoding
+
+Example for a hypothetical 4x4 game:
+```python
+"my_game": GameConfig(
+    env_id="my_game",
+    display_name="My Game",
+    board_width=4,
+    board_height=4,
+    num_actions=16,
+    obs_size=50,  # 16*2 (board) + 16 (legal) + 2 (player)
+    legal_mask_offset=32,
+    network_type="resnet",
+    num_res_blocks=3,
+    num_filters=64,
+    input_channels=2,
+)
 ```
 
 ## Development
@@ -146,6 +341,9 @@ pytest
 
 # Lint
 ruff check .
+
+# Format
+black .
 ```
 
 ## Dependencies
@@ -227,6 +425,11 @@ For TicTacToe specifically:
 - High draw rates (>50%) indicate strong defensive play
 - First-player (X) advantage is expected - watch for parity between X and O performance
 
+For Connect4:
+- Stronger spatial patterns mean higher potential win rates
+- ResNet architecture should capture line-building strategies effectively
+- Expect **80%+ win rate** with sufficient training
+
 ### Evaluating Training Progress
 
 Compare checkpoints to see learning progress:
@@ -266,11 +469,47 @@ the buffer, generates fresh episodes, trains, and evaluates):
 # Basic loop (5 iterations)
 trainer loop --iterations 5 --episodes 200 --steps 500
 
-# Connect4 with GPU
+# Connect4 with GPU (uses ResNet automatically)
 trainer loop --env-id connect4 --device cuda --iterations 20
 
 # Disable evaluation for faster training
 trainer loop --eval-interval 0 --iterations 50
+
+# Resume from a specific iteration
+trainer loop --iterations 100 --start-iteration 25
+
+# Configure LR decay across all iterations
+trainer loop --iterations 50 --steps 500 --lr-total-steps 25000
 ```
 
 See `trainer loop --help` for all options.
+
+## AlphaZero Training Tips
+
+### For Connect4 with ResNet
+
+```bash
+# Recommended settings for Connect4
+trainer loop \
+    --env-id connect4 \
+    --iterations 100 \
+    --episodes 500 \
+    --steps 1000 \
+    --batch-size 128 \
+    --device cuda \
+    --lr 0.001 \
+    --lr-total-steps 100000
+
+# The ResNet (4 blocks, 128 filters) is automatically selected
+# based on game_config.py settings
+```
+
+### Key Hyperparameters
+
+| Parameter | TicTacToe | Connect4 | Notes |
+|-----------|-----------|----------|-------|
+| Episodes/iter | 200-500 | 500-1000 | More for larger games |
+| Steps/iter | 500 | 1000 | Match replay buffer size |
+| Batch size | 64 | 128 | Larger for ResNet stability |
+| Learning rate | 0.001 | 0.001 | Standard starting point |
+| MCTS simulations | 200 | 800 | More for deeper games |
