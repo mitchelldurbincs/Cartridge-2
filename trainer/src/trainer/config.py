@@ -95,6 +95,11 @@ class TrainerConfig:
         cli="--lr-warmup-start-ratio",
         help="Starting LR as ratio of target LR during warmup",
     )
+    lr_total_steps: int = cli_field(
+        0,
+        cli="--lr-total-steps",
+        help="Total training steps for LR schedule (0 = use total_steps, for continuous decay across iterations)",
+    )
 
     # Training schedule
     total_steps: int = cli_field(1000, cli="--steps", help="Total training steps")

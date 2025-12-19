@@ -395,6 +395,11 @@ class Orchestrator:
         # Import locally to avoid circular imports in some edge cases
         from .trainer import Trainer, TrainerConfig
 
+        # Calculate total training steps across all iterations for continuous LR decay.
+        # This enables proper AlphaZero-style training where LR decays smoothly
+        # over the entire training run, not per-iteration.
+        lr_total_steps = self.config.iterations * self.config.steps_per_iteration
+
         config = TrainerConfig(
             db_path=str(self.config.replay_db_path),
             model_dir=str(self.config.models_dir),
@@ -408,6 +413,7 @@ class Orchestrator:
             device=self.config.device,
             max_wait=60.0,  # Short timeout since we know data exists
             eval_interval=0,  # Disable trainer's built-in eval, we do it ourselves
+            lr_total_steps=lr_total_steps,  # Continuous LR decay across iterations
         )
 
         logger.info(f"Starting trainer for {num_steps} steps (start_step={start_step})")
