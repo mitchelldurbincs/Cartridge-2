@@ -79,6 +79,7 @@ class Trainer:
 
         # Try to load existing checkpoint (critical for training continuity!)
         self._checkpoint_loaded = False
+        self._loaded_step: int | None = None
         self._loaded_scheduler_state: dict | None = None
         checkpoint_result = load_pytorch_checkpoint(
             self.network,
@@ -88,6 +89,7 @@ class Trainer:
         )
         if checkpoint_result is not None:
             loaded_step, self._loaded_scheduler_state = checkpoint_result
+            self._loaded_step = loaded_step
             self._checkpoint_loaded = True
             logger.info(f"Resuming training from checkpoint (step {loaded_step})")
             # Disable warmup for resumed training to avoid loss spikes
@@ -115,12 +117,47 @@ class Trainer:
                 T_max=effective_steps,
                 eta_min=config.learning_rate * config.lr_min_ratio,
             )
-            # Restore scheduler state to prevent LR jumps between iterations
+            # Restore scheduler state to prevent LR jumps when resuming mid-iteration
             if self._loaded_scheduler_state is not None:
+                # Determine if we're resuming inside the current iteration
+                resume_step = 0
+                if self._loaded_step is not None:
+                    resume_step = max(0, self._loaded_step - self.config.start_step)
+
+                resume_mid_iteration = 0 < resume_step < self.config.total_steps
+
                 try:
-                    self.scheduler.load_state_dict(self._loaded_scheduler_state)
-                    lr = self.optimizer.param_groups[0]["lr"]
-                    logger.info(f"Restored LR scheduler state (LR={lr:.2e})")
+                    saved_last_epoch = self._loaded_scheduler_state.get("last_epoch", 0)
+                    saved_t_max = self._loaded_scheduler_state.get(
+                        "T_max", effective_steps
+                    )
+
+                    # Only restore if we're resuming mid-iteration (not starting a new one)
+                    # If last_epoch >= T_max, we completed a full cycle and should start fresh
+                    if resume_mid_iteration and saved_last_epoch < saved_t_max:
+                        self.scheduler.load_state_dict(self._loaded_scheduler_state)
+
+                        # CRITICAL: Reset base_lrs to target_lr, not the saved warmup_start_lr
+                        # The saved base_lrs was captured when scheduler was created during
+                        # warmup (optimizer.lr = warmup_start_lr), but we want cosine annealing
+                        # to use target_lr as the maximum.
+                        self.scheduler.base_lrs = [self.target_lr]
+
+                        lr = self.optimizer.param_groups[0]["lr"]
+                        logger.info(
+                            f"Restored LR scheduler state (resume_step={resume_step}, "
+                            f"last_epoch={saved_last_epoch}, LR={lr:.2e})"
+                        )
+                    else:
+                        logger.info(
+                            "Starting fresh LR schedule ("
+                            f"resume_step={resume_step}, saved last_epoch={saved_last_epoch}, "
+                            f"T_max={saved_t_max})"
+                        )
+
+                        # Ensure optimizer LR is reset to the target when starting a new iteration
+                        for param_group in self.optimizer.param_groups:
+                            param_group["lr"] = self.target_lr
                 except Exception as e:
                     logger.warning(f"Failed to restore scheduler state: {e}")
 
