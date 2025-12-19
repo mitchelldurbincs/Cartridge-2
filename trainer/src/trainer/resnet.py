@@ -55,6 +55,10 @@ class ConvPolicyValueNetwork(nn.Module):
 
     The observation is expected to be a flat tensor that will be reshaped
     to (batch, input_channels, board_height, board_width).
+
+    Input channels include board planes for each player and a derived
+    plane that encodes the current player (1 for first player, -1 for
+    second player).
     """
 
     def __init__(self, config: GameConfig):
@@ -65,12 +69,14 @@ class ConvPolicyValueNetwork(nn.Module):
         self.action_size = config.num_actions
         self.board_height = config.board_height
         self.board_width = config.board_width
-        self.input_channels = config.input_channels
+        # Base board planes (one per player) plus a derived player-to-move plane
+        self.board_planes = config.input_channels
+        self.input_channels = self.board_planes + 1
         self.num_filters = config.num_filters
 
         # Initial convolutional block
         self.initial_conv = nn.Conv2d(
-            config.input_channels, config.num_filters, kernel_size=3, padding=1
+            self.input_channels, config.num_filters, kernel_size=3, padding=1
         )
         self.initial_bn = nn.BatchNorm2d(config.num_filters)
 
@@ -121,7 +127,10 @@ class ConvPolicyValueNetwork(nn.Module):
         The observation encoding is game-specific:
         - First board_size elements: Player 1's pieces (1 where piece present)
         - Next board_size elements: Player 2's pieces (1 where piece present)
-        - Remaining elements: legal mask and player indicator (ignored for CNN input)
+        - Legal mask elements follow, then a 2-element one-hot player indicator
+          (current player first/second). The CNN consumes the board planes plus
+          a derived plane indicating the current player (1 or -1) broadcast over
+          the board.
         """
         batch_size = x.shape[0]
         board_size = self.board_height * self.board_width
@@ -129,11 +138,22 @@ class ConvPolicyValueNetwork(nn.Module):
         # Extract board planes from the flat observation
         # Assumption: first input_channels * board_size elements are board planes
         planes = []
-        for i in range(self.input_channels):
+        for i in range(self.board_planes):
             start = i * board_size
             end = start + board_size
-            plane = x[:, start:end].view(batch_size, self.board_height, self.board_width)
+            plane = x[:, start:end].reshape(
+                batch_size, self.board_height, self.board_width
+            )
             planes.append(plane)
+
+        # Current player plane: 1 for first player, -1 for second
+        player_offset = self.config.legal_mask_offset + self.config.num_actions
+        player_one_hot = x[:, player_offset : player_offset + 2]
+        current_player = player_one_hot[:, :1] - player_one_hot[:, 1:]
+        player_plane = current_player.view(batch_size, 1, 1).expand(
+            batch_size, self.board_height, self.board_width
+        )
+        planes.append(player_plane)
 
         # Stack planes along channel dimension: (batch, channels, height, width)
         spatial = torch.stack(planes, dim=1)
