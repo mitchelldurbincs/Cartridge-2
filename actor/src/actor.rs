@@ -10,6 +10,7 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 use crate::config::Config;
 use crate::game_config::{get_config, GameConfig};
@@ -245,7 +246,7 @@ impl Actor {
             "{}-ep-{}-{}",
             self.config.actor_id,
             episode_count,
-            SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
+            Uuid::new_v4()
         );
 
         debug!(
