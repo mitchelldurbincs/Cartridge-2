@@ -13,7 +13,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import onnx
 import torch
@@ -117,6 +117,7 @@ def save_pytorch_checkpoint(
     optimizer: "Optimizer",
     step: int,
     model_dir: Path,
+    scheduler: "Any | None" = None,
 ) -> Path:
     """Save PyTorch model and optimizer state for training continuity.
 
@@ -127,6 +128,7 @@ def save_pytorch_checkpoint(
         optimizer: The optimizer with its state.
         step: Current training step.
         model_dir: Directory to save checkpoint.
+        scheduler: Optional LR scheduler to save state for.
 
     Returns:
         Path to the saved checkpoint file.
@@ -138,14 +140,16 @@ def save_pytorch_checkpoint(
     os.close(temp_fd)
 
     try:
-        torch.save(
-            {
-                "step": step,
-                "model_state_dict": network.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-            },
-            temp_path,
-        )
+        checkpoint_data = {
+            "step": step,
+            "model_state_dict": network.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+        }
+        # Save scheduler state to prevent LR jumps on resume
+        if scheduler is not None:
+            checkpoint_data["scheduler_state_dict"] = scheduler.state_dict()
+
+        torch.save(checkpoint_data, temp_path)
         os.replace(temp_path, checkpoint_path)
         logger.debug(f"Saved PyTorch checkpoint: {checkpoint_path}")
         return checkpoint_path
@@ -161,7 +165,7 @@ def load_pytorch_checkpoint(
     optimizer: "Optimizer",
     model_dir: Path,
     device: torch.device,
-) -> int | None:
+) -> tuple[int, dict | None] | None:
     """Load PyTorch model and optimizer state from checkpoint.
 
     Args:
@@ -171,7 +175,9 @@ def load_pytorch_checkpoint(
         device: Device to map tensors to.
 
     Returns:
-        The training step from the checkpoint, or None if no checkpoint exists.
+        Tuple of (step, scheduler_state_dict) if checkpoint exists,
+        where scheduler_state_dict may be None if not saved.
+        Returns None if no checkpoint exists.
     """
     checkpoint_path = model_dir / PYTORCH_CHECKPOINT_NAME
 
@@ -184,8 +190,9 @@ def load_pytorch_checkpoint(
         network.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         step = checkpoint.get("step", 0)
+        scheduler_state = checkpoint.get("scheduler_state_dict")
         logger.info(f"Loaded PyTorch checkpoint from step {step}: {checkpoint_path}")
-        return step
+        return step, scheduler_state
 
     except Exception as e:
         logger.warning(f"Failed to load PyTorch checkpoint: {e}")
