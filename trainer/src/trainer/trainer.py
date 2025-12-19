@@ -106,7 +106,10 @@ class Trainer:
 
         if config.use_lr_scheduler:
             # Cosine annealing after warmup (T_max excludes warmup steps)
-            effective_steps = max(1, config.total_steps - self.warmup_steps)
+            # IMPORTANT: Use config.lr_warmup_steps (original config value), not
+            # self.warmup_steps (which may be set to 0 when loading checkpoint).
+            # This ensures T_max is consistent across checkpoint saves/loads.
+            effective_steps = max(1, config.total_steps - config.lr_warmup_steps)
             self.scheduler = CosineAnnealingLR(
                 self.optimizer,
                 T_max=effective_steps,
