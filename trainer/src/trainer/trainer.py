@@ -79,13 +79,15 @@ class Trainer:
 
         # Try to load existing checkpoint (critical for training continuity!)
         self._checkpoint_loaded = False
-        loaded_step = load_pytorch_checkpoint(
+        self._loaded_scheduler_state: dict | None = None
+        checkpoint_result = load_pytorch_checkpoint(
             self.network,
             self.optimizer,
             Path(config.model_dir),
             self.device,
         )
-        if loaded_step is not None:
+        if checkpoint_result is not None:
+            loaded_step, self._loaded_scheduler_state = checkpoint_result
             self._checkpoint_loaded = True
             logger.info(f"Resuming training from checkpoint (step {loaded_step})")
             # Disable warmup for resumed training to avoid loss spikes
@@ -110,6 +112,15 @@ class Trainer:
                 T_max=effective_steps,
                 eta_min=config.learning_rate * config.lr_min_ratio,
             )
+            # Restore scheduler state to prevent LR jumps between iterations
+            if self._loaded_scheduler_state is not None:
+                try:
+                    self.scheduler.load_state_dict(self._loaded_scheduler_state)
+                    logger.info(
+                        f"Restored LR scheduler state (LR={self.optimizer.param_groups[0]['lr']:.2e})"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to restore scheduler state: {e}")
 
         # Initialize loss function
         self.loss_fn = AlphaZeroLoss(
@@ -521,6 +532,7 @@ class Trainer:
             optimizer=self.optimizer,
             step=step,
             model_dir=model_dir,
+            scheduler=self.scheduler,
         )
 
         # Track checkpoints for cleanup
