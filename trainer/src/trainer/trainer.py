@@ -115,12 +115,35 @@ class Trainer:
                 T_max=effective_steps,
                 eta_min=config.learning_rate * config.lr_min_ratio,
             )
-            # Restore scheduler state to prevent LR jumps between iterations
+            # Restore scheduler state to prevent LR jumps when resuming mid-iteration
             if self._loaded_scheduler_state is not None:
                 try:
-                    self.scheduler.load_state_dict(self._loaded_scheduler_state)
-                    lr = self.optimizer.param_groups[0]["lr"]
-                    logger.info(f"Restored LR scheduler state (LR={lr:.2e})")
+                    saved_last_epoch = self._loaded_scheduler_state.get("last_epoch", 0)
+                    saved_t_max = self._loaded_scheduler_state.get(
+                        "T_max", effective_steps
+                    )
+
+                    # Only restore if we're resuming mid-iteration (not starting fresh)
+                    # If last_epoch >= T_max, we completed a full cycle and should start fresh
+                    if saved_last_epoch < saved_t_max:
+                        self.scheduler.load_state_dict(self._loaded_scheduler_state)
+
+                        # CRITICAL: Reset base_lrs to target_lr, not the saved warmup_start_lr
+                        # The saved base_lrs was captured when scheduler was created during
+                        # warmup (optimizer.lr = warmup_start_lr), but we want cosine annealing
+                        # to use target_lr as the maximum.
+                        self.scheduler.base_lrs = [self.target_lr]
+
+                        lr = self.optimizer.param_groups[0]["lr"]
+                        logger.info(
+                            f"Restored LR scheduler state (last_epoch={saved_last_epoch}, "
+                            f"LR={lr:.2e})"
+                        )
+                    else:
+                        logger.info(
+                            f"Starting fresh LR schedule (saved last_epoch={saved_last_epoch} "
+                            f">= T_max={saved_t_max})"
+                        )
                 except Exception as e:
                     logger.warning(f"Failed to restore scheduler state: {e}")
 
