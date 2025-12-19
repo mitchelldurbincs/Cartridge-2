@@ -32,6 +32,14 @@ class GameConfig:
     # Network architecture hints
     hidden_size: int = 128
 
+    # Network architecture selection
+    network_type: str = "mlp"  # "mlp" or "resnet"
+
+    # CNN-specific settings (used when network_type="resnet")
+    num_res_blocks: int = 4  # Number of residual blocks
+    num_filters: int = 128  # Filters per conv layer
+    input_channels: int = 2  # Channels for board encoding (e.g., 2 for each player's pieces)
+
     @property
     def board_size(self) -> int:
         """Total number of board cells."""
@@ -70,6 +78,10 @@ GAME_CONFIGS: Dict[str, GameConfig] = {
         obs_size=93,  # 42 (Red) + 42 (Yellow) + 7 (legal) + 2 (player) = 93
         legal_mask_offset=84,  # Board views end at 42*2 = 84
         hidden_size=512,
+        network_type="resnet",
+        num_res_blocks=4,
+        num_filters=128,
+        input_channels=2,  # Red positions, Yellow positions
     ),
     "othello": GameConfig(
         env_id="othello",
@@ -80,6 +92,10 @@ GAME_CONFIGS: Dict[str, GameConfig] = {
         obs_size=195,  # 128 (board: 64*2) + 64 (legal) + 3 (player + pass)
         legal_mask_offset=128,
         hidden_size=512,
+        network_type="resnet",
+        num_res_blocks=6,
+        num_filters=256,
+        input_channels=2,  # Black positions, White positions
     ),
 }
 

@@ -164,21 +164,37 @@ class AlphaZeroLoss:
         return total_loss, metrics
 
 
-def create_network(env_id: str = "tictactoe") -> PolicyValueNetwork:
+def create_network(env_id: str = "tictactoe") -> nn.Module:
     """Factory function to create a network for the specified environment.
+
+    Automatically selects the appropriate architecture based on the game's
+    network_type configuration:
+    - "mlp": Simple feedforward network (default, good for small games)
+    - "resnet": Convolutional ResNet (for spatially-structured games)
 
     Args:
         env_id: Environment identifier (e.g., "tictactoe", "connect4")
 
     Returns:
-        PolicyValueNetwork configured for the specified game.
+        Neural network configured for the specified game.
 
     Raises:
-        ValueError: If the game is not registered.
+        ValueError: If the game is not registered or network_type is invalid.
     """
     config = get_config(env_id)
-    return PolicyValueNetwork(
-        obs_size=config.obs_size,
-        action_size=config.num_actions,
-        hidden_size=config.hidden_size,
-    )
+
+    if config.network_type == "resnet":
+        from .resnet import ConvPolicyValueNetwork
+
+        return ConvPolicyValueNetwork(config)
+    elif config.network_type == "mlp":
+        return PolicyValueNetwork(
+            obs_size=config.obs_size,
+            action_size=config.num_actions,
+            hidden_size=config.hidden_size,
+        )
+    else:
+        raise ValueError(
+            f"Unknown network_type '{config.network_type}' for {env_id}. "
+            f"Valid options: 'mlp', 'resnet'"
+        )
