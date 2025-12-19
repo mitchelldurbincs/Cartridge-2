@@ -116,7 +116,7 @@ class Trainer:
             if self._loaded_scheduler_state is not None:
                 try:
                     self.scheduler.load_state_dict(self._loaded_scheduler_state)
-                    lr = self.optimizer.param_groups[0]['lr']
+                    lr = self.optimizer.param_groups[0]["lr"]
                     logger.info(f"Restored LR scheduler state (LR={lr:.2e})")
                 except Exception as e:
                     logger.warning(f"Failed to restore scheduler state: {e}")
