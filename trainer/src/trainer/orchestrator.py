@@ -80,7 +80,7 @@ class LoopConfig:
     actor_binary: Path | None = None  # Auto-detect or use ACTOR_BINARY env var
 
     # Actor settings
-    actor_log_interval: int = 50
+    actor_log_interval: int = 200
 
     # MCTS simulation ramping: start_sims + (iteration-1) * sim_ramp_rate, capped at max_sims
     mcts_start_sims: int = 200  # Simulations for first iteration
@@ -371,7 +371,7 @@ class Orchestrator:
                     break
                 if line:
                     # Forward actor output with prefix
-                    print(f"[actor] {line.rstrip()}")
+                    print(f"[actor] {line.rstrip()}", flush=True)
 
             return_code = process.wait()
             elapsed = time.time() - start_time
