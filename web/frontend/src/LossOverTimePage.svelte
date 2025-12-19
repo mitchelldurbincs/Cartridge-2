@@ -11,6 +11,11 @@
   let selectedRange: RangeOption = $state('all');
   let showAvg100: boolean = $state(true);
 
+  function handleRangeChange(event: Event) {
+    const target = event.target as HTMLSelectElement;
+    selectedRange = target.value as RangeOption;
+  }
+
   const rangeOptions: { value: RangeOption; label: string }[] = [
     { value: 'last100', label: 'Last 100' },
     { value: 'last500', label: 'Last 500' },
@@ -48,12 +53,6 @@
   onDestroy(() => {
     if (pollInterval) clearInterval(pollInterval);
   });
-
-  function filterByRange(data: HistoryEntry[], range: RangeOption): HistoryEntry[] {
-    if (range === 'all' || data.length === 0) return data;
-    const count = range === 'last100' ? 100 : range === 'last500' ? 500 : 1000;
-    return data.slice(-count);
-  }
 
   function computeRollingAverage(data: HistoryEntry[], window: number = 100): { step: number; avg: number }[] {
     if (data.length === 0) return [];
@@ -236,12 +235,14 @@
   let height = $derived(Math.min(innerHeight - 160, 800));
   let chartWidth = $derived(width - padding.left - padding.right);
   let chartHeight = $derived(height - padding.top - padding.bottom);
-  // Note: We inline the filter call rather than using a separate $derived to ensure
-  // Svelte 5 properly tracks selectedRange as a dependency for chartData.
-  let filteredHistory = $derived.by(() => filterByRange(history, selectedRange));
+  // Inline the filter logic to ensure Svelte 5 properly tracks selectedRange as a dependency
+  let filteredHistory = $derived.by(() => {
+    const range = selectedRange;
+    if (range === 'all' || history.length === 0) return history;
+    const count = range === 'last100' ? 100 : range === 'last500' ? 500 : 1000;
+    return history.slice(-count);
+  });
   let chartData = $derived.by(() => {
-    // Read selectedRange to register it as a dependency for this derived value
-    void selectedRange;
     return getChartData(filteredHistory, chartWidth, chartHeight, showAvg100);
   });
 
@@ -262,9 +263,9 @@
     <div class="controls">
       <label class="control-group">
         <span>Range:</span>
-        <select bind:value={selectedRange}>
+        <select value={selectedRange} onchange={handleRangeChange}>
           {#each rangeOptions as option}
-            <option value={option.value}>{option.label}</option>
+            <option value={option.value} selected={option.value === selectedRange}>{option.label}</option>
           {/each}
         </select>
       </label>
