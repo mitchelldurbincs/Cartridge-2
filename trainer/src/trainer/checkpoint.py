@@ -67,7 +67,7 @@ def save_onnx_checkpoint(
             dummy_input,
             temp_path,
             export_params=True,
-            opset_version=14,
+            opset_version=18,
             do_constant_folding=True,
             input_names=["observation"],
             output_names=["policy_logits", "value"],
