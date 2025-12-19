@@ -17,9 +17,9 @@
   }
 
   const rangeOptions: { value: RangeOption; label: string }[] = [
-    { value: 'last100', label: 'Last 100' },
-    { value: 'last500', label: 'Last 500' },
-    { value: 'last1000', label: 'Last 1000' },
+    { value: 'last100', label: 'Last 100 Steps' },
+    { value: 'last500', label: 'Last 500 Steps' },
+    { value: 'last1000', label: 'Last 1000 Steps' },
     { value: 'all', label: 'All' },
   ];
 
@@ -235,12 +235,14 @@
   let height = $derived(Math.min(innerHeight - 160, 800));
   let chartWidth = $derived(width - padding.left - padding.right);
   let chartHeight = $derived(height - padding.top - padding.bottom);
-  // Inline the filter logic to ensure Svelte 5 properly tracks selectedRange as a dependency
+  // Filter by step range (not data point count) to ensure Svelte 5 properly tracks selectedRange
   let filteredHistory = $derived.by(() => {
     const range = selectedRange;
     if (range === 'all' || history.length === 0) return history;
-    const count = range === 'last100' ? 100 : range === 'last500' ? 500 : 1000;
-    return history.slice(-count);
+    const stepRange = range === 'last100' ? 100 : range === 'last500' ? 500 : 1000;
+    const maxStep = Math.max(...history.map(h => h.step));
+    const minStepThreshold = maxStep - stepRange;
+    return history.filter(h => h.step >= minStepThreshold);
   });
   let chartData = $derived.by(() => {
     return getChartData(filteredHistory, chartWidth, chartHeight, showAvg100);
@@ -274,7 +276,7 @@
         <span>Show Avg100</span>
       </label>
       <span class="data-info">
-        Showing {filteredHistory.length} of {history.length} points
+        {filteredHistory.length} points
       </span>
     </div>
   </header>
