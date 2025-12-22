@@ -16,15 +16,57 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Default history bounds
-DEFAULT_MAX_HISTORY = (
-    2000  # Store up to 2000 training steps for full history visualization
-)
 DEFAULT_MAX_EVAL_HISTORY = 50
+
+# Tiered history retention thresholds
+# Recent data is kept at full resolution, older data is downsampled
+RECENT_STEPS_THRESHOLD = 1000  # Keep all entries within last 1000 steps
+MEDIUM_STEPS_THRESHOLD = 10000  # Downsample to every 100 steps for 1000-10000 range
+RECENT_RESOLUTION = 1  # Keep every entry in recent range
+MEDIUM_RESOLUTION = 100  # Keep every 100th step in medium range
+OLD_RESOLUTION = 500  # Keep every 500th step for older data
+
+
+def _downsample_history(history: list[dict], current_step: int) -> list[dict]:
+    """Downsample history using tiered retention strategy.
+
+    Args:
+        history: List of history entries, each with a "step" key.
+        current_step: The current training step (used to determine age).
+
+    Returns:
+        Downsampled history list preserving recent data at full resolution
+        and older data at reduced resolution.
+    """
+    if not history:
+        return history
+
+    result = []
+    for entry in history:
+        step = entry.get("step", 0)
+        age = current_step - step
+
+        if age <= RECENT_STEPS_THRESHOLD:
+            # Recent: keep all entries
+            result.append(entry)
+        elif age <= MEDIUM_STEPS_THRESHOLD:
+            # Medium age: keep entries at MEDIUM_RESOLUTION intervals
+            if step % MEDIUM_RESOLUTION == 0:
+                result.append(entry)
+        else:
+            # Old: keep entries at OLD_RESOLUTION intervals
+            if step % OLD_RESOLUTION == 0:
+                result.append(entry)
+
+    return result
 
 
 @dataclass
 class EvalStats:
-    """Evaluation statistics from a single evaluation run."""
+    """Evaluation statistics from a single evaluation run.
+
+    Supports both model-vs-random and model-vs-best (gatekeeper) evaluations.
+    """
 
     step: int = 0
     win_rate: float = 0.0
@@ -33,6 +75,12 @@ class EvalStats:
     games_played: int = 0
     avg_game_length: float = 0.0
     timestamp: float = field(default_factory=time.time)
+
+    # Model-vs-model evaluation fields
+    opponent: str = "random"  # "random" or "best"
+    opponent_iteration: int | None = None  # Which iteration the best model came from
+    became_new_best: bool = False  # Whether current model replaced best
+    current_iteration: int = 0  # Current model's iteration
 
     def to_dict(self) -> dict:
         return {
@@ -43,6 +91,10 @@ class EvalStats:
             "games_played": self.games_played,
             "avg_game_length": self.avg_game_length,
             "timestamp": self.timestamp,
+            "opponent": self.opponent,
+            "opponent_iteration": self.opponent_iteration,
+            "became_new_best": self.became_new_best,
+            "current_iteration": self.current_iteration,
         }
 
     @classmethod
@@ -55,6 +107,38 @@ class EvalStats:
             loss_rate=data.get("loss_rate", 0.0),
             games_played=data.get("games_played", 0),
             avg_game_length=data.get("avg_game_length", 0.0),
+            timestamp=data.get("timestamp", 0.0),
+            opponent=data.get("opponent", "random"),
+            opponent_iteration=data.get("opponent_iteration"),
+            became_new_best=data.get("became_new_best", False),
+            current_iteration=data.get("current_iteration", 0),
+        )
+
+
+@dataclass
+class BestModelInfo:
+    """Information about the current best (gatekeeper) model."""
+
+    iteration: int = 0  # Which iteration this model came from
+    step: int = 0  # Training step when it became best
+    win_rate_when_promoted: float = 0.0  # Win rate that earned it the spot
+    timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict:
+        return {
+            "iteration": self.iteration,
+            "step": self.step,
+            "win_rate_when_promoted": self.win_rate_when_promoted,
+            "timestamp": self.timestamp,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "BestModelInfo":
+        """Create BestModelInfo from a dictionary."""
+        return cls(
+            iteration=data.get("iteration", 0),
+            step=data.get("step", 0),
+            win_rate_when_promoted=data.get("win_rate_when_promoted", 0.0),
             timestamp=data.get("timestamp", 0.0),
         )
 
@@ -74,7 +158,6 @@ class TrainerStats:
     last_checkpoint: str = ""
     timestamp: float = field(default_factory=time.time)
     history: list[dict] = field(default_factory=list)
-    _max_history: int = DEFAULT_MAX_HISTORY
 
     # Environment being trained
     env_id: str = ""
@@ -84,12 +167,23 @@ class TrainerStats:
     eval_history: list[dict] = field(default_factory=list)
     _max_eval_history: int = DEFAULT_MAX_EVAL_HISTORY
 
+    # Best model (gatekeeper) tracking
+    best_model: BestModelInfo | None = None
+
     def append_history(self, entry: dict) -> None:
-        """Append to history, maintaining max length bound."""
+        """Append to history with tiered retention.
+
+        Uses a tiered downsampling strategy to keep recent data at full
+        resolution while preserving coarse historical data:
+        - Last 1000 steps: full resolution (every logged step)
+        - 1000-10000 steps ago: every 100th step
+        - 10000+ steps ago: every 500th step
+
+        This bounds file size growth while preserving long-term trends.
+        """
         self.history.append(entry)
-        if len(self.history) > self._max_history:
-            # Remove oldest entries to stay within bound
-            self.history = self.history[-self._max_history :]
+        current_step = entry.get("step", 0)
+        self.history = _downsample_history(self.history, current_step)
 
     def append_eval(self, eval_stats: EvalStats) -> None:
         """Append evaluation result to history."""
@@ -114,6 +208,7 @@ class TrainerStats:
             "env_id": self.env_id,
             "last_eval": self.last_eval.to_dict() if self.last_eval else None,
             "eval_history": self.eval_history,
+            "best_model": self.best_model.to_dict() if self.best_model else None,
         }
 
     @classmethod
@@ -138,6 +233,10 @@ class TrainerStats:
         # Parse last_eval if present
         if data.get("last_eval"):
             stats.last_eval = EvalStats.from_dict(data["last_eval"])
+
+        # Parse best_model if present
+        if data.get("best_model"):
+            stats.best_model = BestModelInfo.from_dict(data["best_model"])
 
         return stats
 

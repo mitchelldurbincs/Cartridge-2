@@ -33,12 +33,26 @@ export interface MoveResponse extends GameState {
 
 export interface EvalStats {
   step: number;
+  current_iteration: number;
+  // Model vs Best (gatekeeper) results
+  opponent: 'best' | 'random';
+  opponent_iteration: number | null;
   win_rate: number;
   draw_rate: number;
   loss_rate: number;
+  became_new_best: boolean;
+  // Model vs Random results (optional)
+  vs_random_win_rate: number | null;
+  vs_random_draw_rate: number | null;
+  // Metadata
   games_played: number;
-  avg_game_length: number;
+  avg_game_length?: number;
   timestamp: number;
+}
+
+export interface BestModelInfo {
+  iteration: number;
+  step: number;
 }
 
 export interface HistoryEntry {
@@ -65,6 +79,7 @@ export interface TrainingStats {
   last_eval: EvalStats | null;
   eval_history: EvalStats[];
   history: HistoryEntry[];
+  best_model: BestModelInfo | null;
 }
 
 export interface HealthResponse {

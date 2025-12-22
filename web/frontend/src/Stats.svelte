@@ -141,53 +141,81 @@
     {#if stats.last_eval}
       <hr class="divider" />
       <h2>Model Evaluation</h2>
-      <div class="eval-summary">
-        <div class="win-rate-display">
-          <span class="win-rate-value" style="color: {getWinRateColor(stats.last_eval.win_rate)}">
-            {formatPercent(stats.last_eval.win_rate)}
-          </span>
-          <span class="win-rate-label">Win Rate vs Random</span>
+
+      <!-- Best Model Badge -->
+      {#if stats.best_model}
+        <div class="best-model-badge">
+          <span class="trophy">🏆</span>
+          <span class="best-label">Best Model: Iteration {stats.best_model.iteration}</span>
         </div>
+      {/if}
+
+      <!-- Main Evaluation Display -->
+      <div class="eval-cards">
+        <!-- VS Best Model -->
+        <div class="eval-card" class:new-best={stats.last_eval.became_new_best}>
+          <div class="eval-card-header">
+            <span class="opponent-label">vs Best Model</span>
+            {#if stats.last_eval.opponent_iteration}
+              <span class="opponent-iter">(iter {stats.last_eval.opponent_iteration})</span>
+            {/if}
+          </div>
+          <div class="win-rate-value" style="color: {getWinRateColor(stats.last_eval.win_rate)}">
+            {formatPercent(stats.last_eval.win_rate)}
+          </div>
+          {#if stats.last_eval.became_new_best}
+            <div class="new-best-badge">🎉 New Best!</div>
+          {/if}
+          <div class="eval-details">
+            <span>Draw: {formatPercent(stats.last_eval.draw_rate)}</span>
+            <span>Loss: {formatPercent(stats.last_eval.loss_rate)}</span>
+          </div>
+        </div>
+
+        <!-- VS Random (if available) -->
+        {#if stats.last_eval.vs_random_win_rate !== null}
+          <div class="eval-card">
+            <div class="eval-card-header">
+              <span class="opponent-label">vs Random</span>
+            </div>
+            <div class="win-rate-value" style="color: {getWinRateColor(stats.last_eval.vs_random_win_rate)}">
+              {formatPercent(stats.last_eval.vs_random_win_rate)}
+            </div>
+            <div class="eval-details">
+              <span>Draw: {formatPercent(stats.last_eval.vs_random_draw_rate)}</span>
+            </div>
+          </div>
+        {/if}
       </div>
+
       <div class="stat-grid">
         <div class="stat">
-          <span class="label">Draws</span>
-          <span class="value">{formatPercent(stats.last_eval.draw_rate)}</span>
+          <span class="label">Iteration</span>
+          <span class="value">{stats.last_eval.current_iteration || '-'}</span>
         </div>
         <div class="stat">
-          <span class="label">Losses</span>
-          <span class="value">{formatPercent(stats.last_eval.loss_rate)}</span>
-        </div>
-        <div class="stat">
-          <span class="label">Games Played</span>
+          <span class="label">Games per Eval</span>
           <span class="value">{stats.last_eval.games_played}</span>
-        </div>
-        <div class="stat">
-          <span class="label">Avg Game Length</span>
-          <span class="value">{stats.last_eval.avg_game_length.toFixed(1)}</span>
-        </div>
-        <div class="stat full-width">
-          <span class="label">Evaluated at Step</span>
-          <span class="value">{stats.last_eval.step}</span>
         </div>
       </div>
 
-      <!-- Win Rate History Chart -->
+      <!-- Win Rate History Chart (vs Best) -->
       {#if stats.eval_history && stats.eval_history.length > 1}
         <div class="chart-container">
-          <h3>Win Rate Over Time</h3>
+          <h3>Win Rate vs Best Over Time</h3>
           <div class="mini-chart">
             {#each stats.eval_history as evalPoint}
               <div
                 class="chart-bar"
-                style="height: {evalPoint.win_rate * 100}%; background: {getWinRateColor(evalPoint.win_rate)}"
-                title="Step {evalPoint.step}: {formatPercent(evalPoint.win_rate)}"
+                class:new-best-bar={evalPoint.became_new_best}
+                style="height: {evalPoint.win_rate * 100}%; background: {evalPoint.became_new_best ? '#ffd700' : getWinRateColor(evalPoint.win_rate)}"
+                title="Iter {evalPoint.current_iteration}: {formatPercent(evalPoint.win_rate)}{evalPoint.became_new_best ? ' 🏆' : ''}"
               ></div>
             {/each}
           </div>
           <div class="chart-labels">
             <span>0%</span>
-            <span>50%</span>
+            <span>55% threshold</span>
             <span>100%</span>
           </div>
         </div>
@@ -310,29 +338,84 @@
   }
 
   /* Evaluation styles */
-  .eval-summary {
+  .best-model-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, #4a3a00, #6a5a00);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    border: 1px solid #ffd700;
+  }
+
+  .trophy {
+    font-size: 1.2rem;
+  }
+
+  .best-label {
+    color: #ffd700;
+    font-weight: bold;
+  }
+
+  .eval-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
     margin-bottom: 1rem;
   }
 
-  .win-rate-display {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 1rem;
+  .eval-card {
     background: #3a3a5a;
+    padding: 1rem;
     border-radius: 8px;
+    text-align: center;
+  }
+
+  .eval-card.new-best {
+    background: linear-gradient(135deg, #2a4a2a, #3a5a3a);
+    border: 1px solid #4f4;
+  }
+
+  .eval-card-header {
+    margin-bottom: 0.5rem;
+  }
+
+  .opponent-label {
+    font-size: 0.85rem;
+    color: #00d9ff;
+    font-weight: bold;
+  }
+
+  .opponent-iter {
+    font-size: 0.75rem;
+    color: #888;
+    margin-left: 0.25rem;
   }
 
   .win-rate-value {
-    font-size: 2.5rem;
+    font-size: 2rem;
     font-weight: bold;
     line-height: 1;
+    margin: 0.5rem 0;
   }
 
-  .win-rate-label {
+  .new-best-badge {
     font-size: 0.85rem;
+    color: #4f4;
+    margin-bottom: 0.5rem;
+  }
+
+  .eval-details {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    font-size: 0.75rem;
     color: #888;
-    margin-top: 0.5rem;
+  }
+
+  .new-best-bar {
+    border: 1px solid #ffd700;
   }
 
   /* Mini chart styles */

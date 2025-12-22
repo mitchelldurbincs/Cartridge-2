@@ -19,9 +19,13 @@ import pytest
 
 from trainer.stats import (
     DEFAULT_MAX_EVAL_HISTORY,
-    DEFAULT_MAX_HISTORY,
+    MEDIUM_RESOLUTION,
+    MEDIUM_STEPS_THRESHOLD,
+    OLD_RESOLUTION,
+    RECENT_STEPS_THRESHOLD,
     EvalStats,
     TrainerStats,
+    _downsample_history,
     load_stats,
     write_stats,
 )
@@ -136,7 +140,6 @@ class TestTrainerStats:
         assert stats.env_id == ""
         assert stats.last_eval is None
         assert stats.eval_history == []
-        assert stats._max_history == DEFAULT_MAX_HISTORY
         assert stats._max_eval_history == DEFAULT_MAX_EVAL_HISTORY
 
     def test_append_history(self):
@@ -149,31 +152,59 @@ class TestTrainerStats:
         assert stats.history[0]["step"] == 1
         assert stats.history[1]["step"] == 2
 
-    def test_history_bounded_on_append(self):
-        """Test that history stays bounded after many appends."""
+    def test_history_tiered_retention_recent(self):
+        """Test that recent history is kept at full resolution."""
         stats = TrainerStats()
-        stats._max_history = 10
 
-        # Append more than max
-        for i in range(25):
+        # Append entries within the recent threshold
+        current_step = 1000
+        for i in range(0, current_step + 1, 10):
             stats.append_history({"step": i, "loss": float(i)})
 
-        # Should be bounded
-        assert len(stats.history) == 10
-        # Should have the most recent entries
-        assert stats.history[0]["step"] == 15
-        assert stats.history[-1]["step"] == 24
+        # All entries should be kept (all within RECENT_STEPS_THRESHOLD of current_step)
+        assert len(stats.history) == 101  # 0, 10, 20, ..., 1000
 
-    def test_history_bounded_with_default_max(self):
-        """Test history is bounded at default max."""
+    def test_history_tiered_retention_downsamples_old(self):
+        """Test that old history is downsampled appropriately."""
         stats = TrainerStats()
 
-        # Append more than default max
-        for i in range(DEFAULT_MAX_HISTORY + 50):
-            stats.append_history({"step": i})
+        # Append entries spanning a large range
+        # This simulates a long training run
+        current_step = 15000
+        for step in range(0, current_step + 1, 10):
+            stats.append_history({"step": step, "loss": float(step)})
 
-        assert len(stats.history) == DEFAULT_MAX_HISTORY
-        assert stats.history[-1]["step"] == DEFAULT_MAX_HISTORY + 49
+        # Verify old entries are downsampled:
+        # - Recent (14000-15000): all entries kept
+        # - Medium (5000-14000): every 100th step
+        # - Old (0-5000): every 500th step
+        steps_in_history = [e["step"] for e in stats.history]
+
+        # Check some old entries (should only have 500-multiples)
+        old_entries = [
+            s for s in steps_in_history if s < (current_step - MEDIUM_STEPS_THRESHOLD)
+        ]
+        for step in old_entries:
+            assert (
+                step % OLD_RESOLUTION == 0
+            ), f"Old step {step} should be multiple of {OLD_RESOLUTION}"
+
+        # Check medium entries (should only have 100-multiples)
+        medium_entries = [
+            s
+            for s in steps_in_history
+            if (current_step - MEDIUM_STEPS_THRESHOLD)
+            <= s
+            < (current_step - RECENT_STEPS_THRESHOLD)
+        ]
+        for step in medium_entries:
+            assert (
+                step % MEDIUM_RESOLUTION == 0
+            ), f"Medium step {step} should be multiple of {MEDIUM_RESOLUTION}"
+
+        # Verify we have fewer entries than a naive approach would have
+        naive_count = (current_step // 10) + 1  # Would be 1501 entries
+        assert len(stats.history) < naive_count
 
     def test_append_eval(self):
         """Test appending evaluation results."""
@@ -262,7 +293,10 @@ class TestTrainerStats:
             "history": [{"step": 100}, {"step": 200}],
             "env_id": "connect4",
             "last_eval": {"step": 200, "win_rate": 0.8, "timestamp": 9876543210.0},
-            "eval_history": [{"step": 100, "win_rate": 0.6}, {"step": 200, "win_rate": 0.8}],
+            "eval_history": [
+                {"step": 100, "win_rate": 0.6},
+                {"step": 200, "win_rate": 0.8},
+            ],
         }
 
         stats = TrainerStats.from_dict(data)
@@ -327,6 +361,85 @@ class TestTrainerStats:
         assert len(restored.history) == len(original.history)
         assert restored.last_eval.step == original.last_eval.step
         assert restored.last_eval.win_rate == original.last_eval.win_rate
+
+
+class TestDownsampleHistory:
+    """Tests for _downsample_history function."""
+
+    def test_empty_history(self):
+        """Test downsampling empty history returns empty."""
+        result = _downsample_history([], 1000)
+        assert result == []
+
+    def test_all_recent_kept(self):
+        """Test all entries within recent threshold are kept."""
+        history = [{"step": i} for i in range(100, 1100, 10)]
+        current_step = 1100
+
+        result = _downsample_history(history, current_step)
+
+        # All entries should be kept (within 1000 steps of current)
+        assert len(result) == len(history)
+
+    def test_medium_age_downsampled(self):
+        """Test medium-age entries are downsampled to MEDIUM_RESOLUTION."""
+        # Create entries in the medium range (1000-10000 steps ago)
+        current_step = 12000
+        history = [{"step": i} for i in range(1000, 11000, 10)]
+
+        result = _downsample_history(history, current_step)
+
+        # Check that entries in medium range are filtered
+        for entry in result:
+            step = entry["step"]
+            age = current_step - step
+            if RECENT_STEPS_THRESHOLD < age <= MEDIUM_STEPS_THRESHOLD:
+                assert step % MEDIUM_RESOLUTION == 0
+
+    def test_old_entries_downsampled(self):
+        """Test old entries are downsampled to OLD_RESOLUTION."""
+        current_step = 20000
+        history = [{"step": i} for i in range(0, 9000, 10)]
+
+        result = _downsample_history(history, current_step)
+
+        # All entries are old (>10000 steps ago), should only keep 500-multiples
+        for entry in result:
+            assert entry["step"] % OLD_RESOLUTION == 0
+
+    def test_mixed_ages(self):
+        """Test history with entries of all ages is correctly tiered."""
+        current_step = 15000
+        # Create history with entries every 10 steps from 0 to 15000
+        history = [{"step": i} for i in range(0, current_step + 1, 10)]
+
+        result = _downsample_history(history, current_step)
+
+        # Count entries by tier
+        recent_count = 0
+        medium_count = 0
+        old_count = 0
+
+        for entry in result:
+            step = entry["step"]
+            age = current_step - step
+            if age <= RECENT_STEPS_THRESHOLD:
+                recent_count += 1
+            elif age <= MEDIUM_STEPS_THRESHOLD:
+                medium_count += 1
+            else:
+                old_count += 1
+
+        # Recent: 14000-15000 = 101 entries (every 10 steps)
+        assert recent_count == 101
+
+        # Medium: 5000-14000 = ~90 entries at resolution 100
+        # Steps 5000, 5100, 5200, ..., 13900 = 90 entries
+        assert medium_count == 90
+
+        # Old: 0-5000 = 10 entries at resolution 500
+        # Steps 0, 500, 1000, ..., 4500 = 10 entries
+        assert old_count == 10
 
 
 class TestLoadStats:
@@ -441,7 +554,9 @@ class TestWriteStats:
 
             # Check no temp files remain
             files = list(Path(tmpdir).iterdir())
-            temp_files = [f for f in files if f.name.startswith("tmp") or ".tmp" in f.name]
+            temp_files = [
+                f for f in files if f.name.startswith("tmp") or ".tmp" in f.name
+            ]
             assert len(temp_files) == 0
 
     def test_write_cleans_up_on_failure(self):

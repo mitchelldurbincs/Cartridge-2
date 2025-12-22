@@ -26,16 +26,16 @@ log_level = "info"
 # =============================================================================
 [training]
 # Number of training iterations
-iterations = 200
+iterations = 400 
 
 # Starting iteration number (for resuming training)
 start_iteration = 1
 
 # Self-play episodes to generate per iteration
-episodes_per_iteration = 800
+episodes_per_iteration = 500
 
 # Training steps per iteration
-steps_per_iteration = 400
+steps_per_iteration = 600
 
 # Training batch size
 batch_size = 128
@@ -63,10 +63,17 @@ max_checkpoints = 10
 # =============================================================================
 [evaluation]
 # Evaluate every N iterations (0 to disable)
-interval = 3 
+interval = 5
 
 # Number of games per evaluation
 games = 50
+
+# Win rate threshold to become new "best" model (gatekeeper)
+# Current model must win > this rate against best to replace it
+win_threshold = 0.55
+
+# Also evaluate against random baseline (useful for absolute performance)
+eval_vs_random = true
 
 # =============================================================================
 # Actor Settings (Self-play episode runner)
@@ -102,7 +109,7 @@ port = 8080
 # =============================================================================
 [mcts]
 # Number of MCTS simulations per move
-num_simulations = 800
+num_simulations = 200
 
 # Exploration constant (c_puct)
 c_puct = 1.25

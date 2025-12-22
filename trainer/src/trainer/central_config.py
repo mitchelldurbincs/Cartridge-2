@@ -76,6 +76,8 @@ class EvaluationConfig:
 
     interval: int = 1
     games: int = 50
+    win_threshold: float = 0.55  # Win rate needed to become new best model
+    eval_vs_random: bool = True  # Also evaluate against random baseline
 
 
 @dataclass

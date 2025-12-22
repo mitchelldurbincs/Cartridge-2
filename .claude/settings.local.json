@@ -8,7 +8,10 @@
       "Bash(pip install:*)",
       "Bash(python3 -m pytest:*)",
       "Bash(git checkout:*)",
-      "Bash(.venv/bin/black src/trainer/stats.py)"
+      "Bash(.venv/bin/black src/trainer/stats.py)",
+      "Bash(.venv/bin/ruff check src/trainer/stats.py)",
+      "Bash(.venv/bin/black:*)",
+      "Bash(.venv/bin/mypy src/trainer/stats.py --ignore-missing-imports)"
     ],
     "deny": [],
     "ask": []

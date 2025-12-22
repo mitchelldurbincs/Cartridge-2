@@ -27,6 +27,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -101,6 +102,8 @@ class LoopConfig:
     # Evaluation settings - enabled by default
     eval_interval: int = 1  # Run evaluation every N iterations (0 to disable)
     eval_games: int = 50  # Games per evaluation
+    eval_win_threshold: float = 0.55  # Win rate needed to become new best
+    eval_vs_random: bool = True  # Also evaluate against random baseline
 
     # Logging
     log_level: str = "INFO"
@@ -125,6 +128,14 @@ class LoopConfig:
     def eval_stats_path(self) -> Path:
         return self.data_dir / "eval_stats.json"
 
+    @property
+    def best_model_path(self) -> Path:
+        return self.models_dir / "best.onnx"
+
+    @property
+    def best_model_info_path(self) -> Path:
+        return self.data_dir / "best_model.json"
+
     def get_num_simulations(self, iteration: int) -> int:
         """Calculate MCTS simulations for given iteration (ramping schedule).
 
@@ -144,6 +155,10 @@ class Orchestrator:
         self.eval_history: list[dict] = []
         self._shutdown_requested = False
 
+        # Best model (gatekeeper) tracking
+        self.best_model_iteration: int | None = None
+        self._load_best_model_info()
+
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -155,6 +170,45 @@ class Orchestrator:
         """Handle shutdown signals gracefully."""
         logger.warning(f"Received signal {signum}, requesting shutdown...")
         self._shutdown_requested = True
+
+    def _load_best_model_info(self) -> None:
+        """Load best model info from disk if it exists."""
+        if not self.config.best_model_info_path.exists():
+            return
+
+        try:
+            with open(self.config.best_model_info_path) as f:
+                data = json.load(f)
+            self.best_model_iteration = data.get("iteration")
+            logger.info(
+                f"Loaded best model info: iteration {self.best_model_iteration}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to load best model info: {e}")
+
+    def _save_best_model_info(self, iteration: int, win_rate: float) -> None:
+        """Save best model info to disk."""
+        data = {
+            "iteration": iteration,
+            "win_rate_when_promoted": win_rate,
+            "timestamp": datetime.now().isoformat(),
+        }
+        with open(self.config.best_model_info_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def _promote_to_best(self, iteration: int, win_rate: float) -> None:
+        """Copy current model to best.onnx and update tracking."""
+        current_path = self.config.models_dir / "latest.onnx"
+        if not current_path.exists():
+            logger.warning("Cannot promote: latest.onnx not found")
+            return
+
+        shutil.copy(current_path, self.config.best_model_path)
+        self.best_model_iteration = iteration
+        self._save_best_model_info(iteration, win_rate)
+        logger.info(
+            f"🏆 New best model! Iteration {iteration} with {win_rate:.1%} win rate"
+        )
 
     def _auto_resume_if_needed(self) -> None:
         """Auto-resume from loop_stats.json if start_iteration is default (1).
@@ -436,9 +490,9 @@ class Orchestrator:
     def _run_evaluation(
         self, iteration: int
     ) -> tuple[float | None, float | None, float]:
-        """Run evaluation against random baseline.
+        """Run evaluation against best model and optionally random baseline.
 
-        Returns (win_rate, draw_rate, elapsed_seconds).
+        Returns (win_rate_vs_best, draw_rate_vs_best, elapsed_seconds).
         """
         model_path = self.config.models_dir / "latest.onnx"
 
@@ -447,52 +501,116 @@ class Orchestrator:
             return None, None, 0.0
 
         start_time = time.time()
-        logger.info(f"Running evaluation ({self.config.eval_games} games)...")
+        config = get_game_config(self.config.env_id)
 
         try:
-            # Load game config
-            config = get_game_config(self.config.env_id)
+            current_policy = OnnxPolicy(str(model_path), temperature=0.0)
 
-            # Create policies
-            model_policy = OnnxPolicy(str(model_path), temperature=0.0)
-            random_policy = RandomPolicy()
+            # --- Model vs Best (Gatekeeper) Evaluation ---
+            vs_best_win_rate = None
+            vs_best_draw_rate = None
+            became_new_best = False
 
-            # Run evaluation
-            results = run_eval(
-                player1=model_policy,
-                player2=random_policy,
-                env_id=self.config.env_id,
-                config=config,
-                num_games=self.config.eval_games,
-                verbose=False,
-            )
+            if not self.config.best_model_path.exists():
+                # First iteration: current becomes best
+                logger.info("No best model yet - promoting current model to best")
+                self._promote_to_best(iteration, 1.0)
+                vs_best_win_rate = 1.0
+                vs_best_draw_rate = 0.0
+                became_new_best = True
+            else:
+                # Evaluate against best
+                logger.info(
+                    f"Evaluating vs best model (iter {self.best_model_iteration}) "
+                    f"- {self.config.eval_games} games..."
+                )
+                best_policy = OnnxPolicy(
+                    str(self.config.best_model_path), temperature=0.0
+                )
+
+                vs_best_results = run_eval(
+                    player1=current_policy,
+                    player2=best_policy,
+                    env_id=self.config.env_id,
+                    config=config,
+                    num_games=self.config.eval_games,
+                    verbose=False,
+                )
+
+                vs_best_win_rate = vs_best_results.player1_win_rate
+                vs_best_draw_rate = vs_best_results.draw_rate
+
+                logger.info(
+                    f"vs Best (iter {self.best_model_iteration}): "
+                    f"Win {vs_best_win_rate:.1%}, Draw {vs_best_draw_rate:.1%}, "
+                    f"Loss {vs_best_results.player2_win_rate:.1%}"
+                )
+
+                # Check if current model beats threshold
+                if vs_best_win_rate > self.config.eval_win_threshold:
+                    self._promote_to_best(iteration, vs_best_win_rate)
+                    became_new_best = True
+                else:
+                    logger.info(
+                        f"Current model did not beat threshold "
+                        f"({vs_best_win_rate:.1%} <= {self.config.eval_win_threshold:.1%})"
+                    )
+
+            # --- Model vs Random Evaluation (optional) ---
+            vs_random_win_rate = None
+            vs_random_draw_rate = None
+
+            if self.config.eval_vs_random:
+                logger.info(f"Evaluating vs random - {self.config.eval_games} games...")
+                random_policy = RandomPolicy()
+
+                vs_random_results = run_eval(
+                    player1=current_policy,
+                    player2=random_policy,
+                    env_id=self.config.env_id,
+                    config=config,
+                    num_games=self.config.eval_games,
+                    verbose=False,
+                )
+
+                vs_random_win_rate = vs_random_results.player1_win_rate
+                vs_random_draw_rate = vs_random_results.draw_rate
+
+                logger.info(
+                    f"vs Random: Win {vs_random_win_rate:.1%}, "
+                    f"Draw {vs_random_draw_rate:.1%}, "
+                    f"Loss {vs_random_results.player2_win_rate:.1%}"
+                )
 
             elapsed = time.time() - start_time
 
-            logger.info(
-                f"Evaluation: {results.player1_name} vs {results.player2_name} - "
-                f"Win: {results.player1_win_rate:.1%}, Draw: {results.draw_rate:.1%}, "
-                f"Loss: {results.player2_win_rate:.1%}"
-            )
-
-            # Save to eval history
+            # Save to eval history (includes both evaluations)
             eval_record = {
                 "iteration": iteration,
-                "win_rate": results.player1_win_rate,
-                "draw_rate": results.draw_rate,
-                "loss_rate": results.player2_win_rate,
-                "games": results.games_played,
-                "avg_game_length": results.avg_game_length,
+                "step": iteration * self.config.steps_per_iteration,
+                # Model vs Best results
+                "vs_best_win_rate": vs_best_win_rate,
+                "vs_best_draw_rate": vs_best_draw_rate,
+                "vs_best_opponent_iteration": self.best_model_iteration,
+                "became_new_best": became_new_best,
+                # Model vs Random results (if enabled)
+                "vs_random_win_rate": vs_random_win_rate,
+                "vs_random_draw_rate": vs_random_draw_rate,
+                # Metadata
+                "games": self.config.eval_games,
                 "timestamp": datetime.now().isoformat(),
             }
             self.eval_history.append(eval_record)
             self._save_eval_stats()
             self._update_stats_with_eval()
 
-            return results.player1_win_rate, results.draw_rate, elapsed
+            return vs_best_win_rate, vs_best_draw_rate, elapsed
 
         except Exception as e:
             logger.error(f"Evaluation failed: {e}")
+            import traceback
+
+            traceback.print_exc()
             return None, None, time.time() - start_time
 
     def _save_loop_stats(self) -> None:
@@ -536,8 +654,8 @@ class Orchestrator:
     def _update_stats_with_eval(self) -> None:
         """Update stats.json with evaluation results so frontend can display them.
 
-        The frontend reads stats.json and expects `last_eval` and `eval_history`
-        fields to display evaluation metrics.
+        The frontend reads stats.json and expects `last_eval`, `eval_history`,
+        and `best_model` fields to display evaluation metrics.
         """
         if not self.eval_history:
             return
@@ -550,18 +668,30 @@ class Orchestrator:
                     stats_data = json.load(f)
 
             # Convert eval_history to the format expected by frontend
-            # Frontend expects: step, win_rate, draw_rate, loss_rate, games_played, avg_game_length
             formatted_history = []
             for record in self.eval_history:
                 formatted_history.append(
                     {
-                        "step": record.get("iteration", 0)
-                        * self.config.steps_per_iteration,
-                        "win_rate": record.get("win_rate", 0.0),
-                        "draw_rate": record.get("draw_rate", 0.0),
-                        "loss_rate": record.get("loss_rate", 0.0),
+                        "step": record.get(
+                            "step",
+                            record.get("iteration", 0)
+                            * self.config.steps_per_iteration,
+                        ),
+                        "current_iteration": record.get("iteration", 0),
+                        # Model vs Best results
+                        "opponent": "best",
+                        "opponent_iteration": record.get("vs_best_opponent_iteration"),
+                        "win_rate": record.get("vs_best_win_rate", 0.0),
+                        "draw_rate": record.get("vs_best_draw_rate", 0.0),
+                        "loss_rate": 1.0
+                        - record.get("vs_best_win_rate", 0.0)
+                        - record.get("vs_best_draw_rate", 0.0),
+                        "became_new_best": record.get("became_new_best", False),
+                        # Model vs Random results
+                        "vs_random_win_rate": record.get("vs_random_win_rate"),
+                        "vs_random_draw_rate": record.get("vs_random_draw_rate"),
+                        # Metadata
                         "games_played": record.get("games", 0),
-                        "avg_game_length": record.get("avg_game_length", 0.0),
                         "timestamp": time.time(),
                     }
                 )
@@ -570,6 +700,13 @@ class Orchestrator:
             if formatted_history:
                 stats_data["last_eval"] = formatted_history[-1]
                 stats_data["eval_history"] = formatted_history
+
+            # Add best model info
+            if self.best_model_iteration is not None:
+                stats_data["best_model"] = {
+                    "iteration": self.best_model_iteration,
+                    "step": self.best_model_iteration * self.config.steps_per_iteration,
+                }
 
             # Write back atomically
             temp_path = self.config.stats_path.with_suffix(".json.tmp")
@@ -737,9 +874,17 @@ class Orchestrator:
         if self.config.eval_interval > 0:
             interval = self.config.eval_interval
             games = self.config.eval_games
+            threshold = self.config.eval_win_threshold
             logger.info(
                 f"Evaluation: ENABLED (every {interval} iteration(s), {games} games)"
             )
+            logger.info(f"  Gatekeeper: win rate > {threshold:.0%} to become new best")
+            if self.config.eval_vs_random:
+                logger.info("  Also evaluating vs random baseline")
+            if self.best_model_iteration:
+                logger.info(
+                    f"  Current best model: iteration {self.best_model_iteration}"
+                )
         else:
             logger.info(
                 "Evaluation: DISABLED (set ALPHAZERO_EVAL_INTERVAL > 0 to enable)"
@@ -963,6 +1108,18 @@ Examples:
         default=cfg.evaluation.games,
         help="Games per evaluation",
     )
+    parser.add_argument(
+        "--eval-win-threshold",
+        type=float,
+        default=cfg.evaluation.win_threshold,
+        help="Win rate threshold to become new best model (0.55 = 55%%)",
+    )
+    parser.add_argument(
+        "--eval-vs-random",
+        type=lambda x: x.lower() in ("true", "1", "yes"),
+        default=cfg.evaluation.eval_vs_random,
+        help="Also evaluate against random baseline (true/false)",
+    )
 
     # Logging
     parser.add_argument(
@@ -993,6 +1150,8 @@ Examples:
         checkpoint_interval=args.checkpoint_interval,
         eval_interval=args.eval_interval,
         eval_games=args.eval_games,
+        eval_win_threshold=args.eval_win_threshold,
+        eval_vs_random=args.eval_vs_random,
         device=args.device,
         log_level=args.log_level,
     )

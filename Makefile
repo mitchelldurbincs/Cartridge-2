@@ -26,7 +26,7 @@ data:
 
 # Clean targets
 clean-data:
-	rm -f data/replay.db data/stats.json
+	rm -f data/replay.db data/stats.json data/loop_stats.json data/eval_stats.json data/best_model.json
 
 clean-models:
 	rm -f data/models/*.onnx data/models/*.onnx.data data/models/*.pt
