@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Engine library (local)
+config = { path = "../engine/config" }
 engine-core = { path = "../engine/engine-core" }
 games-tictactoe = { path = "../engine/games-tictactoe" }
 games-connect4 = { path = "../engine/games-connect4" }

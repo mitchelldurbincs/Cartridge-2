@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "config",
     "engine-core",
     "games-tictactoe",
     "games-connect4",
