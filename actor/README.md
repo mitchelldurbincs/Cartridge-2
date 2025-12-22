@@ -239,8 +239,8 @@ python -m trainer --db ../data/replay.db
 ## Testing
 
 ```bash
-# Run all tests (39 tests)
-cargo test
+# Run all tests
+cargo test    # 39 tests
 
 # Run specific test with output
 cargo test test_actor_run_single_episode -- --nocapture

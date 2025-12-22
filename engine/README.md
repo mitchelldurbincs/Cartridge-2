@@ -6,7 +6,7 @@ Rust workspace containing the core game engine, game implementations, and MCTS s
 
 | Crate | Description |
 |-------|-------------|
-| `engine-core` | Game trait, type erasure, registry, EngineContext API, GameMetadata |
+| `engine-core` | Game trait, type erasure, registry, EngineContext API, GameMetadata (56 tests) |
 | `games-tictactoe` | TicTacToe reference implementation (26 tests) |
 | `games-connect4` | Connect 4 implementation (20 tests) |
 | `mcts` | Monte Carlo Tree Search for AlphaZero-style play (25 tests) |
@@ -67,11 +67,11 @@ See `games-tictactoe` or `games-connect4` for reference implementations.
 ## Testing
 
 ```bash
-# All tests (119 total)
+# All tests (127 total)
 cargo test
 
 # Specific crate
-cargo test -p engine-core      # 48 tests
+cargo test -p engine-core      # 56 tests
 cargo test -p games-tictactoe  # 26 tests
 cargo test -p games-connect4   # 20 tests
 cargo test -p mcts             # 25 tests

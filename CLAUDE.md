@@ -37,13 +37,13 @@ Cartridge2 is a simplified AlphaZero training and visualization platform. It ena
 
 Pure game logic library. No network I/O. Library-only design (no gRPC).
 
-- `engine-core/` - Game trait, erased adapter, registry, EngineContext API, GameMetadata (48 tests)
+- `engine-core/` - Game trait, erased adapter, registry, EngineContext API, GameMetadata (56 tests)
 - `games-tictactoe/` - TicTacToe implementation (26 tests)
 - `games-connect4/` - Connect 4 implementation (20 tests)
 - `mcts/` - Monte Carlo Tree Search implementation (25 tests)
 
 ### Actor (Rust Binary) - `actor/`
-**Status: COMPLETE (46 tests)**
+**Status: COMPLETE (39 tests)**
 
 Self-play episode runner using engine-core directly:
 - Uses `EngineContext` for game simulation (no gRPC)
@@ -55,7 +55,7 @@ Self-play episode runner using engine-core directly:
 - Auto-derives game configuration from GameMetadata
 
 ### Web Server (Rust Binary) - `web/`
-**Status: COMPLETE (4 tests)**
+**Status: COMPLETE (22 tests)**
 
 Axum HTTP server for frontend interaction:
 - `/health` - Health check
@@ -288,9 +288,9 @@ cd actor && cargo build --release
 cd web && cargo build --release
 
 # Run all tests
-cd engine && cargo test   # 119 tests (48 + 26 + 20 + 25)
-cd actor && cargo test    # 46 tests
-cd web && cargo test      # 4 tests
+cd engine && cargo test   # 127 tests (56 + 26 + 20 + 25)
+cd actor && cargo test    # 39 tests
+cd web && cargo test      # 22 tests
 
 # Format and lint
 cd engine && cargo fmt && cargo clippy
@@ -347,16 +347,16 @@ python -m trainer train --db ./data/replay.db --steps 1000
 
 ## Current Status
 
-- [x] Engine core abstractions (Game trait, adapter, registry, metadata) - 48 tests
+- [x] Engine core abstractions (Game trait, adapter, registry, metadata) - 56 tests
 - [x] EngineContext high-level API
 - [x] TicTacToe game implementation - 26 tests
 - [x] Connect 4 game implementation - 20 tests
 - [x] Removed gRPC/proto dependencies (library-only)
-- [x] Actor core (episode runner, SQLite replay) - 46 tests
+- [x] Actor core (episode runner, SQLite replay) - 39 tests
 - [x] MCTS integration in actor with ONNX evaluation
 - [x] Model hot-reload via file watching
 - [x] Auto-derived game configuration from GameMetadata
-- [x] Web server (Axum, game API) - 4 tests
+- [x] Web server (Axum, game API) - 22 tests
 - [x] Web frontend (Svelte, play UI, stats, Connect4 board)
 - [x] MCTS implementation - 25 tests
 - [x] Python trainer (PyTorch, ONNX export, evaluator)

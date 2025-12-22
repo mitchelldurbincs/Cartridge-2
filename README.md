@@ -300,9 +300,9 @@ cd trainer && pip install -e .
 ### Test
 
 ```bash
-cd engine && cargo test    # 119 tests
-cd actor && cargo test     # 46 tests
-cd web && cargo test       # 4 tests
+cd engine && cargo test    # 127 tests
+cd actor && cargo test     # 39 tests
+cd web && cargo test       # 22 tests
 cd trainer && pytest       # Python tests
 ```
 
