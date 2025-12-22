@@ -37,8 +37,8 @@
     return n.toFixed(4);
   }
 
-  function formatPercent(n: number | undefined): string {
-    if (n === undefined) return '-';
+  function formatPercent(n: number | undefined | null): string {
+    if (n == null) return '-';
     return `${(n * 100).toFixed(1)}%`;
   }
 
@@ -58,7 +58,8 @@
     return `${Math.floor(diff / 86400)}d ago`;
   }
 
-  function getWinRateColor(winRate: number): string {
+  function getWinRateColor(winRate: number | null | undefined): string {
+    if (winRate == null) return '#888';  // Gray - no data
     if (winRate >= 0.7) return '#4f4';  // Green - good
     if (winRate >= 0.5) return '#fa0';  // Orange - okay
     return '#f66';  // Red - poor
@@ -173,7 +174,7 @@
         </div>
 
         <!-- VS Random (if available) -->
-        {#if stats.last_eval.vs_random_win_rate !== null}
+        {#if stats.last_eval.vs_random_win_rate != null}
           <div class="eval-card">
             <div class="eval-card-header">
               <span class="opponent-label">vs Random</span>
