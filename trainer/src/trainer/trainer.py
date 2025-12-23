@@ -189,9 +189,43 @@ class Trainer:
         self._buffer_size_cache: int = 0
         self._buffer_size_update_interval: int = 100  # Update every 100 steps
 
-        # Checkpoint tracking
-        self.checkpoints: list[Path] = []
+        # Checkpoint tracking - discover existing checkpoints on disk
+        self.checkpoints: list[Path] = self._discover_existing_checkpoints()
         self.latest_checkpoint: Path | None = None
+
+    def _discover_existing_checkpoints(self) -> list[Path]:
+        """Scan model directory for existing checkpoint files.
+
+        This ensures checkpoint cleanup works correctly across training restarts
+        by discovering checkpoints from previous runs.
+
+        Returns:
+            List of checkpoint paths sorted by step number (oldest first).
+        """
+        model_dir = Path(self.config.model_dir)
+        if not model_dir.exists():
+            return []
+
+        # Find all model_step_*.onnx files
+        checkpoints = list(model_dir.glob("model_step_*.onnx"))
+
+        # Sort by step number (extracted from filename)
+        def extract_step(path: Path) -> int:
+            # Filename format: model_step_000100.onnx
+            try:
+                return int(path.stem.split("_")[-1])
+            except (ValueError, IndexError):
+                return 0
+
+        checkpoints.sort(key=extract_step)
+
+        if checkpoints:
+            logger.info(
+                f"Discovered {len(checkpoints)} existing checkpoints "
+                f"(steps {extract_step(checkpoints[0])}-{extract_step(checkpoints[-1])})"
+            )
+
+        return checkpoints
 
     def _wait_with_backoff(
         self, condition_fn, description: str, check_interval: float | None = None

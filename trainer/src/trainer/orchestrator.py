@@ -504,7 +504,10 @@ class Orchestrator:
         config = get_game_config(self.config.env_id)
 
         try:
-            current_policy = OnnxPolicy(str(model_path), temperature=0.0)
+            # Use small temperature for evaluation to avoid deterministic games
+            # With temp=0, identical models play the exact same game 50 times
+            eval_temperature = 0.2
+            current_policy = OnnxPolicy(str(model_path), temperature=eval_temperature)
 
             # --- Model vs Best (Gatekeeper) Evaluation ---
             vs_best_win_rate = None
@@ -525,7 +528,7 @@ class Orchestrator:
                     f"- {self.config.eval_games} games..."
                 )
                 best_policy = OnnxPolicy(
-                    str(self.config.best_model_path), temperature=0.0
+                    str(self.config.best_model_path), temperature=eval_temperature
                 )
 
                 vs_best_results = run_eval(

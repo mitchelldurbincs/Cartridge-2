@@ -85,8 +85,8 @@ actor_id = "actor-1"
 # Maximum episodes to run (-1 for unlimited)
 max_episodes = -1
 
-# Timeout per episode in seconds
-episode_timeout_secs = 30
+# Timeout per episode in seconds (Connect4 games can take 30+ moves)
+episode_timeout_secs = 90
 
 # Interval to flush data to database in seconds
 flush_interval_secs = 5
