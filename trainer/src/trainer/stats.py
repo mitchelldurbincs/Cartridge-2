@@ -16,6 +16,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Default history bounds
+DEFAULT_MAX_HISTORY = 10000  # Max training history entries
 DEFAULT_MAX_EVAL_HISTORY = 50
 
 # Tiered history retention thresholds
@@ -162,6 +163,9 @@ class TrainerStats:
     # Environment being trained
     env_id: str = ""
 
+    # History bounds
+    _max_history: int = DEFAULT_MAX_HISTORY
+
     # Evaluation metrics
     last_eval: EvalStats | None = None
     eval_history: list[dict] = field(default_factory=list)
@@ -171,7 +175,7 @@ class TrainerStats:
     best_model: BestModelInfo | None = None
 
     def append_history(self, entry: dict) -> None:
-        """Append to history with tiered retention.
+        """Append to history with tiered retention and max size bound.
 
         Uses a tiered downsampling strategy to keep recent data at full
         resolution while preserving coarse historical data:
@@ -179,11 +183,16 @@ class TrainerStats:
         - 1000-10000 steps ago: every 100th step
         - 10000+ steps ago: every 500th step
 
-        This bounds file size growth while preserving long-term trends.
+        After downsampling, enforces _max_history as an absolute bound,
+        keeping the most recent entries.
         """
         self.history.append(entry)
         current_step = entry.get("step", 0)
         self.history = _downsample_history(self.history, current_step)
+
+        # Enforce absolute max history bound
+        if len(self.history) > self._max_history:
+            self.history = self.history[-self._max_history :]
 
     def append_eval(self, eval_stats: EvalStats) -> None:
         """Append evaluation result to history."""
