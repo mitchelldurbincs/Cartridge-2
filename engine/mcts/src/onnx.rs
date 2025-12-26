@@ -313,6 +313,7 @@ impl Evaluator for OnnxEvaluator {
             + batch_size_u64;
 
         // Log stats periodically (every 10,000 inferences)
+        #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable
         if count % 10_000 == 0 {
             let avg_us = total_us / count;
             info!(
