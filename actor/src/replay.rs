@@ -135,6 +135,7 @@ impl ReplayBuffer {
     }
 
     /// Store a transition in the replay buffer
+    #[allow(dead_code)] // Used in tests
     pub fn store(&self, transition: &Transition) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO transitions

@@ -37,7 +37,9 @@ class GameConfig:
     # CNN-specific settings (used when network_type="resnet")
     num_res_blocks: int = 4  # Number of residual blocks
     num_filters: int = 128  # Filters per conv layer
-    input_channels: int = 2  # Channels for board encoding (e.g., 2 for each player's pieces)
+    input_channels: int = (
+        2  # Channels for board encoding (e.g., 2 for each player's pieces)
+    )
 
     @property
     def board_size(self) -> int:
