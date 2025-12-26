@@ -9,7 +9,6 @@ for backward compatibility with databases that don't have metadata.
 """
 
 from dataclasses import dataclass
-from typing import Dict
 
 
 @dataclass
@@ -58,7 +57,7 @@ class GameConfig:
 
 # Game configuration registry (fallback values - prefer reading from DB)
 # These values MUST match the Rust engine implementations exactly.
-GAME_CONFIGS: Dict[str, GameConfig] = {
+GAME_CONFIGS: dict[str, GameConfig] = {
     "tictactoe": GameConfig(
         env_id="tictactoe",
         display_name="Tic-Tac-Toe",

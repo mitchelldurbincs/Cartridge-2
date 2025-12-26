@@ -210,6 +210,7 @@ impl Evaluator for OnnxEvaluator {
         let count = self.inference_count.fetch_add(1, Ordering::Relaxed) + 1;
 
         // Log stats periodically (every 10,000 inferences)
+        #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable
         if count % 10_000 == 0 {
             let total_us = self.total_inference_time_us.load(Ordering::Relaxed);
             let avg_us = total_us / count;
