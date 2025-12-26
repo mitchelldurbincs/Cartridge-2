@@ -352,7 +352,10 @@ class Orchestrator:
 
         with ReplayBuffer(self.config.replay_db_path) as replay:
             deleted = replay.clear_transitions()
-            logger.info(f"Cleared {deleted} transitions from replay buffer")
+            # VACUUM to reclaim disk space and prevent database file growth
+            # from degrading SQLite performance over many iterations
+            replay.vacuum()
+            logger.info(f"Cleared {deleted} transitions from replay buffer (vacuumed)")
             return deleted
 
     def _get_transition_count(self) -> int:

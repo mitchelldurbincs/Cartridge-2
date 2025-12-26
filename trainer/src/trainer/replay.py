@@ -604,6 +604,14 @@ class ReplayBuffer:
         self._conn.commit()
         return cursor.rowcount
 
+    def vacuum(self) -> None:
+        """Run VACUUM to reclaim disk space and defragment the database.
+
+        Should be called after clear_transitions() to prevent database file
+        growth from degrading performance over many iterations.
+        """
+        self._conn.execute("VACUUM")
+
 
 def create_empty_db(db_path: str | Path) -> None:
     """Create an empty replay database with the correct schema.
