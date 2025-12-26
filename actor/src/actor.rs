@@ -11,6 +11,27 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
+/// Get the current resident set size (RSS) in MB from /proc/self/status.
+/// Returns None if unable to read (e.g., on non-Linux systems).
+fn get_rss_mb() -> Option<f64> {
+    use std::fs;
+    // Read /proc/self/status and find VmRSS line
+    if let Ok(contents) = fs::read_to_string("/proc/self/status") {
+        for line in contents.lines() {
+            if line.starts_with("VmRSS:") {
+                // Format: "VmRSS:    12345 kB"
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    if let Ok(kb) = parts[1].parse::<f64>() {
+                        return Some(kb / 1024.0); // Convert to MB
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 use crate::config::Config;
 use crate::game_config::{get_config, GameConfig};
 use crate::mcts_policy::MctsPolicy;
@@ -157,9 +178,11 @@ impl Actor {
     }
 
     pub async fn run(&self) -> Result<()> {
+        let initial_rss = get_rss_mb().unwrap_or(0.0);
         info!(
             actor_id = %self.config.actor_id,
             max_episodes = self.config.max_episodes,
+            initial_rss_mb = format!("{:.1}", initial_rss),
             "Actor starting main loop"
         );
 
@@ -217,7 +240,15 @@ impl Actor {
                             );
                             #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable
                             if self.config.log_interval > 0 && new_count % self.config.log_interval == 0 {
-                                info!("Completed {} episodes", new_count);
+                                // Include memory diagnostics in periodic logging
+                                let rss_info = get_rss_mb()
+                                    .map(|mb| format!(", RSS: {:.1} MB", mb))
+                                    .unwrap_or_default();
+                                let avg_duration = duration; // Most recent episode duration
+                                info!(
+                                    "Completed {} episodes (last: {:.2}s{})",
+                                    new_count, avg_duration, rss_info
+                                );
                             }
                         }
                         Err(e) => {
@@ -230,7 +261,13 @@ impl Actor {
             }
         }
 
-        info!("Actor stopped gracefully");
+        // Report final memory usage
+        let final_rss = get_rss_mb().unwrap_or(0.0);
+        let rss_growth = final_rss - initial_rss;
+        info!(
+            "Actor stopped gracefully (final RSS: {:.1} MB, growth: {:.1} MB)",
+            final_rss, rss_growth
+        );
         Ok(())
     }
 

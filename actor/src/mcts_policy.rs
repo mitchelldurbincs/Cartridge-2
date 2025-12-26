@@ -9,6 +9,7 @@ use mcts::{run_mcts, MctsConfig, OnnxEvaluator, SearchResult};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 use tracing::debug;
 
 /// Result from MCTS policy selection, including training data
@@ -188,7 +189,8 @@ impl MctsPolicy {
             config.temperature = self.late_temperature;
         }
 
-        // Run MCTS search
+        // Run MCTS search with timing
+        let mcts_start = Instant::now();
         let result: SearchResult = run_mcts(
             sim_ctx,
             evaluator,
@@ -199,12 +201,14 @@ impl MctsPolicy {
             &mut self.rng,
         )
         .map_err(|e| anyhow!("MCTS search failed: {}", e))?;
+        let mcts_elapsed_ms = mcts_start.elapsed().as_millis();
 
         debug!(
             action = result.action,
             value = result.value,
             simulations = result.simulations,
             move_number = move_number,
+            mcts_ms = mcts_elapsed_ms,
             "MCTS selected action"
         );
 

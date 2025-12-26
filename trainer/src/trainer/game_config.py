@@ -9,7 +9,6 @@ for backward compatibility with databases that don't have metadata.
 """
 
 from dataclasses import dataclass
-from typing import Dict
 
 
 @dataclass
@@ -38,7 +37,9 @@ class GameConfig:
     # CNN-specific settings (used when network_type="resnet")
     num_res_blocks: int = 4  # Number of residual blocks
     num_filters: int = 128  # Filters per conv layer
-    input_channels: int = 2  # Channels for board encoding (e.g., 2 for each player's pieces)
+    input_channels: int = (
+        2  # Channels for board encoding (e.g., 2 for each player's pieces)
+    )
 
     @property
     def board_size(self) -> int:
@@ -58,7 +59,7 @@ class GameConfig:
 
 # Game configuration registry (fallback values - prefer reading from DB)
 # These values MUST match the Rust engine implementations exactly.
-GAME_CONFIGS: Dict[str, GameConfig] = {
+GAME_CONFIGS: dict[str, GameConfig] = {
     "tictactoe": GameConfig(
         env_id="tictactoe",
         display_name="Tic-Tac-Toe",

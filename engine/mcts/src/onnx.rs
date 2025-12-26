@@ -14,9 +14,12 @@
 //! For TicTacToe: obs_size=29, action_size=9
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use ort::{session::Session, value::Value};
+use tracing::info;
 
 use crate::evaluator::{EvalResult, Evaluator, EvaluatorError};
 
@@ -27,6 +30,10 @@ use crate::evaluator::{EvalResult, Evaluator, EvaluatorError};
 pub struct OnnxEvaluator {
     session: Mutex<Session>,
     obs_size: usize,
+    /// Number of inferences performed (for diagnostics)
+    inference_count: AtomicU64,
+    /// Total inference time in microseconds (for diagnostics)
+    total_inference_time_us: AtomicU64,
 }
 
 impl std::fmt::Debug for OnnxEvaluator {
@@ -56,6 +63,8 @@ impl OnnxEvaluator {
         Ok(Self {
             session: Mutex::new(session),
             obs_size,
+            inference_count: AtomicU64::new(0),
+            total_inference_time_us: AtomicU64::new(0),
         })
     }
 
@@ -79,6 +88,8 @@ impl OnnxEvaluator {
         Ok(Self {
             session: Mutex::new(session),
             obs_size,
+            inference_count: AtomicU64::new(0),
+            total_inference_time_us: AtomicU64::new(0),
         })
     }
 
@@ -157,6 +168,7 @@ impl Evaluator for OnnxEvaluator {
         })?;
 
         // Run inference - extract all data inside the lock scope
+        let inference_start = Instant::now();
         let (policy_logits, value) = {
             let mut session = self.session.lock().map_err(|e| {
                 EvaluatorError::EvaluationFailed(format!("Failed to acquire session lock: {}", e))
@@ -190,6 +202,24 @@ impl Evaluator for OnnxEvaluator {
             let value = value_data.first().cloned().unwrap_or(0.0);
             (policy_logits, value)
         };
+
+        // Track inference timing for diagnostics
+        let inference_time_us = inference_start.elapsed().as_micros() as u64;
+        self.total_inference_time_us
+            .fetch_add(inference_time_us, Ordering::Relaxed);
+        let count = self.inference_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+        // Log stats periodically (every 10,000 inferences)
+        #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable
+        if count % 10_000 == 0 {
+            let total_us = self.total_inference_time_us.load(Ordering::Relaxed);
+            let avg_us = total_us / count;
+            info!(
+                "ONNX inference stats: {} calls, avg {:.2}ms per call",
+                count,
+                avg_us as f64 / 1000.0
+            );
+        }
 
         // Apply masked softmax to get policy probabilities
         let policy = Self::masked_softmax(&policy_logits, legal_moves_mask, num_actions);
@@ -227,6 +257,7 @@ impl Evaluator for OnnxEvaluator {
         })?;
 
         // Run inference - extract all data inside the lock scope
+        let inference_start = Instant::now();
         let (policy_flat, values, action_size) = {
             let mut session = self.session.lock().map_err(|e| {
                 EvaluatorError::EvaluationFailed(format!("Failed to acquire session lock: {}", e))
@@ -267,6 +298,30 @@ impl Evaluator for OnnxEvaluator {
             let values: Vec<f32> = value_data.to_vec();
             (policy_flat, values, action_size)
         };
+
+        // Track inference timing for diagnostics (per-sample accounting)
+        let inference_time_us = inference_start.elapsed().as_micros() as u64;
+        let batch_size_u64 = batch_size as u64;
+
+        let total_us = self
+            .total_inference_time_us
+            .fetch_add(inference_time_us * batch_size_u64, Ordering::Relaxed)
+            + inference_time_us * batch_size_u64;
+        let count = self
+            .inference_count
+            .fetch_add(batch_size_u64, Ordering::Relaxed)
+            + batch_size_u64;
+
+        // Log stats periodically (every 10,000 inferences)
+        #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable
+        if count % 10_000 == 0 {
+            let avg_us = total_us / count;
+            info!(
+                "ONNX inference stats: {} calls, avg {:.2}ms per call",
+                count,
+                avg_us as f64 / 1000.0
+            );
+        }
 
         // Build results for each batch item
         let mut results = Vec::with_capacity(batch_size);

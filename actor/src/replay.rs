@@ -135,6 +135,7 @@ impl ReplayBuffer {
     }
 
     /// Store a transition in the replay buffer
+    #[allow(dead_code)] // Used in tests
     pub fn store(&self, transition: &Transition) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO transitions
@@ -165,9 +166,38 @@ impl ReplayBuffer {
     /// Store multiple transitions in a batch (single transaction for efficiency)
     pub fn store_batch(&self, transitions: &[Transition]) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
+
+        // Prepare the INSERT statement once and reuse it for the whole batch.
+        // Preparing per-row was adding measurable overhead as the replay buffer grows.
+        let mut stmt = tx.prepare_cached(
+            "INSERT OR REPLACE INTO transitions
+             (id, env_id, episode_id, step_number, state, action, next_state,
+              observation, next_observation, reward, done, timestamp, policy_probs, mcts_value, game_outcome)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        )?;
+
         for transition in transitions {
-            self.store(transition)?;
+            stmt.execute(params![
+                transition.id,
+                transition.env_id,
+                transition.episode_id,
+                transition.step_number,
+                transition.state,
+                transition.action,
+                transition.next_state,
+                transition.observation,
+                transition.next_observation,
+                transition.reward,
+                transition.done as i32,
+                transition.timestamp as i64,
+                transition.policy_probs,
+                transition.mcts_value,
+                transition.game_outcome,
+            ])?;
         }
+
+        // Drop stmt before commit to release borrow on tx
+        drop(stmt);
         tx.commit()?;
         Ok(())
     }

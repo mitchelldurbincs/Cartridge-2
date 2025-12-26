@@ -98,7 +98,7 @@ class TrainerConfig:
     lr_total_steps: int = cli_field(
         0,
         cli="--lr-total-steps",
-        help="Total training steps for LR schedule (0 = use total_steps, for continuous decay across iterations)",
+        help="Total steps for LR schedule (0 = use total_steps, for continuous decay)",
     )
 
     # Training schedule
