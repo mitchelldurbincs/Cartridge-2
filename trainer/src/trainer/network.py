@@ -142,8 +142,18 @@ class AlphaZeroLoss:
         # Policy loss: cross-entropy with soft targets
         # L_policy = -sum(pi * log(p)) where pi is MCTS distribution
         if legal_mask is not None:
-            # Mask illegal moves before computing log softmax
-            policy_logits = policy_logits.masked_fill(legal_mask == 0, float("-inf"))
+            # Detect samples with no legal moves (all-zero mask).
+            # This shouldn't happen in normal training data (observations are from
+            # BEFORE the action was taken), but we handle it defensively to prevent
+            # NaN from log_softmax(all -inf) = log(0/0) = NaN.
+            has_legal_moves = legal_mask.sum(dim=-1, keepdim=True) > 0  # (batch, 1)
+
+            # Only mask where we have legal moves; otherwise keep original logits
+            # This prevents all-inf inputs to softmax which cause NaN
+            masked_logits = policy_logits.masked_fill(legal_mask == 0, float("-inf"))
+            policy_logits = torch.where(
+                has_legal_moves, masked_logits, policy_logits
+            )
 
         log_probs = F.log_softmax(policy_logits, dim=-1)
 

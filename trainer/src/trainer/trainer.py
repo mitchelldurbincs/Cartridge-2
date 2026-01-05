@@ -336,13 +336,13 @@ class Trainer:
             self.stats.replay_buffer_size = buffer_size
 
             # Training loop
+            # NOTE: We use a while loop instead of for loop so that the step counter
+            # only increments after successful training. This prevents the LR scheduler
+            # and checkpoint naming from advancing when batches are unavailable.
             consecutive_skips = 0
             start_step = self.config.start_step
-            for step in range(1, self.config.total_steps + 1):
-                global_step = start_step + step
-                self.stats.step = global_step
-                checkpoint_path: Path | None = None
-
+            step = 0
+            while step < self.config.total_steps:
                 # Sample batch (filter by env_id and use correct num_actions)
                 batch = replay.sample_batch_tensors(
                     self.config.batch_size,
@@ -357,8 +357,13 @@ class Trainer:
                             f"sleeping {self.config.wait_interval}s..."
                         )
                     time.sleep(self.config.wait_interval)
-                    continue
+                    continue  # Don't increment step - retry until we get a batch
 
+                # Successfully got a batch - now increment step
+                step += 1
+                global_step = start_step + step
+                self.stats.step = global_step
+                checkpoint_path: Path | None = None
                 consecutive_skips = 0
                 observations, policy_targets, value_targets = batch
                 self.samples_seen += len(observations)

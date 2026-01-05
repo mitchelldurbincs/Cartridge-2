@@ -109,7 +109,7 @@ port = 8080
 # =============================================================================
 [mcts]
 # Number of MCTS simulations per move
-num_simulations = 200
+num_simulations = 100 
 
 # Exploration constant (c_puct)
 c_puct = 1.25
@@ -122,3 +122,27 @@ dirichlet_alpha = 1.0
 
 # Dirichlet noise weight
 dirichlet_weight = 0.25
+
+# =============================================================================
+# Storage Backend Settings (for K8s/cloud deployments)
+# =============================================================================
+[storage]
+# Replay buffer backend: sqlite (local), postgres (K8s)
+# For K8s, set CARTRIDGE_POSTGRES_URL environment variable
+replay_backend = "sqlite"
+
+# Model storage backend: filesystem (local), s3 (K8s)
+# For S3, set CARTRIDGE_S3_BUCKET and optionally CARTRIDGE_S3_ENDPOINT
+model_backend = "filesystem"
+
+# PostgreSQL connection string (only used when replay_backend = "postgres")
+# Can also be set via CARTRIDGE_POSTGRES_URL environment variable
+# postgres_url = "postgresql://user:pass@host:5432/cartridge"
+
+# S3 bucket for model storage (only used when model_backend = "s3")
+# Can also be set via CARTRIDGE_S3_BUCKET environment variable
+# s3_bucket = "cartridge-models"
+
+# S3-compatible endpoint URL (for MinIO, etc.)
+# Can also be set via CARTRIDGE_S3_ENDPOINT environment variable
+# s3_endpoint = "http://minio:9000"
