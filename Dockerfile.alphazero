@@ -17,7 +17,7 @@
 # ============================================
 # Stage 1: Build Rust Actor
 # ============================================
-FROM rust:1.85-bookworm AS rust-builder
+FROM rust:1.88-bookworm AS rust-builder
 
 # Optional features: postgres (PostgreSQL replay), s3 (S3 model storage)
 ARG CARGO_FEATURES=""

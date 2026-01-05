@@ -10,6 +10,8 @@ path = "src/main.rs"
 [features]
 default = ["onnx"]
 onnx = ["mcts/onnx"]
+# Enable S3/MinIO model storage for K8s deployments
+s3 = ["model-watcher/s3"]
 
 [dependencies]
 # Engine library

@@ -11,6 +11,8 @@ path = "src/main.rs"
 default = []
 # Enable PostgreSQL backend for K8s deployments
 postgres = ["tokio-postgres"]
+# Enable S3/MinIO model storage for K8s deployments
+s3 = ["model-watcher/s3"]
 
 [dependencies]
 # Engine library (local)
