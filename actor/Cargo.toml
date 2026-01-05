@@ -7,6 +7,11 @@ edition = "2021"
 name = "actor"
 path = "src/main.rs"
 
+[features]
+default = []
+# Enable PostgreSQL backend for K8s deployments
+postgres = ["tokio-postgres"]
+
 [dependencies]
 # Engine library (local)
 engine-core = { path = "../engine/engine-core" }
@@ -33,13 +38,17 @@ rand_chacha = "0.3"
 
 # Async and concurrency
 futures = "0.3"
+async-trait = "0.1"
 
 # Observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# SQLite for replay buffer
+# SQLite for replay buffer (default backend)
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+# PostgreSQL for replay buffer (K8s backend, feature-gated)
+tokio-postgres = { version = "0.7", optional = true }
 
 # Time utilities
 uuid = { version = "1.6", features = ["v4"] }

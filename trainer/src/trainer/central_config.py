@@ -106,6 +106,7 @@ class MctsConfig:
     num_simulations: int = 800
     c_puct: float = 1.4
     temperature: float = 1.0
+    temp_threshold: int = 0  # Move number after which to reduce temperature (0 = disabled)
     dirichlet_alpha: float = 0.3
     dirichlet_weight: float = 0.25
 

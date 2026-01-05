@@ -67,13 +67,15 @@ class Trainer:
         self.warmup_start_lr = config.learning_rate * config.lr_warmup_start_ratio
         self.target_lr = config.learning_rate
 
-        # Initialize optimizer (start at warmup LR if warmup enabled)
-        initial_lr = (
-            self.warmup_start_lr if self.warmup_steps > 0 else config.learning_rate
-        )
+        # Initialize optimizer with TARGET LR (not warmup LR!)
+        # This is critical because CosineAnnealingLR stores base_lrs from the
+        # optimizer's current LR. If we init with warmup_start_lr, the scheduler
+        # would anneal from warmup_start_lr to eta_min (both tiny), causing
+        # LR to snap back down after warmup completes.
+        # Instead, we init with target_lr and manually override during warmup.
         self.optimizer = optim.Adam(
             self.network.parameters(),
-            lr=initial_lr,
+            lr=config.learning_rate,  # Always use target LR for correct base_lrs
             weight_decay=config.weight_decay,
         )
 
@@ -160,6 +162,17 @@ class Trainer:
                         )
                 except Exception as e:
                     logger.warning(f"Failed to restore scheduler state: {e}")
+
+        # Set initial LR to warmup_start_lr for step 1 if warmup enabled and not resuming.
+        # This ensures step 1 starts at warmup LR, while scheduler.base_lrs remains at
+        # target_lr for correct cosine annealing after warmup.
+        if self.warmup_steps > 0 and not self._checkpoint_loaded:
+            for param_group in self.optimizer.param_groups:
+                param_group["lr"] = self.warmup_start_lr
+            logger.info(
+                f"LR warmup enabled: {self.warmup_steps} steps, "
+                f"LR {self.warmup_start_lr:.2e} → {self.target_lr:.2e}"
+            )
 
         # Initialize loss function
         self.loss_fn = AlphaZeroLoss(

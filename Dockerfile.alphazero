@@ -7,13 +7,20 @@
 #   docker build -f Dockerfile.alphazero -t cartridge-alphazero .
 #   docker run -v ./data:/app/data cartridge-alphazero
 #
+# For K8s backends (PostgreSQL + S3):
+#   docker build -f Dockerfile.alphazero --build-arg CARGO_FEATURES="postgres,s3" .
+#
 # Or via docker-compose:
 #   docker compose up alphazero
+#   docker compose --profile k8s up alphazero-k8s  # K8s backends
 
 # ============================================
 # Stage 1: Build Rust Actor
 # ============================================
 FROM rust:1.85-bookworm AS rust-builder
+
+# Optional features: postgres (PostgreSQL replay), s3 (S3 model storage)
+ARG CARGO_FEATURES=""
 
 RUN apt-get update && apt-get install -y \
     pkg-config \
@@ -22,12 +29,16 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy and build actor
+# Copy and build actor with optional features
 COPY engine/ ./engine/
 COPY actor/ ./actor/
 
 WORKDIR /app/actor
-RUN cargo build --release
+RUN if [ -z "$CARGO_FEATURES" ]; then \
+        cargo build --release; \
+    else \
+        cargo build --release --features "$CARGO_FEATURES"; \
+    fi
 
 # ============================================
 # Stage 2: Python Runtime with Actor Binary

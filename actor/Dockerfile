@@ -1,10 +1,16 @@
 # Actor Service Dockerfile
 # Multi-stage build for Rust binary with ONNX support
+#
+# Build args:
+#   CARGO_FEATURES - Comma-separated cargo features (e.g., "postgres,s3")
 
 # ============================================
 # Stage 1: Build
 # ============================================
 FROM rust:1.85-bookworm AS builder
+
+# Optional features: postgres (PostgreSQL replay), s3 (S3 model storage)
+ARG CARGO_FEATURES=""
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -18,9 +24,13 @@ WORKDIR /app
 COPY engine/ ./engine/
 COPY actor/ ./actor/
 
-# Build the actor binary in release mode
+# Build the actor binary in release mode with optional features
 WORKDIR /app/actor
-RUN cargo build --release
+RUN if [ -z "$CARGO_FEATURES" ]; then \
+        cargo build --release; \
+    else \
+        cargo build --release --features "$CARGO_FEATURES"; \
+    fi
 
 # ============================================
 # Stage 2: Runtime

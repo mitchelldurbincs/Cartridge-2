@@ -24,7 +24,9 @@ A simplified AlphaZero training and visualization platform for board games. Trai
 +-----------------+    +-----------------+    +------------------+
 ```
 
-This is a monolithic, filesystem-based approach. No Kubernetes, no gRPC between services--just shared filesystem and local processes.
+By default, this is a monolithic, filesystem-based approach--just shared filesystem
+and local processes. For horizontal scaling and cloud deployments, optional backends
+support PostgreSQL (replay buffer) and S3/MinIO (model storage).
 
 ## Quick Start
 
@@ -248,6 +250,35 @@ docker compose up alphazero
 ALPHAZERO_ENV_ID=connect4 ALPHAZERO_EVAL_GAMES=100 docker compose up alphazero
 ```
 
+#### K8s-Style Backends (PostgreSQL + MinIO)
+
+For horizontal scaling and cloud deployments, Cartridge2 supports PostgreSQL for
+the replay buffer and S3-compatible storage (MinIO) for models. This allows
+multiple actors to run in parallel, sharing a centralized replay buffer.
+
+Test the K8s backends locally with Docker Compose:
+
+```bash
+# Start PostgreSQL, MinIO, and the training pipeline with K8s backends
+docker compose -f docker-compose.yml -f docker-compose.k8s.yml --profile k8s up
+
+# Scale actors horizontally (4 parallel self-play workers)
+docker compose -f docker-compose.yml -f docker-compose.k8s.yml --profile k8s up --scale actor-k8s=4
+
+# Access MinIO web console at http://localhost:9001
+# Credentials: minioadmin / minioadmin
+```
+
+Configuration is controlled via environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CARTRIDGE_STORAGE_REPLAY_BACKEND` | `sqlite` or `postgres` | `sqlite` |
+| `CARTRIDGE_STORAGE_MODEL_BACKEND` | `filesystem` or `s3` | `filesystem` |
+| `CARTRIDGE_STORAGE_POSTGRES_URL` | PostgreSQL connection string | - |
+| `CARTRIDGE_STORAGE_S3_BUCKET` | S3 bucket for models | - |
+| `CARTRIDGE_STORAGE_S3_ENDPOINT` | S3-compatible endpoint (MinIO) | - |
+
 ## Adding a New Game
 
 1. Create a new crate in `engine/games-{name}/`
@@ -329,6 +360,7 @@ cd web && cargo fmt && cargo clippy
 - [x] Python trainer (PyTorch, ONNX export)
 - [x] MCTS policy targets + game outcome propagation
 - [x] Model evaluation against random baseline
+- [x] K8s backends (PostgreSQL replay, S3 model storage)
 - [ ] Othello game
 
 ## Design Decisions
@@ -336,10 +368,11 @@ cd web && cargo fmt && cargo clippy
 | Aspect | Choice | Rationale |
 |--------|--------|-----------|
 | Architecture | Monolith + Python | Simplicity for MVP, easy local development |
-| IPC | Filesystem | No network complexity, atomic operations |
+| IPC | Filesystem (local), Postgres+S3 (cloud) | No network complexity locally, scales horizontally |
 | Language | Rust + Python | Type safety + ML ecosystem |
 | Game Interface | Typed trait + erasure | Compile-time safety + runtime flexibility |
-| Replay Storage | SQLite | Atomic writes, efficient random sampling |
+| Replay Storage | SQLite (local), PostgreSQL (K8s) | Feature-gated for deployment flexibility |
+| Model Storage | Filesystem (local), S3/MinIO (K8s) | Hot-reload via file watch or ETag polling |
 | Model Format | ONNX | Framework-agnostic, production-ready |
 | RNG | ChaCha20 | Deterministic, reproducible simulations |
 

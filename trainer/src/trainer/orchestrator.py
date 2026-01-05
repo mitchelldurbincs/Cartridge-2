@@ -1069,9 +1069,9 @@ Examples:
     parser.add_argument(
         "--temp-threshold",
         type=int,
-        default=0,
+        default=cfg.mcts.temp_threshold,
         help="Move number to reduce temperature (0=disabled). "
-        "Recommended: tictactoe=5, connect4=20, othello=30",
+        "Recommended: tictactoe=5, connect4=15, othello=30",
     )
 
     # Trainer settings

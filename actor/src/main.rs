@@ -19,6 +19,7 @@ mod game_config;
 mod mcts_policy;
 mod model_watcher;
 mod replay;
+mod storage;
 
 use crate::actor::Actor;
 use crate::config::Config;

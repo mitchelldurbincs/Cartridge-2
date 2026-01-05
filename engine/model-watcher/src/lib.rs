@@ -7,6 +7,8 @@
 //!
 //! - `metadata`: Enable additional metadata tracking (load time, file modification time,
 //!   training step extraction). Useful for web server display.
+//! - `s3`: Enable S3/MinIO backend for Kubernetes deployments where models are
+//!   stored in S3-compatible storage.
 //!
 //! # Polling Fallback
 //!
@@ -18,7 +20,7 @@
 //! The poll interval defaults to 5 seconds and can be configured with
 //! [`ModelWatcher::with_poll_interval`].
 //!
-//! # Example
+//! # Example (Filesystem)
 //!
 //! ```ignore
 //! use model_watcher::ModelWatcher;
@@ -36,6 +38,30 @@
 //!     println!("Model reloaded!");
 //! }
 //! ```
+//!
+//! # Example (S3 - requires `s3` feature)
+//!
+//! ```ignore
+//! use model_watcher::s3::{S3ModelWatcher, S3Config};
+//! use std::sync::{Arc, RwLock};
+//!
+//! let evaluator = Arc::new(RwLock::new(None));
+//! let config = S3Config {
+//!     bucket: "my-bucket".to_string(),
+//!     key: "models/latest.onnx".to_string(),
+//!     endpoint_url: Some("http://minio:9000".to_string()),
+//!     region: Some("us-east-1".to_string()),
+//!     cache_dir: "/tmp/model-cache".into(),
+//! };
+//!
+//! let watcher = S3ModelWatcher::new(config, 29, evaluator).await?;
+//! watcher.try_load_existing().await?;
+//!
+//! let mut rx = watcher.start_watching().await?;
+//! while let Some(()) = rx.recv().await {
+//!     println!("Model reloaded from S3!");
+//! }
+//! ```
 
 use anyhow::{anyhow, Result};
 use mcts::OnnxEvaluator;
@@ -48,6 +74,10 @@ use tracing::{debug, error, info, warn};
 
 #[cfg(feature = "metadata")]
 use std::time::UNIX_EPOCH;
+
+/// S3/MinIO backend for model watching (requires `s3` feature).
+#[cfg(feature = "s3")]
+pub mod s3;
 
 /// Information about the currently loaded model.
 ///

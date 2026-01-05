@@ -23,6 +23,8 @@ pub struct CentralConfig {
     pub web: WebConfig,
     #[serde(default)]
     pub mcts: MctsConfig,
+    #[serde(default)]
+    pub storage: StorageConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -175,6 +177,38 @@ impl Default for MctsConfig {
     }
 }
 
+/// Storage backend configuration for K8s deployments
+#[derive(Debug, Deserialize)]
+pub struct StorageConfig {
+    /// Replay buffer backend: "sqlite" (default) or "postgres"
+    #[serde(default = "default_replay_backend")]
+    pub replay_backend: String,
+    /// Model storage backend: "filesystem" (default) or "s3"
+    #[serde(default = "default_model_backend")]
+    pub model_backend: String,
+    /// PostgreSQL connection URL (for postgres backend)
+    #[serde(default)]
+    pub postgres_url: Option<String>,
+    /// S3 bucket name (for s3 backend)
+    #[serde(default)]
+    pub s3_bucket: Option<String>,
+    /// S3-compatible endpoint URL (for MinIO, etc.)
+    #[serde(default)]
+    pub s3_endpoint: Option<String>,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            replay_backend: default_replay_backend(),
+            model_backend: default_model_backend(),
+            postgres_url: None,
+            s3_bucket: None,
+            s3_endpoint: None,
+        }
+    }
+}
+
 // Default value functions
 fn default_data_dir() -> String {
     "./data".to_string()
@@ -256,6 +290,12 @@ fn default_dirichlet_alpha() -> f64 {
 }
 fn default_dirichlet_weight() -> f64 {
     0.25
+}
+fn default_replay_backend() -> String {
+    "sqlite".to_string()
+}
+fn default_model_backend() -> String {
+    "filesystem".to_string()
 }
 
 /// Standard locations to search for config.toml
@@ -446,6 +486,12 @@ fn apply_env_overrides(mut config: CentralConfig) -> CentralConfig {
                     config.mcts.dirichlet_weight = v
                 }
             }
+
+            ("STORAGE", "REPLAY_BACKEND") => config.storage.replay_backend = value,
+            ("STORAGE", "MODEL_BACKEND") => config.storage.model_backend = value,
+            ("STORAGE", "POSTGRES_URL") => config.storage.postgres_url = Some(value),
+            ("STORAGE", "S3_BUCKET") => config.storage.s3_bucket = Some(value),
+            ("STORAGE", "S3_ENDPOINT") => config.storage.s3_endpoint = Some(value),
             _ => {}
         }
     }
@@ -512,5 +558,61 @@ env_id = "connect4"
         assert_eq!(config.common.env_id, "connect4");
         assert_eq!(config.common.data_dir, "./data"); // default
         assert_eq!(config.actor.actor_id, "actor-1"); // default
+    }
+
+    #[test]
+    fn test_storage_config_defaults() {
+        let config = CentralConfig::default();
+        assert_eq!(config.storage.replay_backend, "sqlite");
+        assert_eq!(config.storage.model_backend, "filesystem");
+        assert!(config.storage.postgres_url.is_none());
+        assert!(config.storage.s3_bucket.is_none());
+        assert!(config.storage.s3_endpoint.is_none());
+    }
+
+    #[test]
+    fn test_storage_config_from_toml() {
+        let toml_content = r#"
+[storage]
+replay_backend = "postgres"
+model_backend = "s3"
+postgres_url = "postgresql://user:pass@localhost:5432/cartridge"
+s3_bucket = "my-bucket"
+s3_endpoint = "http://minio:9000"
+"#;
+        let config: CentralConfig = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.storage.replay_backend, "postgres");
+        assert_eq!(config.storage.model_backend, "s3");
+        assert_eq!(
+            config.storage.postgres_url,
+            Some("postgresql://user:pass@localhost:5432/cartridge".to_string())
+        );
+        assert_eq!(config.storage.s3_bucket, Some("my-bucket".to_string()));
+        assert_eq!(
+            config.storage.s3_endpoint,
+            Some("http://minio:9000".to_string())
+        );
+    }
+
+    #[test]
+    fn test_storage_env_overrides() {
+        std::env::set_var("CARTRIDGE_STORAGE_REPLAY_BACKEND", "postgres");
+        std::env::set_var("CARTRIDGE_STORAGE_MODEL_BACKEND", "s3");
+        std::env::set_var(
+            "CARTRIDGE_STORAGE_POSTGRES_URL",
+            "postgresql://test@localhost/db",
+        );
+
+        let config = load_config();
+        assert_eq!(config.storage.replay_backend, "postgres");
+        assert_eq!(config.storage.model_backend, "s3");
+        assert_eq!(
+            config.storage.postgres_url,
+            Some("postgresql://test@localhost/db".to_string())
+        );
+
+        std::env::remove_var("CARTRIDGE_STORAGE_REPLAY_BACKEND");
+        std::env::remove_var("CARTRIDGE_STORAGE_MODEL_BACKEND");
+        std::env::remove_var("CARTRIDGE_STORAGE_POSTGRES_URL");
     }
 }

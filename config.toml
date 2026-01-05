@@ -35,7 +35,9 @@ start_iteration = 1
 episodes_per_iteration = 500
 
 # Training steps per iteration
-steps_per_iteration = 600
+# Reduced from 600 to avoid overfitting within each iteration
+# (500 episodes × ~25 moves = 12,500 transitions; 400 × 128 = 51,200 samples ≈ 4 epochs)
+steps_per_iteration = 400
 
 # Training batch size
 batch_size = 128
@@ -109,16 +111,24 @@ port = 8080
 # =============================================================================
 [mcts]
 # Number of MCTS simulations per move
-num_simulations = 100 
+# Higher = better quality policy targets but slower episodes
+# 200 is a reasonable tradeoff for Connect4 on CPU
+num_simulations = 200
 
 # Exploration constant (c_puct)
-c_puct = 1.25
+# Lower values = more exploitation of current best moves
+c_puct = 1.0
 
 # Temperature for action selection (higher = more exploration)
 temperature = 1.0
 
+# Move number after which to reduce temperature (0 = disabled)
+# For Connect4, use ~50% of typical game length for late-game exploitation
+temp_threshold = 15
+
 # Dirichlet noise alpha (0 to disable)
-dirichlet_alpha = 1.0 
+# Lower values = more concentrated noise; ~0.3-0.5 good for 7 actions
+dirichlet_alpha = 0.4
 
 # Dirichlet noise weight
 dirichlet_weight = 0.25
