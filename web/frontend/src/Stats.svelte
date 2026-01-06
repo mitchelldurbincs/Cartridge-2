@@ -101,15 +101,15 @@
 
   {#if error}
     <p class="error">{error}</p>
-  {:else if stats && (stats.epoch > 0 || stats.step > 0)}
+  {:else if stats && stats.step > 0}
     <div class="stat-grid">
       <div class="stat">
         <span class="label">Step</span>
-        <span class="value">{stats.step || stats.epoch} / {stats.total_steps || '-'}</span>
+        <span class="value">{stats.step} / {stats.total_steps || '-'}</span>
       </div>
       <div class="stat">
         <span class="label">Total Loss</span>
-        <span class="value">{formatNumber(stats.total_loss || stats.loss)}</span>
+        <span class="value">{formatNumber(stats.total_loss)}</span>
       </div>
       <div class="stat">
         <span class="label">Policy Loss</span>
@@ -121,7 +121,7 @@
       </div>
       <div class="stat">
         <span class="label">Replay Buffer</span>
-        <span class="value">{(stats.replay_buffer_size || stats.games_played || 0).toLocaleString()}</span>
+        <span class="value">{stats.replay_buffer_size.toLocaleString()}</span>
       </div>
       <div class="stat">
         <span class="label">Learning Rate</span>
@@ -142,14 +142,6 @@
     {#if stats.last_eval}
       <hr class="divider" />
       <h2>Model Evaluation</h2>
-
-      <!-- Best Model Badge -->
-      {#if stats.best_model}
-        <div class="best-model-badge">
-          <span class="trophy">🏆</span>
-          <span class="best-label">Best Model: Iteration {stats.best_model.iteration}</span>
-        </div>
-      {/if}
 
       <!-- Main Evaluation Display -->
       <div class="eval-cards">
@@ -339,26 +331,6 @@
   }
 
   /* Evaluation styles */
-  .best-model-badge {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    background: linear-gradient(135deg, #4a3a00, #6a5a00);
-    border-radius: 8px;
-    margin-bottom: 1rem;
-    border: 1px solid #ffd700;
-  }
-
-  .trophy {
-    font-size: 1.2rem;
-  }
-
-  .best-label {
-    color: #ffd700;
-    font-weight: bold;
-  }
-
   .eval-cards {
     display: grid;
     grid-template-columns: 1fr 1fr;

@@ -77,10 +77,14 @@ impl S3ModelWatcher {
         obs_size: usize,
         evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
     ) -> Result<Self> {
-        let mut sdk_config_loader =
-            aws_config::defaults(BehaviorVersion::latest()).region(aws_sdk_s3::config::Region::new(
-                config.region.clone().unwrap_or_else(|| "us-east-1".to_string()),
-            ));
+        let mut sdk_config_loader = aws_config::defaults(BehaviorVersion::latest()).region(
+            aws_sdk_s3::config::Region::new(
+                config
+                    .region
+                    .clone()
+                    .unwrap_or_else(|| "us-east-1".to_string()),
+            ),
+        );
 
         // Use custom endpoint for MinIO/LocalStack
         if let Some(endpoint) = &config.endpoint_url {
@@ -174,7 +178,10 @@ impl S3ModelWatcher {
 
         // Check if ETag has changed
         let needs_download = {
-            let last = self.last_etag.read().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let last = self
+                .last_etag
+                .read()
+                .map_err(|e| anyhow!("Lock error: {}", e))?;
             match (&*last, &current_etag) {
                 (Some(last_etag), Some(curr_etag)) => last_etag != curr_etag,
                 (None, Some(_)) => true,
@@ -277,13 +284,11 @@ impl S3ModelWatcher {
     /// Extract training step from model key if present.
     #[cfg(feature = "metadata")]
     fn extract_training_step(path: &Path) -> Option<u32> {
-        path.file_name()
-            .and_then(|n| n.to_str())
-            .and_then(|name| {
-                name.split('_')
-                    .filter_map(|part| part.trim_end_matches(".onnx").parse::<u32>().ok())
-                    .next_back()
-            })
+        path.file_name().and_then(|n| n.to_str()).and_then(|name| {
+            name.split('_')
+                .filter_map(|part| part.trim_end_matches(".onnx").parse::<u32>().ok())
+                .next_back()
+        })
     }
 
     /// Start watching for model changes in S3.
@@ -315,11 +320,7 @@ impl S3ModelWatcher {
                 interval.tick().await;
 
                 match Self::check_and_download_static(
-                    &client,
-                    &bucket,
-                    &key,
-                    &last_etag,
-                    &cache_dir,
+                    &client, &bucket, &key, &last_etag, &cache_dir,
                 )
                 .await
                 {
@@ -367,12 +368,7 @@ impl S3ModelWatcher {
         last_etag: &Arc<RwLock<Option<String>>>,
         cache_dir: &Path,
     ) -> Result<Option<PathBuf>> {
-        let head_result = client
-            .head_object()
-            .bucket(bucket)
-            .key(key)
-            .send()
-            .await;
+        let head_result = client.head_object().bucket(bucket).key(key).send().await;
 
         let head = match head_result {
             Ok(h) => h,
@@ -430,7 +426,9 @@ impl S3ModelWatcher {
             .map_err(|e| anyhow!("Failed to rename temp file: {}", e))?;
 
         {
-            let mut last = last_etag.write().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let mut last = last_etag
+                .write()
+                .map_err(|e| anyhow!("Lock error: {}", e))?;
             *last = current_etag;
         }
 

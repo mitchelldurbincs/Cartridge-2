@@ -15,7 +15,7 @@ use crate::central_config::{load_config, CentralConfig};
 // Load central config once at startup
 static CENTRAL_CONFIG: Lazy<CentralConfig> = Lazy::new(load_config);
 
-// Default value functions that read from central config
+// Default value functions - env var -> central config fallback
 fn default_actor_id() -> String {
     std::env::var("ACTOR_ACTOR_ID").unwrap_or_else(|_| CENTRAL_CONFIG.actor.actor_id.clone())
 }
@@ -76,89 +76,129 @@ fn default_temp_threshold() -> u32 {
     std::env::var("ACTOR_TEMP_THRESHOLD")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(0) // Disabled by default
+        .unwrap_or(0)
+}
+
+fn default_replay_backend() -> String {
+    std::env::var("ACTOR_REPLAY_BACKEND")
+        .unwrap_or_else(|_| CENTRAL_CONFIG.storage.replay_backend.clone())
+}
+
+fn default_postgres_url() -> Option<String> {
+    std::env::var("ACTOR_POSTGRES_URL")
+        .ok()
+        .or_else(|| CENTRAL_CONFIG.storage.postgres_url.clone())
 }
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(name = "actor")]
 #[command(about = "Cartridge2 Actor - Self-play episode runner")]
-#[command(
-    long_about = "Actor that runs game episodes using the engine library and stores
-transitions in the SQLite replay buffer for training.
-
-Configuration is loaded from config.toml with environment variable overrides.
-CLI arguments take highest priority."
-)]
 pub struct Config {
-    /// Unique actor identifier
     #[arg(long, default_value_t = default_actor_id())]
     pub actor_id: String,
 
-    /// Environment ID to run (e.g., tictactoe)
     #[arg(long, default_value_t = default_env_id())]
     pub env_id: String,
 
-    /// Maximum episodes to run (-1 for unlimited)
     #[arg(long, default_value_t = default_max_episodes())]
     pub max_episodes: i32,
 
-    /// Timeout per episode in seconds
     #[arg(long, default_value_t = default_episode_timeout())]
     pub episode_timeout_secs: u64,
 
-    /// Interval to flush data in seconds
     #[arg(long, default_value_t = default_flush_interval())]
     pub flush_interval_secs: u64,
 
-    /// Log level (trace, debug, info, warn, error)
     #[arg(long, default_value_t = default_log_level())]
     pub log_level: String,
 
-    /// Log progress every N episodes (0 to disable)
     #[arg(long, default_value_t = default_log_interval())]
     pub log_interval: u32,
 
-    /// Path to SQLite replay database
     #[arg(long, default_value_t = default_replay_db_path())]
     pub replay_db_path: String,
 
-    /// Data directory for models and other files
     #[arg(long, default_value_t = default_data_dir())]
     pub data_dir: String,
 
-    /// Number of MCTS simulations per move
     #[arg(long, default_value_t = default_num_simulations())]
     pub num_simulations: u32,
 
-    /// Move number after which to use lower temperature (0 to disable)
-    /// When enabled, temperature drops to 0.1 after this many moves for more deterministic late-game play
     #[arg(long, default_value_t = default_temp_threshold())]
     pub temp_threshold: u32,
+
+    #[arg(long, default_value_t = default_replay_backend())]
+    pub replay_backend: String,
+
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub postgres_url: Option<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            actor_id: default_actor_id(),
+            env_id: default_env_id(),
+            max_episodes: default_max_episodes(),
+            episode_timeout_secs: default_episode_timeout(),
+            flush_interval_secs: default_flush_interval(),
+            log_level: default_log_level(),
+            log_interval: default_log_interval(),
+            replay_db_path: default_replay_db_path(),
+            data_dir: default_data_dir(),
+            num_simulations: default_num_simulations(),
+            temp_threshold: default_temp_threshold(),
+            replay_backend: default_replay_backend(),
+            postgres_url: default_postgres_url(),
+        }
+    }
 }
 
 impl Config {
+    pub fn with_defaults(mut self) -> Self {
+        if self.postgres_url.is_none() {
+            self.postgres_url = default_postgres_url();
+        }
+        self
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.actor_id.is_empty() {
             return Err(anyhow!("actor_id cannot be empty"));
         }
-
         if self.env_id.is_empty() {
             return Err(anyhow!("env_id cannot be empty"));
         }
-
         if self.episode_timeout_secs == 0 {
             return Err(anyhow!("episode_timeout_secs must be greater than 0"));
         }
-
         if self.flush_interval_secs == 0 {
             return Err(anyhow!("flush_interval_secs must be greater than 0"));
         }
-
         if self.log_level.parse::<LevelFilter>().is_err() {
             return Err(anyhow!(
                 "invalid log level '{}', expected one of trace, debug, info, warn, error",
                 self.log_level
             ));
+        }
+
+        match self.replay_backend.as_str() {
+            "sqlite" => {}
+            "postgres" | "postgresql" => {
+                if self.postgres_url.is_none() {
+                    return Err(anyhow!(
+                        "postgres_url is required when replay_backend is '{}'",
+                        self.replay_backend
+                    ));
+                }
+            }
+            _ => {
+                return Err(anyhow!(
+                    "invalid replay_backend '{}', expected 'sqlite' or 'postgres'",
+                    self.replay_backend
+                ));
+            }
         }
 
         Ok(())
@@ -173,7 +213,6 @@ impl Config {
         Duration::from_secs(self.flush_interval_secs)
     }
 
-    /// Path to the latest model file
     #[allow(dead_code)]
     pub fn model_path(&self) -> String {
         format!("{}/models/latest.onnx", self.data_dir)
@@ -197,77 +236,70 @@ mod tests {
             data_dir: "../data".into(),
             num_simulations: 100,
             temp_threshold: 0,
+            replay_backend: "sqlite".into(),
+            postgres_url: None,
         }
     }
 
     #[test]
     fn validate_accepts_valid_configuration() {
-        let cfg = base_config();
-        assert!(cfg.validate().is_ok());
+        assert!(base_config().validate().is_ok());
     }
 
     #[test]
     fn validate_rejects_empty_actor_id() {
         let mut cfg = base_config();
         cfg.actor_id.clear();
-        let err = cfg.validate().unwrap_err();
-        assert!(err.to_string().contains("actor_id"));
+        assert!(cfg.validate().unwrap_err().to_string().contains("actor_id"));
     }
 
     #[test]
     fn validate_rejects_empty_env_id() {
         let mut cfg = base_config();
         cfg.env_id.clear();
-        let err = cfg.validate().unwrap_err();
-        assert!(err.to_string().contains("env_id"));
+        assert!(cfg.validate().unwrap_err().to_string().contains("env_id"));
     }
 
     #[test]
     fn validate_rejects_invalid_log_level() {
         let mut cfg = base_config();
         cfg.log_level = "nope".into();
-        let err = cfg.validate().unwrap_err();
-        assert!(err.to_string().contains("invalid log level"));
+        assert!(cfg.validate().unwrap_err().to_string().contains("invalid log level"));
     }
 
     #[test]
     fn validate_rejects_zero_episode_timeout() {
         let mut cfg = base_config();
         cfg.episode_timeout_secs = 0;
-        let err = cfg.validate().unwrap_err();
-        assert!(err.to_string().contains("episode_timeout_secs"));
+        assert!(cfg.validate().unwrap_err().to_string().contains("episode_timeout_secs"));
     }
 
     #[test]
     fn validate_rejects_zero_flush_interval() {
         let mut cfg = base_config();
         cfg.flush_interval_secs = 0;
-        let err = cfg.validate().unwrap_err();
-        assert!(err.to_string().contains("flush_interval_secs"));
+        assert!(cfg.validate().unwrap_err().to_string().contains("flush_interval_secs"));
     }
 
     #[test]
     fn validate_accepts_negative_max_episodes() {
         let mut cfg = base_config();
-        cfg.max_episodes = -1; // Unlimited mode
+        cfg.max_episodes = -1;
         assert!(cfg.validate().is_ok());
     }
 
     #[test]
     fn episode_timeout_returns_correct_duration() {
-        let cfg = base_config();
-        assert_eq!(cfg.episode_timeout(), Duration::from_secs(30));
+        assert_eq!(base_config().episode_timeout(), Duration::from_secs(30));
     }
 
     #[test]
     fn flush_interval_returns_correct_duration() {
-        let cfg = base_config();
-        assert_eq!(cfg.flush_interval(), Duration::from_secs(5));
+        assert_eq!(base_config().flush_interval(), Duration::from_secs(5));
     }
 
     #[test]
     fn model_path_constructs_correctly() {
-        let cfg = base_config();
-        assert_eq!(cfg.model_path(), "../data/models/latest.onnx");
+        assert_eq!(base_config().model_path(), "../data/models/latest.onnx");
     }
 }

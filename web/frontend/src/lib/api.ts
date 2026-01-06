@@ -50,11 +50,6 @@ export interface EvalStats {
   timestamp: number;
 }
 
-export interface BestModelInfo {
-  iteration: number;
-  step: number;
-}
-
 export interface HistoryEntry {
   step: number;
   total_loss: number;
@@ -64,14 +59,11 @@ export interface HistoryEntry {
 }
 
 export interface TrainingStats {
-  epoch: number;
   step: number;
   total_steps: number;
-  loss: number;
   total_loss: number;
   policy_loss: number;
   value_loss: number;
-  games_played: number;
   replay_buffer_size: number;
   learning_rate: number;
   timestamp: number;
@@ -79,7 +71,6 @@ export interface TrainingStats {
   last_eval: EvalStats | null;
   eval_history: EvalStats[];
   history: HistoryEntry[];
-  best_model: BestModelInfo | null;
 }
 
 export interface HealthResponse {

@@ -92,8 +92,8 @@ cartridge2/
 |   |   |-- game_config.rs     # Game-specific config from metadata
 |   |   |-- mcts_policy.rs     # MCTS policy implementation
 |   |   |-- model_watcher.rs   # ONNX model hot-reload
-|   |   |-- policy.rs          # Policy trait + random policy
-|   |   +-- replay.rs          # SQLite interface
+|   |   |-- replay.rs          # SQLite interface
+|   |   +-- storage/           # Storage backends (SQLite, PostgreSQL)
 |   +-- tests/
 |
 |-- engine/                    # Rust workspace
@@ -107,18 +107,21 @@ cartridge2/
 |   |       +-- registry.rs    # Static game registry
 |   |-- games-tictactoe/       # TicTacToe implementation
 |   |-- games-connect4/        # Connect 4 implementation
-|   +-- mcts/                  # Monte Carlo Tree Search
+|   |-- mcts/                  # Monte Carlo Tree Search
+|   +-- model-watcher/         # Shared model hot-reload library
 |
 |-- web/                       # HTTP server + frontend
 |   |-- src/
 |   |   |-- main.rs            # Axum endpoints
 |   |   |-- game.rs            # Session management
+|   |   |-- central_config.rs  # Central config.toml loading
 |   |   +-- model_watcher.rs   # ONNX model hot-reload
 |   +-- frontend/              # Svelte application
 |       +-- src/
 |           |-- App.svelte
-|           |-- Board.svelte         # TicTacToe board
-|           |-- Connect4Board.svelte # Connect 4 board
+|           |-- GenericBoard.svelte     # Game board component
+|           |-- LossChart.svelte        # Loss visualization chart
+|           |-- LossOverTimePage.svelte # Training progress page
 |           +-- Stats.svelte
 |
 |-- trainer/                   # Python training
@@ -126,10 +129,17 @@ cartridge2/
 |   +-- src/trainer/
 |       |-- __main__.py        # CLI entrypoint
 |       |-- trainer.py         # Training loop
-|       |-- network.py         # Neural network
-|       |-- replay.py          # SQLite interface
+|       |-- orchestrator.py    # Synchronized AlphaZero orchestrator
+|       |-- network.py         # Neural network (MLP)
+|       |-- resnet.py          # ResNet architecture
+|       |-- replay.py          # Replay buffer interface
 |       |-- evaluator.py       # Model evaluation
-|       +-- game_config.py     # Game-specific configurations
+|       |-- game_config.py     # Game-specific configurations
+|       |-- stats.py           # Training statistics
+|       |-- config.py          # TrainerConfig dataclass
+|       |-- checkpoint.py      # Checkpoint utilities
+|       |-- central_config.py  # Central config.toml loading
+|       +-- storage/           # Storage backends (SQLite, PostgreSQL, S3)
 |
 |-- data/                      # Runtime data (gitignored)
 |   |-- replay.db              # SQLite replay buffer
@@ -331,9 +341,9 @@ cd trainer && pip install -e .
 ### Test
 
 ```bash
-cd engine && cargo test    # 119 tests
+cd engine && cargo test    # 134 tests
 cd actor && cargo test     # 46 tests
-cd web && cargo test       # 4 tests
+cd web && cargo test       # 22 tests
 cd trainer && pytest       # Python tests
 ```
 
@@ -361,6 +371,7 @@ cd web && cargo fmt && cargo clippy
 - [x] MCTS policy targets + game outcome propagation
 - [x] Model evaluation against random baseline
 - [x] K8s backends (PostgreSQL replay, S3 model storage)
+- [x] Loss visualization in frontend
 - [ ] Othello game
 
 ## Design Decisions

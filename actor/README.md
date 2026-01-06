@@ -239,7 +239,7 @@ python -m trainer --db ../data/replay.db
 ## Testing
 
 ```bash
-# Run all tests (39 tests)
+# Run all tests (46 tests)
 cargo test
 
 # Run specific test with output
@@ -253,10 +253,11 @@ cargo bench
 
 - **Config tests (10)** - Validation, defaults, duration conversion
 - **Central config tests (4)** - TOML loading and environment overrides
-- **Replay tests (10)** - Store, sample, cleanup, batch operations
-- **Actor tests (4)** - Creation, episode execution, error handling
+- **Replay tests (11)** - Store, sample, cleanup, batch operations, episode outcomes
+- **Actor tests (3)** - Creation, episode execution, transitions
 - **MCTS Policy tests (4)** - MCTS-based action selection and random fallback
 - **Game Config tests (7)** - Game-specific configuration from metadata
+- **Storage tests (7)** - SQLite storage backend operations
 
 ## Dependencies
 

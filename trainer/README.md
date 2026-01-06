@@ -265,7 +265,7 @@ src/trainer/
 ├── trainer.py        # Training loop, Trainer class
 ├── network.py        # MLP network + AlphaZeroLoss + create_network() factory
 ├── resnet.py         # ResNet architecture (ConvPolicyValueNetwork, ResidualBlock)
-├── replay.py         # SQLite replay buffer interface
+├── replay.py         # Replay buffer interface
 ├── evaluator.py      # Model evaluation against baselines
 ├── game_config.py    # Game-specific configurations (dimensions, network type)
 ├── stats.py          # TrainerStats, EvalStats, load/write functions
@@ -273,7 +273,15 @@ src/trainer/
 ├── checkpoint.py     # ONNX/PyTorch checkpoint save/load utilities
 ├── backoff.py        # Wait-with-backoff utilities for data availability
 ├── orchestrator.py   # Synchronized AlphaZero training orchestrator
-└── central_config.py # Central config.toml loading
+├── central_config.py # Central config.toml loading
+└── storage/          # Storage backend implementations
+    ├── __init__.py   # Package exports
+    ├── base.py       # Abstract base class for storage backends
+    ├── factory.py    # Storage factory for backend selection
+    ├── sqlite.py     # SQLite storage backend (local)
+    ├── postgres.py   # PostgreSQL storage backend (K8s)
+    ├── s3.py         # S3/MinIO model storage backend
+    └── filesystem.py # Local filesystem model storage
 ```
 
 ## Game Configuration

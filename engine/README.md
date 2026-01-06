@@ -6,10 +6,11 @@ Rust workspace containing the core game engine, game implementations, and MCTS s
 
 | Crate | Description |
 |-------|-------------|
-| `engine-core` | Game trait, type erasure, registry, EngineContext API, GameMetadata |
-| `games-tictactoe` | TicTacToe reference implementation (26 tests) |
-| `games-connect4` | Connect 4 implementation (20 tests) |
-| `mcts` | Monte Carlo Tree Search for AlphaZero-style play (25 tests) |
+| `engine-core` | Game trait, type erasure, registry, EngineContext API, GameMetadata (64 tests) |
+| `games-tictactoe` | TicTacToe reference implementation (27 tests) |
+| `games-connect4` | Connect 4 implementation (21 tests) |
+| `mcts` | Monte Carlo Tree Search for AlphaZero-style play (22 tests) |
+| `model-watcher` | Shared model hot-reload utilities |
 
 ## Quick Start
 
@@ -37,6 +38,10 @@ cargo build --release --features mcts/onnx
                                |
 +------------------+           |
 |       mcts       |-----------+
++------------------+
+
++------------------+
+|  model-watcher   |  (standalone utility crate)
 +------------------+
 ```
 
@@ -67,14 +72,14 @@ See `games-tictactoe` or `games-connect4` for reference implementations.
 ## Testing
 
 ```bash
-# All tests (119 total)
+# All tests (134 total)
 cargo test
 
 # Specific crate
-cargo test -p engine-core      # 48 tests
-cargo test -p games-tictactoe  # 26 tests
-cargo test -p games-connect4   # 20 tests
-cargo test -p mcts             # 25 tests
+cargo test -p engine-core      # 64 tests
+cargo test -p games-tictactoe  # 27 tests
+cargo test -p games-connect4   # 21 tests
+cargo test -p mcts             # 22 tests
 
 # With output
 cargo test -- --nocapture

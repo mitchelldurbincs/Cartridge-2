@@ -16,7 +16,11 @@
       "Bash(.venv/bin/python -m pytest tests/ -v --tb=short)",
       "Bash(.venv/bin/ruff check src/trainer/storage/)",
       "Bash(ruff check:*)",
-      "Bash(.venv/bin/python:*)"
+      "Bash(.venv/bin/python:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []

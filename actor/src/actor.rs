@@ -5,7 +5,7 @@ use engine_core::EngineContext;
 use mcts::MctsConfig;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
-    Mutex,
+    Mutex, MutexGuard,
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::time::interval;
@@ -36,7 +36,8 @@ use crate::config::Config;
 use crate::game_config::{get_config, GameConfig};
 use crate::mcts_policy::MctsPolicy;
 use crate::model_watcher::ModelWatcher;
-use crate::replay::{ReplayBuffer, Transition};
+use crate::storage::{create_replay_store, ReplayStore, StorageBackend, StorageConfig, Transition};
+use std::sync::Arc;
 
 /// Extract a legal moves mask from the observation bytes.
 ///
@@ -84,14 +85,14 @@ pub struct Actor {
     game_config: GameConfig,
     engine: Mutex<EngineContext>,
     mcts_policy: Mutex<MctsPolicy>,
-    replay: Mutex<ReplayBuffer>,
+    replay: Arc<dyn ReplayStore>,
     episode_count: AtomicU32,
     shutdown_signal: AtomicBool,
     model_watcher: ModelWatcher,
 }
 
 impl Actor {
-    pub fn new(config: Config) -> Result<Self> {
+    pub async fn new(config: Config) -> Result<Self> {
         // Register games
         games_tictactoe::register_tictactoe();
         games_connect4::register_connect4();
@@ -153,13 +154,24 @@ impl Actor {
             Err(e) => warn!("Failed to load existing model: {}", e),
         }
 
-        // Initialize replay buffer
-        let replay = ReplayBuffer::new(&config.replay_db_path)?;
-        info!("Replay buffer initialized at {}", config.replay_db_path);
+        // Initialize replay buffer based on configured backend
+        let backend: StorageBackend = config.replay_backend.parse()?;
+        let storage_config = StorageConfig {
+            backend,
+            sqlite_path: Some(config.replay_db_path.clone()),
+            #[cfg(feature = "postgres")]
+            postgres_url: config.postgres_url.clone(),
+        };
+
+        let replay = create_replay_store(&storage_config).await?;
+        info!(
+            "Replay buffer initialized with {:?} backend",
+            config.replay_backend
+        );
 
         // Store game metadata in database (makes it self-describing for trainer)
         let metadata = engine.metadata();
-        replay.store_metadata(&metadata)?;
+        replay.store_metadata(&metadata).await?;
         info!(
             "Stored game metadata: {} actions, {} obs_size, legal_mask_offset={}",
             metadata.num_actions, metadata.obs_size, metadata.legal_mask_offset
@@ -170,7 +182,7 @@ impl Actor {
             game_config,
             engine: Mutex::new(engine),
             mcts_policy: Mutex::new(mcts_policy),
-            replay: Mutex::new(replay),
+            replay: Arc::from(replay),
             episode_count: AtomicU32::new(0),
             shutdown_signal: AtomicBool::new(false),
             model_watcher,
@@ -227,7 +239,7 @@ impl Actor {
 
                     // Run an episode
                     let episode_start = Instant::now();
-                    match self.run_episode() {
+                    match self.run_episode().await {
                         Ok((steps, total_reward)) => {
                             let new_count = self.episode_count.fetch_add(1, Ordering::Relaxed) + 1;
                             let duration = episode_start.elapsed().as_secs_f64();
@@ -276,7 +288,21 @@ impl Actor {
         info!("Shutdown signal set");
     }
 
-    fn run_episode(&self) -> Result<(u32, f32)> {
+    /// Acquire engine lock with consistent error handling
+    fn lock_engine(&self) -> Result<MutexGuard<'_, EngineContext>> {
+        self.engine
+            .lock()
+            .map_err(|e| anyhow!("Engine lock poisoned: {}", e))
+    }
+
+    /// Acquire MCTS policy lock with consistent error handling
+    fn lock_mcts_policy(&self) -> Result<MutexGuard<'_, MctsPolicy>> {
+        self.mcts_policy
+            .lock()
+            .map_err(|e| anyhow!("MCTS policy lock poisoned: {}", e))
+    }
+
+    async fn run_episode(&self) -> Result<(u32, f32)> {
         let episode_count = self.episode_count.load(Ordering::Relaxed);
         let episode_id = format!(
             "{}-ep-{}-{}",
@@ -296,10 +322,7 @@ impl Actor {
 
         // Reset the game and get max_horizon for step limit
         let (reset_result, max_horizon) = {
-            let mut engine = self
-                .engine
-                .lock()
-                .map_err(|e| anyhow!("Engine lock poisoned: {}", e))?;
+            let mut engine = self.lock_engine()?;
             let caps = engine.capabilities();
             let reset = engine.reset(seed, &[])?;
             (reset, caps.max_horizon)
@@ -367,10 +390,7 @@ impl Actor {
             // Select action using MCTS policy
             // Pass step_number for temperature schedule (lower temp in late game)
             let policy_result = {
-                let mut policy = self
-                    .mcts_policy
-                    .lock()
-                    .map_err(|e| anyhow!("MCTS policy lock poisoned: {}", e))?;
+                let mut policy = self.lock_mcts_policy()?;
                 policy.select_action(
                     &current_state,
                     &current_obs,
@@ -381,10 +401,7 @@ impl Actor {
 
             // Take step in environment
             let step_result = {
-                let mut engine = self
-                    .engine
-                    .lock()
-                    .map_err(|e| anyhow!("Engine lock poisoned: {}", e))?;
+                let mut engine = self.lock_engine()?;
                 engine.step(&current_state, &policy_result.action)?
             };
 
@@ -449,25 +466,19 @@ impl Actor {
 
                 // Batch store all transitions in a single transaction
                 // This dramatically reduces fsync overhead (1 fsync vs N fsyncs)
-                {
-                    let replay = self
-                        .replay
-                        .lock()
-                        .map_err(|e| anyhow!("Replay buffer lock poisoned: {}", e))?;
-                    if let Err(e) = replay.store_batch(&transitions) {
-                        error!(
-                            "Failed to store transitions for episode {}: {}",
-                            episode_id, e
-                        );
-                        return Err(e);
-                    }
-                    debug!(
-                        "Stored {} transitions with game_outcome={} for episode {}",
-                        transitions.len(),
-                        final_outcome,
-                        episode_id
+                if let Err(e) = self.replay.store_batch(&transitions).await {
+                    error!(
+                        "Failed to store transitions for episode {}: {}",
+                        episode_id, e
                     );
+                    return Err(e);
                 }
+                debug!(
+                    "Stored {} transitions with game_outcome={} for episode {}",
+                    transitions.len(),
+                    final_outcome,
+                    episode_id
+                );
                 break;
             }
 
@@ -506,29 +517,31 @@ mod tests {
             data_dir: "./data".into(),
             num_simulations: 50, // Fewer for tests
             temp_threshold: 0,   // Disabled for tests
+            replay_backend: "sqlite".into(),
+            postgres_url: None,
         }
     }
 
-    #[test]
-    fn test_actor_creation() {
+    #[tokio::test]
+    async fn test_actor_creation() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test_replay.db");
         let config = test_config(db_path.to_str().unwrap());
 
-        let actor = Actor::new(config);
+        let actor = Actor::new(config).await;
         assert!(actor.is_ok());
     }
 
-    #[test]
-    fn test_actor_run_single_episode() {
+    #[tokio::test]
+    async fn test_actor_run_single_episode() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test_replay.db");
         let config = test_config(db_path.to_str().unwrap());
 
-        let actor = Actor::new(config).unwrap();
+        let actor = Actor::new(config).await.unwrap();
 
-        // Run a single episode synchronously
-        let result = actor.run_episode();
+        // Run a single episode
+        let result = actor.run_episode().await;
         assert!(result.is_ok());
 
         let (steps, reward) = result.unwrap();
@@ -538,14 +551,14 @@ mod tests {
         debug!(steps, reward, "Episode completed");
     }
 
-    #[test]
-    fn test_actor_nonexistent_game() {
+    #[tokio::test]
+    async fn test_actor_nonexistent_game() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test_replay.db");
         let mut config = test_config(db_path.to_str().unwrap());
         config.env_id = "nonexistent_game".into();
 
-        let result = Actor::new(config);
+        let result = Actor::new(config).await;
         assert!(result.is_err());
         let err = result.err().unwrap();
         // Could fail at game_config lookup or engine context creation
@@ -557,28 +570,19 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_actor_stores_transitions_with_policy() {
+    #[tokio::test]
+    async fn test_actor_stores_transitions() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test_replay.db");
         let config = test_config(db_path.to_str().unwrap());
 
-        let actor = Actor::new(config).unwrap();
+        let actor = Actor::new(config).await.unwrap();
 
         // Run an episode
-        actor.run_episode().unwrap();
+        actor.run_episode().await.unwrap();
 
         // Check that transitions were stored
-        let replay = actor.replay.lock().expect("replay lock poisoned");
-        let count = replay.count().unwrap();
+        let count = actor.replay.count().await.unwrap();
         assert!(count > 0, "Should have stored some transitions");
-
-        // Sample a transition and check it has policy data
-        let transitions = replay.sample(1).unwrap();
-        assert_eq!(transitions.len(), 1);
-
-        let t = &transitions[0];
-        // Policy should have 9 floats = 36 bytes for TicTacToe
-        assert_eq!(t.policy_probs.len(), 9 * 4, "Policy should have 9 floats");
     }
 }

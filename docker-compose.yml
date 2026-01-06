@@ -49,6 +49,8 @@ services:
       context: .
       dockerfile: Dockerfile.alphazero
     container_name: cartridge-alphazero
+    profiles:
+      - local
     volumes:
       - ./data:/app/data
       - ./config.toml:/app/config.toml:ro
@@ -136,6 +138,8 @@ services:
       context: .
       dockerfile: web/Dockerfile
     container_name: cartridge-web
+    profiles:
+      - local
     restart: unless-stopped
     volumes:
       - ./data:/app/data
@@ -155,6 +159,8 @@ services:
       context: web/frontend
       dockerfile: Dockerfile
     container_name: cartridge-frontend
+    profiles:
+      - local
     restart: unless-stopped
     ports:
       - "80:80"

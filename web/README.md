@@ -72,10 +72,12 @@ The frontend builds to `frontend/dist/` which can be served by the Rust backend.
 ### Run tests
 
 ```bash
-cargo test
+cargo test  # 22 tests
 ```
 
 ## Configuration
+
+The web server uses `config.toml` from the project root for centralized configuration via `central_config.rs`.
 
 Environment variables:
 

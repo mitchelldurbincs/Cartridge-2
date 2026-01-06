@@ -499,83 +499,41 @@ struct EvalStats {
     timestamp: f64,
 }
 
-/// Stats format written by Python trainer
-#[derive(Deserialize, Default)]
-struct TrainerStats {
-    #[serde(default)]
-    step: u32,
-    #[serde(default)]
-    total_steps: u32,
-    #[serde(default)]
-    total_loss: f64,
-    #[serde(default)]
-    policy_loss: f64,
-    #[serde(default)]
-    value_loss: f64,
-    #[serde(default)]
-    replay_buffer_size: u64,
-    #[serde(default)]
-    learning_rate: f64,
-    #[serde(default)]
-    timestamp: f64,
-    #[serde(default)]
-    env_id: String,
-    #[serde(default)]
-    last_eval: Option<EvalStats>,
-    #[serde(default)]
-    eval_history: Vec<EvalStats>,
-    #[serde(default)]
-    history: Vec<HistoryEntry>,
-}
-
-/// Stats format sent to frontend
-#[derive(Serialize, Default)]
+/// Training stats read from Python trainer and sent to frontend
+#[derive(Serialize, Deserialize, Default)]
 struct TrainingStats {
-    epoch: u32,
+    #[serde(default)]
     step: u32,
+    #[serde(default)]
     total_steps: u32,
-    loss: f64,
+    #[serde(default)]
     total_loss: f64,
+    #[serde(default)]
     policy_loss: f64,
+    #[serde(default)]
     value_loss: f64,
-    games_played: u64,
+    #[serde(default)]
     replay_buffer_size: u64,
+    #[serde(default)]
     learning_rate: f64,
+    #[serde(default)]
     timestamp: f64,
+    #[serde(default)]
     env_id: String,
+    #[serde(default)]
     last_eval: Option<EvalStats>,
+    #[serde(default)]
     eval_history: Vec<EvalStats>,
+    #[serde(default)]
     history: Vec<HistoryEntry>,
-}
-
-impl From<TrainerStats> for TrainingStats {
-    fn from(t: TrainerStats) -> Self {
-        Self {
-            epoch: t.step,
-            step: t.step,
-            total_steps: t.total_steps,
-            loss: t.total_loss,
-            total_loss: t.total_loss,
-            policy_loss: t.policy_loss,
-            value_loss: t.value_loss,
-            games_played: t.replay_buffer_size,
-            replay_buffer_size: t.replay_buffer_size,
-            learning_rate: t.learning_rate,
-            timestamp: t.timestamp,
-            env_id: t.env_id,
-            last_eval: t.last_eval,
-            eval_history: t.eval_history,
-            history: t.history,
-        }
-    }
 }
 
 async fn get_stats(State(state): State<Arc<AppState>>) -> Json<TrainingStats> {
     let stats_path = format!("{}/stats.json", state.data_dir);
 
     match tokio::fs::read_to_string(&stats_path).await {
-        Ok(content) => match serde_json::from_str::<TrainerStats>(&content) {
-            Ok(trainer_stats) => Json(trainer_stats.into()),
+        Ok(content) => match serde_json::from_str::<TrainingStats>(&content) {
+            Ok(stats) => Json(stats),
             Err(e) => {
                 tracing::warn!("Failed to parse stats.json: {}", e);
                 Json(TrainingStats::default())

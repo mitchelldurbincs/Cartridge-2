@@ -734,9 +734,9 @@ class Orchestrator:
         """
         iter_start = time.time()
         num_simulations = self.config.get_num_simulations(iteration)
-        logger.info(f"\n{'='*60}")
+        logger.info("=" * 60)
         logger.info(f"ITERATION {iteration} | MCTS simulations: {num_simulations}")
-        logger.info(f"{'='*60}")
+        logger.info("=" * 60)
 
         # Step 1: Clear replay buffer
         logger.info("Step 1: Clearing replay buffer...")

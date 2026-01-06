@@ -15,9 +15,6 @@
 //! store.store_batch(&transitions).await?;
 //! ```
 
-// Allow dead code until actor is migrated to use this module
-#![allow(dead_code)]
-
 mod sqlite;
 
 #[cfg(feature = "postgres")]
@@ -56,34 +53,6 @@ pub struct Transition {
     pub game_outcome: Option<f32>,
 }
 
-/// Stored game metadata for self-describing replay databases
-#[derive(Debug, Clone)]
-pub struct StoredGameMetadata {
-    pub env_id: String,
-    pub display_name: String,
-    pub board_width: usize,
-    pub board_height: usize,
-    pub num_actions: usize,
-    pub obs_size: usize,
-    pub legal_mask_offset: usize,
-    pub player_count: usize,
-}
-
-impl From<&GameMetadata> for StoredGameMetadata {
-    fn from(meta: &GameMetadata) -> Self {
-        Self {
-            env_id: meta.env_id.clone(),
-            display_name: meta.display_name.clone(),
-            board_width: meta.board_width,
-            board_height: meta.board_height,
-            num_actions: meta.num_actions,
-            obs_size: meta.obs_size,
-            legal_mask_offset: meta.legal_mask_offset,
-            player_count: meta.player_count,
-        }
-    }
-}
-
 /// Abstract interface for replay buffer storage.
 ///
 /// Implementations must be thread-safe and support concurrent writes
@@ -102,14 +71,8 @@ pub trait ReplayStore: Send + Sync {
     /// Store or update game metadata (upsert)
     async fn store_metadata(&self, metadata: &GameMetadata) -> Result<()>;
 
-    /// Get metadata for a specific game
-    async fn get_metadata(&self, env_id: &str) -> Result<Option<StoredGameMetadata>>;
-
     /// Clear all transitions (preserves metadata)
     async fn clear(&self) -> Result<()>;
-
-    /// Close the connection and release resources
-    async fn close(&self) -> Result<()>;
 }
 
 /// Storage backend type

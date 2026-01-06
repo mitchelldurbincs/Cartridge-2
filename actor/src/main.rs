@@ -18,7 +18,6 @@ mod config;
 mod game_config;
 mod mcts_policy;
 mod model_watcher;
-mod replay;
 mod storage;
 
 use crate::actor::Actor;
@@ -39,8 +38,8 @@ fn init_tracing(level: &str) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Parse configuration
-    let config = Config::parse();
+    // Parse configuration and apply defaults from central config
+    let config = Config::parse().with_defaults();
 
     // Validate configuration
     config.validate()?;
@@ -66,7 +65,7 @@ async fn main() -> Result<()> {
     );
 
     // Create actor instance
-    let actor = Actor::new(config)?;
+    let actor = Actor::new(config).await?;
     let actor = Arc::new(actor);
 
     // Setup graceful shutdown

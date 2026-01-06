@@ -21,7 +21,6 @@ import numpy as np
 import torch
 import torch.nn.utils as nn_utils
 import torch.optim as optim
-from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from .backoff import LOG_EVERY_N_WAITS, WaitTimeout, wait_with_backoff
 from .checkpoint import (
@@ -34,6 +33,7 @@ from .checkpoint import (
 from .config import TrainerConfig
 from .evaluator import OnnxPolicy, RandomPolicy, evaluate
 from .game_config import GameConfig, get_config
+from .lr_scheduler import LRConfig, WarmupCosineScheduler
 from .network import AlphaZeroLoss, create_network
 from .replay import ReplayBuffer
 from .stats import EvalStats, TrainerStats, load_stats, write_stats
@@ -62,20 +62,10 @@ class Trainer:
         self.network = create_network(config.env_id)
         self.network.to(self.device)
 
-        # LR warmup configuration
-        self.warmup_steps = config.lr_warmup_steps
-        self.warmup_start_lr = config.learning_rate * config.lr_warmup_start_ratio
-        self.target_lr = config.learning_rate
-
-        # Initialize optimizer with TARGET LR (not warmup LR!)
-        # This is critical because CosineAnnealingLR stores base_lrs from the
-        # optimizer's current LR. If we init with warmup_start_lr, the scheduler
-        # would anneal from warmup_start_lr to eta_min (both tiny), causing
-        # LR to snap back down after warmup completes.
-        # Instead, we init with target_lr and manually override during warmup.
+        # Initialize optimizer
         self.optimizer = optim.Adam(
             self.network.parameters(),
-            lr=config.learning_rate,  # Always use target LR for correct base_lrs
+            lr=config.learning_rate,
             weight_decay=config.weight_decay,
         )
 
@@ -94,85 +84,32 @@ class Trainer:
             self._loaded_step = loaded_step
             self._checkpoint_loaded = True
             logger.info(f"Resuming training from checkpoint (step {loaded_step})")
-            # Disable warmup for resumed training to avoid loss spikes
-            # Warmup is only needed when training from scratch
-            if self.warmup_steps > 0:
-                logger.info(
-                    "Disabling LR warmup for resumed training (checkpoint loaded)"
-                )
-                self.warmup_steps = 0
-                # Set LR to target (skip warmup)
-                for param_group in self.optimizer.param_groups:
-                    param_group["lr"] = self.target_lr
 
-        # Initialize LR scheduler (cosine annealing with optional warmup)
-        self.scheduler = None
+        # Initialize LR scheduler (warmup + cosine annealing)
+        # Use lr_total_steps for continuous decay across iterations if set
+        lr_horizon = (
+            config.lr_total_steps if config.lr_total_steps > 0 else config.total_steps
+        )
+        lr_config = LRConfig(
+            target_lr=config.learning_rate,
+            warmup_steps=config.lr_warmup_steps,
+            warmup_start_ratio=config.lr_warmup_start_ratio,
+            min_ratio=config.lr_min_ratio,
+            total_steps=lr_horizon,
+            enabled=config.use_lr_scheduler,
+        )
+        self.lr_scheduler = WarmupCosineScheduler(
+            self.optimizer,
+            lr_config,
+            from_checkpoint=self._checkpoint_loaded,
+        )
 
-        if config.use_lr_scheduler:
-            # Use lr_total_steps if set for continuous decay across iterations,
-            # otherwise fall back to total_steps for single-iteration behavior.
-            # This enables proper AlphaZero-style continuous LR decay.
-            lr_horizon = (
-                config.lr_total_steps
-                if config.lr_total_steps > 0
-                else config.total_steps
-            )
-            # T_max excludes warmup steps
-            # IMPORTANT: Use config.lr_warmup_steps (original config value), not
-            # self.warmup_steps (which may be set to 0 when loading checkpoint).
-            effective_steps = max(1, lr_horizon - config.lr_warmup_steps)
-            self.scheduler = CosineAnnealingLR(
-                self.optimizer,
-                T_max=effective_steps,
-                eta_min=config.learning_rate * config.lr_min_ratio,
-            )
-
-            # Always restore scheduler state for continuous decay across iterations.
-            # This prevents LR from resetting at the start of each iteration.
-            if self._loaded_scheduler_state is not None:
-                try:
-                    saved_last_epoch = self._loaded_scheduler_state.get("last_epoch", 0)
-                    saved_t_max = self._loaded_scheduler_state.get(
-                        "T_max", effective_steps
-                    )
-
-                    # Only restore if scheduler hasn't completed its full cycle
-                    if saved_last_epoch < saved_t_max:
-                        self.scheduler.load_state_dict(self._loaded_scheduler_state)
-
-                        # CRITICAL: Reset base_lrs to target_lr, not the saved warmup_start_lr
-                        # The saved base_lrs was captured when scheduler was created during
-                        # warmup (optimizer.lr = warmup_start_lr), but we want cosine annealing
-                        # to use target_lr as the maximum.
-                        self.scheduler.base_lrs = [self.target_lr]
-
-                        lr = self.optimizer.param_groups[0]["lr"]
-                        logger.info(
-                            f"Restored LR scheduler state (last_epoch={saved_last_epoch}, "
-                            f"T_max={saved_t_max}, LR={lr:.2e})"
-                        )
-                    else:
-                        # Scheduler completed full cycle, LR stays at minimum
-                        min_lr = config.learning_rate * config.lr_min_ratio
-                        for param_group in self.optimizer.param_groups:
-                            param_group["lr"] = min_lr
-                        logger.info(
-                            f"LR schedule complete (last_epoch={saved_last_epoch} >= "
-                            f"T_max={saved_t_max}), using min LR={min_lr:.2e}"
-                        )
-                except Exception as e:
-                    logger.warning(f"Failed to restore scheduler state: {e}")
-
-        # Set initial LR to warmup_start_lr for step 1 if warmup enabled and not resuming.
-        # This ensures step 1 starts at warmup LR, while scheduler.base_lrs remains at
-        # target_lr for correct cosine annealing after warmup.
-        if self.warmup_steps > 0 and not self._checkpoint_loaded:
-            for param_group in self.optimizer.param_groups:
-                param_group["lr"] = self.warmup_start_lr
-            logger.info(
-                f"LR warmup enabled: {self.warmup_steps} steps, "
-                f"LR {self.warmup_start_lr:.2e} → {self.target_lr:.2e}"
-            )
+        # Restore scheduler state from checkpoint if available
+        if self._loaded_scheduler_state is not None:
+            try:
+                self.lr_scheduler.load_state_dict(self._loaded_scheduler_state)
+            except Exception as e:
+                logger.warning(f"Failed to restore scheduler state: {e}")
 
         # Initialize loss function
         self.loss_fn = AlphaZeroLoss(

@@ -8,6 +8,40 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use tracing::{debug, info, warn};
 
+// Default constants (much cleaner than 26 separate functions)
+mod defaults {
+    pub const DATA_DIR: &str = "./data";
+    pub const ENV_ID: &str = "tictactoe";
+    pub const LOG_LEVEL: &str = "info";
+    pub const ITERATIONS: i32 = 100;
+    pub const START_ITERATION: i32 = 1;
+    pub const EPISODES_PER_ITERATION: i32 = 500;
+    pub const STEPS_PER_ITERATION: i32 = 1000;
+    pub const BATCH_SIZE: i32 = 64;
+    pub const LEARNING_RATE: f64 = 0.001;
+    pub const WEIGHT_DECAY: f64 = 0.0001;
+    pub const GRAD_CLIP_NORM: f64 = 1.0;
+    pub const DEVICE: &str = "cpu";
+    pub const CHECKPOINT_INTERVAL: i32 = 100;
+    pub const MAX_CHECKPOINTS: i32 = 10;
+    pub const EVAL_INTERVAL: i32 = 1;
+    pub const EVAL_GAMES: i32 = 50;
+    pub const ACTOR_ID: &str = "actor-1";
+    pub const MAX_EPISODES: i32 = -1;
+    pub const EPISODE_TIMEOUT_SECS: u64 = 30;
+    pub const FLUSH_INTERVAL_SECS: u64 = 5;
+    pub const LOG_INTERVAL: u32 = 50;
+    pub const HOST: &str = "0.0.0.0";
+    pub const PORT: u16 = 8080;
+    pub const NUM_SIMULATIONS: u32 = 800;
+    pub const C_PUCT: f64 = 1.4;
+    pub const TEMPERATURE: f64 = 1.0;
+    pub const DIRICHLET_ALPHA: f64 = 0.3;
+    pub const DIRICHLET_WEIGHT: f64 = 0.25;
+    pub const REPLAY_BACKEND: &str = "sqlite";
+    pub const MODEL_BACKEND: &str = "filesystem";
+}
+
 /// Root configuration structure matching config.toml
 #[derive(Debug, Deserialize, Default)]
 pub struct CentralConfig {
@@ -27,172 +61,207 @@ pub struct CentralConfig {
     pub storage: StorageConfig,
 }
 
+// Serde default functions (required for #[serde(default = "...")])
+// These are thin wrappers around constants
+fn d_data_dir() -> String { defaults::DATA_DIR.into() }
+fn d_env_id() -> String { defaults::ENV_ID.into() }
+fn d_log_level() -> String { defaults::LOG_LEVEL.into() }
+fn d_iterations() -> i32 { defaults::ITERATIONS }
+fn d_start_iteration() -> i32 { defaults::START_ITERATION }
+fn d_episodes() -> i32 { defaults::EPISODES_PER_ITERATION }
+fn d_steps() -> i32 { defaults::STEPS_PER_ITERATION }
+fn d_batch_size() -> i32 { defaults::BATCH_SIZE }
+fn d_lr() -> f64 { defaults::LEARNING_RATE }
+fn d_weight_decay() -> f64 { defaults::WEIGHT_DECAY }
+fn d_grad_clip() -> f64 { defaults::GRAD_CLIP_NORM }
+fn d_device() -> String { defaults::DEVICE.into() }
+fn d_ckpt_interval() -> i32 { defaults::CHECKPOINT_INTERVAL }
+fn d_max_ckpts() -> i32 { defaults::MAX_CHECKPOINTS }
+fn d_eval_interval() -> i32 { defaults::EVAL_INTERVAL }
+fn d_eval_games() -> i32 { defaults::EVAL_GAMES }
+fn d_actor_id() -> String { defaults::ACTOR_ID.into() }
+fn d_max_episodes() -> i32 { defaults::MAX_EPISODES }
+fn d_episode_timeout() -> u64 { defaults::EPISODE_TIMEOUT_SECS }
+fn d_flush_interval() -> u64 { defaults::FLUSH_INTERVAL_SECS }
+fn d_log_interval() -> u32 { defaults::LOG_INTERVAL }
+fn d_host() -> String { defaults::HOST.into() }
+fn d_port() -> u16 { defaults::PORT }
+fn d_num_sims() -> u32 { defaults::NUM_SIMULATIONS }
+fn d_c_puct() -> f64 { defaults::C_PUCT }
+fn d_temperature() -> f64 { defaults::TEMPERATURE }
+fn d_dirichlet_alpha() -> f64 { defaults::DIRICHLET_ALPHA }
+fn d_dirichlet_weight() -> f64 { defaults::DIRICHLET_WEIGHT }
+fn d_replay_backend() -> String { defaults::REPLAY_BACKEND.into() }
+fn d_model_backend() -> String { defaults::MODEL_BACKEND.into() }
+
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct CommonConfig {
-    #[serde(default = "default_data_dir")]
+    #[serde(default = "d_data_dir")]
     pub data_dir: String,
-    #[serde(default = "default_env_id")]
+    #[serde(default = "d_env_id")]
     pub env_id: String,
-    #[serde(default = "default_log_level")]
+    #[serde(default = "d_log_level")]
     pub log_level: String,
 }
 
 impl Default for CommonConfig {
     fn default() -> Self {
         Self {
-            data_dir: default_data_dir(),
-            env_id: default_env_id(),
-            log_level: default_log_level(),
+            data_dir: defaults::DATA_DIR.into(),
+            env_id: defaults::ENV_ID.into(),
+            log_level: defaults::LOG_LEVEL.into(),
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct TrainingConfig {
-    #[serde(default = "default_iterations")]
+    #[serde(default = "d_iterations")]
     pub iterations: i32,
-    #[serde(default = "default_one")]
+    #[serde(default = "d_start_iteration")]
     pub start_iteration: i32,
-    #[serde(default = "default_episodes")]
+    #[serde(default = "d_episodes")]
     pub episodes_per_iteration: i32,
-    #[serde(default = "default_steps")]
+    #[serde(default = "d_steps")]
     pub steps_per_iteration: i32,
-    #[serde(default = "default_batch_size")]
+    #[serde(default = "d_batch_size")]
     pub batch_size: i32,
-    #[serde(default = "default_lr")]
+    #[serde(default = "d_lr")]
     pub learning_rate: f64,
-    #[serde(default = "default_weight_decay")]
+    #[serde(default = "d_weight_decay")]
     pub weight_decay: f64,
-    #[serde(default = "default_grad_clip_norm")]
+    #[serde(default = "d_grad_clip")]
     pub grad_clip_norm: f64,
-    #[serde(default = "default_device")]
+    #[serde(default = "d_device")]
     pub device: String,
-    #[serde(default = "default_checkpoint_interval")]
+    #[serde(default = "d_ckpt_interval")]
     pub checkpoint_interval: i32,
-    #[serde(default = "default_max_checkpoints")]
+    #[serde(default = "d_max_ckpts")]
     pub max_checkpoints: i32,
 }
 
 impl Default for TrainingConfig {
     fn default() -> Self {
         Self {
-            iterations: default_iterations(),
-            start_iteration: default_one(),
-            episodes_per_iteration: default_episodes(),
-            steps_per_iteration: default_steps(),
-            batch_size: default_batch_size(),
-            learning_rate: default_lr(),
-            weight_decay: default_weight_decay(),
-            grad_clip_norm: default_grad_clip_norm(),
-            device: default_device(),
-            checkpoint_interval: default_checkpoint_interval(),
-            max_checkpoints: default_max_checkpoints(),
+            iterations: defaults::ITERATIONS,
+            start_iteration: defaults::START_ITERATION,
+            episodes_per_iteration: defaults::EPISODES_PER_ITERATION,
+            steps_per_iteration: defaults::STEPS_PER_ITERATION,
+            batch_size: defaults::BATCH_SIZE,
+            learning_rate: defaults::LEARNING_RATE,
+            weight_decay: defaults::WEIGHT_DECAY,
+            grad_clip_norm: defaults::GRAD_CLIP_NORM,
+            device: defaults::DEVICE.into(),
+            checkpoint_interval: defaults::CHECKPOINT_INTERVAL,
+            max_checkpoints: defaults::MAX_CHECKPOINTS,
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct EvaluationConfig {
-    #[serde(default = "default_one")]
+    #[serde(default = "d_eval_interval")]
     pub interval: i32,
-    #[serde(default = "default_eval_games")]
+    #[serde(default = "d_eval_games")]
     pub games: i32,
 }
 
 impl Default for EvaluationConfig {
     fn default() -> Self {
         Self {
-            interval: default_one(),
-            games: default_eval_games(),
+            interval: defaults::EVAL_INTERVAL,
+            games: defaults::EVAL_GAMES,
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct ActorConfig {
-    #[serde(default = "default_actor_id")]
+    #[serde(default = "d_actor_id")]
     pub actor_id: String,
-    #[serde(default = "default_max_episodes")]
+    #[serde(default = "d_max_episodes")]
     pub max_episodes: i32,
-    #[serde(default = "default_episode_timeout")]
+    #[serde(default = "d_episode_timeout")]
     pub episode_timeout_secs: u64,
-    #[serde(default = "default_flush_interval")]
+    #[serde(default = "d_flush_interval")]
     pub flush_interval_secs: u64,
-    #[serde(default = "default_log_interval")]
+    #[serde(default = "d_log_interval")]
     pub log_interval: u32,
 }
 
 impl Default for ActorConfig {
     fn default() -> Self {
         Self {
-            actor_id: default_actor_id(),
-            max_episodes: default_max_episodes(),
-            episode_timeout_secs: default_episode_timeout(),
-            flush_interval_secs: default_flush_interval(),
-            log_interval: default_log_interval(),
+            actor_id: defaults::ACTOR_ID.into(),
+            max_episodes: defaults::MAX_EPISODES,
+            episode_timeout_secs: defaults::EPISODE_TIMEOUT_SECS,
+            flush_interval_secs: defaults::FLUSH_INTERVAL_SECS,
+            log_interval: defaults::LOG_INTERVAL,
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct WebConfig {
-    #[serde(default = "default_host")]
+    #[serde(default = "d_host")]
     pub host: String,
-    #[serde(default = "default_port")]
+    #[serde(default = "d_port")]
     pub port: u16,
 }
 
 impl Default for WebConfig {
     fn default() -> Self {
         Self {
-            host: default_host(),
-            port: default_port(),
+            host: defaults::HOST.into(),
+            port: defaults::PORT,
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct MctsConfig {
-    #[serde(default = "default_num_simulations")]
+    #[serde(default = "d_num_sims")]
     pub num_simulations: u32,
-    #[serde(default = "default_c_puct")]
+    #[serde(default = "d_c_puct")]
     pub c_puct: f64,
-    #[serde(default = "default_temperature")]
+    #[serde(default = "d_temperature")]
     pub temperature: f64,
-    #[serde(default = "default_dirichlet_alpha")]
+    #[serde(default = "d_dirichlet_alpha")]
     pub dirichlet_alpha: f64,
-    #[serde(default = "default_dirichlet_weight")]
+    #[serde(default = "d_dirichlet_weight")]
     pub dirichlet_weight: f64,
 }
 
 impl Default for MctsConfig {
     fn default() -> Self {
         Self {
-            num_simulations: default_num_simulations(),
-            c_puct: default_c_puct(),
-            temperature: default_temperature(),
-            dirichlet_alpha: default_dirichlet_alpha(),
-            dirichlet_weight: default_dirichlet_weight(),
+            num_simulations: defaults::NUM_SIMULATIONS,
+            c_puct: defaults::C_PUCT,
+            temperature: defaults::TEMPERATURE,
+            dirichlet_alpha: defaults::DIRICHLET_ALPHA,
+            dirichlet_weight: defaults::DIRICHLET_WEIGHT,
         }
     }
 }
 
 /// Storage backend configuration for K8s deployments
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct StorageConfig {
-    /// Replay buffer backend: "sqlite" (default) or "postgres"
-    #[serde(default = "default_replay_backend")]
+    #[serde(default = "d_replay_backend")]
     pub replay_backend: String,
-    /// Model storage backend: "filesystem" (default) or "s3"
-    #[serde(default = "default_model_backend")]
+    #[serde(default = "d_model_backend")]
     pub model_backend: String,
-    /// PostgreSQL connection URL (for postgres backend)
     #[serde(default)]
     pub postgres_url: Option<String>,
-    /// S3 bucket name (for s3 backend)
     #[serde(default)]
     pub s3_bucket: Option<String>,
-    /// S3-compatible endpoint URL (for MinIO, etc.)
     #[serde(default)]
     pub s3_endpoint: Option<String>,
 }
@@ -200,8 +269,8 @@ pub struct StorageConfig {
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
-            replay_backend: default_replay_backend(),
-            model_backend: default_model_backend(),
+            replay_backend: defaults::REPLAY_BACKEND.into(),
+            model_backend: defaults::MODEL_BACKEND.into(),
             postgres_url: None,
             s3_bucket: None,
             s3_endpoint: None,
@@ -209,121 +278,24 @@ impl Default for StorageConfig {
     }
 }
 
-// Default value functions
-fn default_data_dir() -> String {
-    "./data".to_string()
-}
-fn default_env_id() -> String {
-    "tictactoe".to_string()
-}
-fn default_log_level() -> String {
-    "info".to_string()
-}
-fn default_iterations() -> i32 {
-    100
-}
-fn default_one() -> i32 {
-    1
-}
-fn default_episodes() -> i32 {
-    500
-}
-fn default_steps() -> i32 {
-    1000
-}
-fn default_batch_size() -> i32 {
-    64
-}
-fn default_lr() -> f64 {
-    0.001
-}
-fn default_weight_decay() -> f64 {
-    0.0001
-}
-fn default_grad_clip_norm() -> f64 {
-    1.0
-}
-fn default_device() -> String {
-    "cpu".to_string()
-}
-fn default_checkpoint_interval() -> i32 {
-    100
-}
-fn default_max_checkpoints() -> i32 {
-    10
-}
-fn default_eval_games() -> i32 {
-    50
-}
-fn default_actor_id() -> String {
-    "actor-1".to_string()
-}
-fn default_max_episodes() -> i32 {
-    -1
-}
-fn default_episode_timeout() -> u64 {
-    30
-}
-fn default_flush_interval() -> u64 {
-    5
-}
-fn default_log_interval() -> u32 {
-    50
-}
-fn default_host() -> String {
-    "0.0.0.0".to_string()
-}
-fn default_port() -> u16 {
-    8080
-}
-fn default_num_simulations() -> u32 {
-    800
-}
-fn default_c_puct() -> f64 {
-    1.4
-}
-fn default_temperature() -> f64 {
-    1.0
-}
-fn default_dirichlet_alpha() -> f64 {
-    0.3
-}
-fn default_dirichlet_weight() -> f64 {
-    0.25
-}
-fn default_replay_backend() -> String {
-    "sqlite".to_string()
-}
-fn default_model_backend() -> String {
-    "filesystem".to_string()
-}
-
 /// Standard locations to search for config.toml
 const CONFIG_SEARCH_PATHS: &[&str] = &[
-    "config.toml",      // Current directory
-    "../config.toml",   // Parent directory (when running from actor/)
-    "/app/config.toml", // Docker container
+    "config.toml",
+    "../config.toml",
+    "/app/config.toml",
 ];
 
 /// Load the central configuration from config.toml.
-///
-/// Searches for config.toml in standard locations and falls back to defaults
-/// if not found. Environment variable CARTRIDGE_CONFIG can override the path.
 pub fn load_config() -> CentralConfig {
-    // Check for explicit config path
     if let Ok(path) = std::env::var("CARTRIDGE_CONFIG") {
         let path = PathBuf::from(&path);
         if path.exists() {
             info!("Loading config from CARTRIDGE_CONFIG: {}", path.display());
             return load_from_path(&path);
         }
-        warn!(
-            "CARTRIDGE_CONFIG={} not found, searching defaults",
-            path.display()
-        );
+        warn!("CARTRIDGE_CONFIG={} not found, searching defaults", path.display());
     }
 
-    // Search default locations
     for path_str in CONFIG_SEARCH_PATHS {
         let path = PathBuf::from(path_str);
         if path.exists() {
@@ -332,7 +304,6 @@ pub fn load_config() -> CentralConfig {
         }
     }
 
-    // Fall back to defaults
     debug!("No config.toml found, using built-in defaults");
     apply_env_overrides(CentralConfig::default())
 }
@@ -353,148 +324,75 @@ fn load_from_path(path: &PathBuf) -> CentralConfig {
     }
 }
 
-fn apply_env_overrides(mut config: CentralConfig) -> CentralConfig {
-    for (key, value) in std::env::vars() {
-        let Some(stripped) = key.strip_prefix("CARTRIDGE_") else {
-            continue;
-        };
-
-        let (section, field) = match stripped.split_once('_') {
-            Some(parts) => parts,
-            None => continue,
-        };
-
-        match (section, field) {
-            ("COMMON", "ENV_ID") => config.common.env_id = value,
-            ("COMMON", "DATA_DIR") => config.common.data_dir = value,
-            ("COMMON", "LOG_LEVEL") => config.common.log_level = value,
-
-            ("TRAINING", "ITERATIONS") => {
-                if let Ok(v) = value.parse() {
-                    config.training.iterations = v
-                }
-            }
-            ("TRAINING", "START_ITERATION") => {
-                if let Ok(v) = value.parse() {
-                    config.training.start_iteration = v
-                }
-            }
-            ("TRAINING", "EPISODES_PER_ITERATION") => {
-                if let Ok(v) = value.parse() {
-                    config.training.episodes_per_iteration = v
-                }
-            }
-            ("TRAINING", "STEPS_PER_ITERATION") => {
-                if let Ok(v) = value.parse() {
-                    config.training.steps_per_iteration = v
-                }
-            }
-            ("TRAINING", "BATCH_SIZE") => {
-                if let Ok(v) = value.parse() {
-                    config.training.batch_size = v
-                }
-            }
-            ("TRAINING", "LEARNING_RATE") => {
-                if let Ok(v) = value.parse() {
-                    config.training.learning_rate = v
-                }
-            }
-            ("TRAINING", "WEIGHT_DECAY") => {
-                if let Ok(v) = value.parse() {
-                    config.training.weight_decay = v
-                }
-            }
-            ("TRAINING", "GRAD_CLIP_NORM") => {
-                if let Ok(v) = value.parse() {
-                    config.training.grad_clip_norm = v
-                }
-            }
-            ("TRAINING", "DEVICE") => config.training.device = value,
-            ("TRAINING", "CHECKPOINT_INTERVAL") => {
-                if let Ok(v) = value.parse() {
-                    config.training.checkpoint_interval = v
-                }
-            }
-            ("TRAINING", "MAX_CHECKPOINTS") => {
-                if let Ok(v) = value.parse() {
-                    config.training.max_checkpoints = v
-                }
-            }
-
-            ("EVALUATION", "INTERVAL") => {
-                if let Ok(v) = value.parse() {
-                    config.evaluation.interval = v
-                }
-            }
-            ("EVALUATION", "GAMES") => {
-                if let Ok(v) = value.parse() {
-                    config.evaluation.games = v
-                }
-            }
-
-            ("ACTOR", "ACTOR_ID") => config.actor.actor_id = value,
-            ("ACTOR", "MAX_EPISODES") => {
-                if let Ok(v) = value.parse() {
-                    config.actor.max_episodes = v
-                }
-            }
-            ("ACTOR", "EPISODE_TIMEOUT_SECS") => {
-                if let Ok(v) = value.parse() {
-                    config.actor.episode_timeout_secs = v
-                }
-            }
-            ("ACTOR", "FLUSH_INTERVAL_SECS") => {
-                if let Ok(v) = value.parse() {
-                    config.actor.flush_interval_secs = v
-                }
-            }
-            ("ACTOR", "LOG_INTERVAL") => {
-                if let Ok(v) = value.parse() {
-                    config.actor.log_interval = v
-                }
-            }
-
-            ("WEB", "HOST") => config.web.host = value,
-            ("WEB", "PORT") => {
-                if let Ok(v) = value.parse() {
-                    config.web.port = v
-                }
-            }
-
-            ("MCTS", "NUM_SIMULATIONS") => {
-                if let Ok(v) = value.parse() {
-                    config.mcts.num_simulations = v
-                }
-            }
-            ("MCTS", "C_PUCT") => {
-                if let Ok(v) = value.parse() {
-                    config.mcts.c_puct = v
-                }
-            }
-            ("MCTS", "TEMPERATURE") => {
-                if let Ok(v) = value.parse() {
-                    config.mcts.temperature = v
-                }
-            }
-            ("MCTS", "DIRICHLET_ALPHA") => {
-                if let Ok(v) = value.parse() {
-                    config.mcts.dirichlet_alpha = v
-                }
-            }
-            ("MCTS", "DIRICHLET_WEIGHT") => {
-                if let Ok(v) = value.parse() {
-                    config.mcts.dirichlet_weight = v
-                }
-            }
-
-            ("STORAGE", "REPLAY_BACKEND") => config.storage.replay_backend = value,
-            ("STORAGE", "MODEL_BACKEND") => config.storage.model_backend = value,
-            ("STORAGE", "POSTGRES_URL") => config.storage.postgres_url = Some(value),
-            ("STORAGE", "S3_BUCKET") => config.storage.s3_bucket = Some(value),
-            ("STORAGE", "S3_ENDPOINT") => config.storage.s3_endpoint = Some(value),
-            _ => {}
+/// Macro to reduce env override boilerplate
+macro_rules! env_override {
+    // String field
+    ($config:expr, $section:ident . $field:ident, $key:expr) => {
+        if let Ok(v) = std::env::var($key) {
+            $config.$section.$field = v;
         }
-    }
+    };
+    // Parseable field (i32, u64, f64, etc.)
+    ($config:expr, $section:ident . $field:ident, $key:expr, parse) => {
+        if let Ok(v) = std::env::var($key).and_then(|s| s.parse().map_err(|_| std::env::VarError::NotPresent)) {
+            $config.$section.$field = v;
+        }
+    };
+    // Optional string field
+    ($config:expr, $section:ident . $field:ident, $key:expr, optional) => {
+        if let Ok(v) = std::env::var($key) {
+            $config.$section.$field = Some(v);
+        }
+    };
+}
+
+fn apply_env_overrides(mut config: CentralConfig) -> CentralConfig {
+    // Common
+    env_override!(config, common.env_id, "CARTRIDGE_COMMON_ENV_ID");
+    env_override!(config, common.data_dir, "CARTRIDGE_COMMON_DATA_DIR");
+    env_override!(config, common.log_level, "CARTRIDGE_COMMON_LOG_LEVEL");
+
+    // Training
+    env_override!(config, training.iterations, "CARTRIDGE_TRAINING_ITERATIONS", parse);
+    env_override!(config, training.start_iteration, "CARTRIDGE_TRAINING_START_ITERATION", parse);
+    env_override!(config, training.episodes_per_iteration, "CARTRIDGE_TRAINING_EPISODES_PER_ITERATION", parse);
+    env_override!(config, training.steps_per_iteration, "CARTRIDGE_TRAINING_STEPS_PER_ITERATION", parse);
+    env_override!(config, training.batch_size, "CARTRIDGE_TRAINING_BATCH_SIZE", parse);
+    env_override!(config, training.learning_rate, "CARTRIDGE_TRAINING_LEARNING_RATE", parse);
+    env_override!(config, training.weight_decay, "CARTRIDGE_TRAINING_WEIGHT_DECAY", parse);
+    env_override!(config, training.grad_clip_norm, "CARTRIDGE_TRAINING_GRAD_CLIP_NORM", parse);
+    env_override!(config, training.device, "CARTRIDGE_TRAINING_DEVICE");
+    env_override!(config, training.checkpoint_interval, "CARTRIDGE_TRAINING_CHECKPOINT_INTERVAL", parse);
+    env_override!(config, training.max_checkpoints, "CARTRIDGE_TRAINING_MAX_CHECKPOINTS", parse);
+
+    // Evaluation
+    env_override!(config, evaluation.interval, "CARTRIDGE_EVALUATION_INTERVAL", parse);
+    env_override!(config, evaluation.games, "CARTRIDGE_EVALUATION_GAMES", parse);
+
+    // Actor
+    env_override!(config, actor.actor_id, "CARTRIDGE_ACTOR_ACTOR_ID");
+    env_override!(config, actor.max_episodes, "CARTRIDGE_ACTOR_MAX_EPISODES", parse);
+    env_override!(config, actor.episode_timeout_secs, "CARTRIDGE_ACTOR_EPISODE_TIMEOUT_SECS", parse);
+    env_override!(config, actor.flush_interval_secs, "CARTRIDGE_ACTOR_FLUSH_INTERVAL_SECS", parse);
+    env_override!(config, actor.log_interval, "CARTRIDGE_ACTOR_LOG_INTERVAL", parse);
+
+    // Web
+    env_override!(config, web.host, "CARTRIDGE_WEB_HOST");
+    env_override!(config, web.port, "CARTRIDGE_WEB_PORT", parse);
+
+    // MCTS
+    env_override!(config, mcts.num_simulations, "CARTRIDGE_MCTS_NUM_SIMULATIONS", parse);
+    env_override!(config, mcts.c_puct, "CARTRIDGE_MCTS_C_PUCT", parse);
+    env_override!(config, mcts.temperature, "CARTRIDGE_MCTS_TEMPERATURE", parse);
+    env_override!(config, mcts.dirichlet_alpha, "CARTRIDGE_MCTS_DIRICHLET_ALPHA", parse);
+    env_override!(config, mcts.dirichlet_weight, "CARTRIDGE_MCTS_DIRICHLET_WEIGHT", parse);
+
+    // Storage
+    env_override!(config, storage.replay_backend, "CARTRIDGE_STORAGE_REPLAY_BACKEND");
+    env_override!(config, storage.model_backend, "CARTRIDGE_STORAGE_MODEL_BACKEND");
+    env_override!(config, storage.postgres_url, "CARTRIDGE_STORAGE_POSTGRES_URL", optional);
+    env_override!(config, storage.s3_bucket, "CARTRIDGE_STORAGE_S3_BUCKET", optional);
+    env_override!(config, storage.s3_endpoint, "CARTRIDGE_STORAGE_S3_ENDPOINT", optional);
 
     config
 }
@@ -514,7 +412,6 @@ mod tests {
 
     #[test]
     fn test_cartridge_env_overrides() {
-        // Ensure overrides are applied from environment variables
         std::env::set_var("CARTRIDGE_COMMON_ENV_ID", "connect4");
         std::env::set_var("CARTRIDGE_ACTOR_MAX_EPISODES", "7");
         std::env::set_var("CARTRIDGE_TRAINING_WEIGHT_DECAY", "0.5");
@@ -549,15 +446,14 @@ max_episodes = 100
 
     #[test]
     fn test_partial_config() {
-        // Test that partial config uses defaults for missing fields
         let toml_content = r#"
 [common]
 env_id = "connect4"
 "#;
         let config: CentralConfig = toml::from_str(toml_content).unwrap();
         assert_eq!(config.common.env_id, "connect4");
-        assert_eq!(config.common.data_dir, "./data"); // default
-        assert_eq!(config.actor.actor_id, "actor-1"); // default
+        assert_eq!(config.common.data_dir, "./data");
+        assert_eq!(config.actor.actor_id, "actor-1");
     }
 
     #[test]
@@ -583,33 +479,21 @@ s3_endpoint = "http://minio:9000"
         let config: CentralConfig = toml::from_str(toml_content).unwrap();
         assert_eq!(config.storage.replay_backend, "postgres");
         assert_eq!(config.storage.model_backend, "s3");
-        assert_eq!(
-            config.storage.postgres_url,
-            Some("postgresql://user:pass@localhost:5432/cartridge".to_string())
-        );
+        assert_eq!(config.storage.postgres_url, Some("postgresql://user:pass@localhost:5432/cartridge".to_string()));
         assert_eq!(config.storage.s3_bucket, Some("my-bucket".to_string()));
-        assert_eq!(
-            config.storage.s3_endpoint,
-            Some("http://minio:9000".to_string())
-        );
+        assert_eq!(config.storage.s3_endpoint, Some("http://minio:9000".to_string()));
     }
 
     #[test]
     fn test_storage_env_overrides() {
         std::env::set_var("CARTRIDGE_STORAGE_REPLAY_BACKEND", "postgres");
         std::env::set_var("CARTRIDGE_STORAGE_MODEL_BACKEND", "s3");
-        std::env::set_var(
-            "CARTRIDGE_STORAGE_POSTGRES_URL",
-            "postgresql://test@localhost/db",
-        );
+        std::env::set_var("CARTRIDGE_STORAGE_POSTGRES_URL", "postgresql://test@localhost/db");
 
         let config = load_config();
         assert_eq!(config.storage.replay_backend, "postgres");
         assert_eq!(config.storage.model_backend, "s3");
-        assert_eq!(
-            config.storage.postgres_url,
-            Some("postgresql://test@localhost/db".to_string())
-        );
+        assert_eq!(config.storage.postgres_url, Some("postgresql://test@localhost/db".to_string()));
 
         std::env::remove_var("CARTRIDGE_STORAGE_REPLAY_BACKEND");
         std::env::remove_var("CARTRIDGE_STORAGE_MODEL_BACKEND");
