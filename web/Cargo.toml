@@ -16,8 +16,7 @@ s3 = ["model-watcher/s3"]
 [dependencies]
 # Engine library
 engine-core = { path = "../engine/engine-core" }
-games-tictactoe = { path = "../engine/games-tictactoe" }
-games-connect4 = { path = "../engine/games-connect4" }
+engine-games = { path = "../engine/engine-games" }
 mcts = { path = "../engine/mcts" }
 model-watcher = { path = "../engine/model-watcher", features = ["metadata"] }
 
@@ -45,7 +44,6 @@ rand_chacha = "0.3"
 
 # Configuration
 toml = "0.8"
-once_cell = "1.18"
 
 [dev-dependencies]
 # Testing

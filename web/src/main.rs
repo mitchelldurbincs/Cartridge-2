@@ -30,7 +30,7 @@ mod handlers;
 mod model_watcher;
 mod types;
 
-use central_config::{get_data_dir, get_default_game, get_host, get_port};
+use central_config::load_config;
 use game::GameSession;
 use handlers::{
     get_game_info, get_game_state, get_model_info, get_stats, health, list_games, make_move,
@@ -94,8 +94,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 /// Create application state for testing (no model watcher, no logging)
 #[cfg(test)]
 pub fn create_test_state() -> Arc<AppState> {
-    games_tictactoe::register_tictactoe();
-    games_connect4::register_connect4();
+    engine_games::register_all_games();
     let evaluator: Arc<RwLock<Option<OnnxEvaluator>>> = Arc::new(RwLock::new(None));
     let model_info = Arc::new(RwLock::new(ModelInfo::default()));
     let session = GameSession::with_evaluator("tictactoe", Arc::clone(&evaluator))
@@ -120,14 +119,14 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    // Register games
-    games_tictactoe::register_tictactoe();
-    games_connect4::register_connect4();
-    info!("Registered tictactoe and connect4 games");
+    // Register all games
+    engine_games::register_all_games();
+    info!("Registered all games");
 
     // Load configuration from config.toml with env var overrides
-    let data_dir = get_data_dir();
-    let default_game = get_default_game();
+    let config = load_config();
+    let data_dir = config.common.data_dir.clone();
+    let default_game = config.common.env_id.clone();
     info!(
         "Configuration: data_dir={}, default_game={}",
         data_dir, default_game
@@ -186,11 +185,11 @@ async fn main() -> anyhow::Result<()> {
     let model_info = Arc::new(RwLock::new(ModelInfo::default()));
 
     // Create initial game session with shared evaluator
-    let session = GameSession::with_evaluator("tictactoe", Arc::clone(&evaluator))?;
+    let session = GameSession::with_evaluator(&default_game, Arc::clone(&evaluator))?;
 
     let state = Arc::new(AppState {
         session: Mutex::new(session),
-        current_game: RwLock::new("tictactoe".to_string()),
+        current_game: RwLock::new(default_game),
         data_dir,
         evaluator,
         model_info,
@@ -199,9 +198,7 @@ async fn main() -> anyhow::Result<()> {
     // Build router
     let app = create_app(state);
 
-    let host = get_host();
-    let port = get_port();
-    let addr = format!("{}:{}", host, port);
+    let addr = format!("{}:{}", config.web.host, config.web.port);
     info!("Starting server on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;

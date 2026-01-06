@@ -464,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_new_game_session() {
-        games_tictactoe::register_tictactoe();
+        engine_games::register_all_games();
 
         let session = GameSession::new("tictactoe").unwrap();
 
@@ -476,7 +476,7 @@ mod tests {
 
     #[test]
     fn test_player_move() {
-        games_tictactoe::register_tictactoe();
+        engine_games::register_all_games();
 
         let mut session = GameSession::new("tictactoe").unwrap();
         session.player_move(4).unwrap(); // Center
@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn test_bot_move() {
-        games_tictactoe::register_tictactoe();
+        engine_games::register_all_games();
 
         let mut session = GameSession::new("tictactoe").unwrap();
         session.player_move(4).unwrap();
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_illegal_move() {
-        games_tictactoe::register_tictactoe();
+        engine_games::register_all_games();
 
         let mut session = GameSession::new("tictactoe").unwrap();
         session.player_move(4).unwrap();
@@ -514,7 +514,7 @@ mod tests {
 
     #[test]
     fn test_legal_moves_handles_short_obs() {
-        games_tictactoe::register_tictactoe();
+        engine_games::register_all_games();
 
         let mut session = GameSession::new("tictactoe").unwrap();
         // Corrupt the observation buffer to simulate a mismatch with metadata
