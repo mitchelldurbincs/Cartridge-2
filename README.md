@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./logo.png" alt="Cartridge2 Logo" width="500">
+</p>
+
 # Cartridge2
 
 A simplified AlphaZero training and visualization platform for board games. Train neural network agents via self-play and play against them through a web interface.
