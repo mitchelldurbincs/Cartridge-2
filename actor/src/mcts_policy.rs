@@ -260,7 +260,7 @@ mod tests {
     use super::*;
 
     fn setup() {
-        games_tictactoe::register_tictactoe();
+        engine_games::register_all_games();
     }
 
     #[test]

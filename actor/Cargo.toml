@@ -15,8 +15,7 @@ s3 = ["model-watcher/s3"]
 [dependencies]
 # Engine library (local)
 engine-core = { path = "../engine/engine-core" }
-games-tictactoe = { path = "../engine/games-tictactoe" }
-games-connect4 = { path = "../engine/games-connect4" }
+engine-games = { path = "../engine/engine-games" }
 mcts = { path = "../engine/mcts", features = ["onnx"] }
 model-watcher = { path = "../engine/model-watcher" }
 

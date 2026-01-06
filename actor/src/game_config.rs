@@ -148,8 +148,7 @@ mod tests {
     static REGISTRY_TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     fn setup_games() {
-        games_tictactoe::register_tictactoe();
-        games_connect4::register_connect4();
+        engine_games::register_all_games();
     }
 
     #[test]
