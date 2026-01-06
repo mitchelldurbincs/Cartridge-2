@@ -222,18 +222,29 @@ port = 8080
 num_simulations = 800
 c_puct = 1.4
 temperature = 1.0
+
+[storage]
+model_backend = "filesystem"  # filesystem or s3
+postgres_url = "postgresql://cartridge:cartridge@localhost:5432/cartridge"
+# s3_bucket = "cartridge-models"      # For S3 backend
+# s3_endpoint = "http://minio:9000"   # For MinIO
 ```
 
 ### Environment Variable Overrides
 
-New format (preferred):
+All components (actor, trainer, web) support the `CARTRIDGE_*` format:
 ```bash
 CARTRIDGE_COMMON_ENV_ID=connect4
+CARTRIDGE_COMMON_DATA_DIR=/data
 CARTRIDGE_TRAINING_ITERATIONS=50
 CARTRIDGE_EVALUATION_GAMES=100
+CARTRIDGE_WEB_HOST=127.0.0.1
+CARTRIDGE_WEB_PORT=3000
+CARTRIDGE_STORAGE_MODEL_BACKEND=s3
+CARTRIDGE_STORAGE_POSTGRES_URL=postgresql://user:pass@host/db
 ```
 
-Legacy format (still supported):
+Legacy format (Python trainer only):
 ```bash
 ALPHAZERO_ENV_ID=connect4
 ALPHAZERO_ITERATIONS=50
