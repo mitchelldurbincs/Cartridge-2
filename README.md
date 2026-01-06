@@ -30,55 +30,41 @@ support PostgreSQL (replay buffer) and S3/MinIO (model storage).
 
 ## Quick Start
 
-### Play TicTacToe in Browser
+### Option 1: Docker (Easiest)
+
+```bash
+# Train a model using synchronized AlphaZero loop
+docker compose --profile local up alphazero
+
+# Train Connect4 instead of TicTacToe
+CARTRIDGE_COMMON_ENV_ID=connect4 docker compose --profile local up alphazero
+
+# Play against the trained model
+docker compose --profile local up web frontend
+# Open http://localhost in browser
+```
+
+### Option 2: Local Development
 
 **Terminal 1** - Start the Rust backend:
 ```bash
-cd web
-cargo run
+cd web && cargo run
 # Server starts on http://localhost:8080
 ```
 
 **Terminal 2** - Start the Svelte frontend:
 ```bash
-cd web/frontend
-npm install
-npm run dev
+cd web/frontend && npm install && npm run dev
 # Dev server starts on http://localhost:5173
 ```
 
+**Terminal 3** - Train a model:
+```bash
+cd trainer && pip install -e .
+python -m trainer loop --iterations 50 --episodes 200 --steps 500
+```
+
 Open http://localhost:5173 to play!
-
-### Run Self-Play
-
-```bash
-cd actor
-cargo run -- --env-id tictactoe --max-episodes 1000
-# Generates training data in ./data/replay.db
-```
-
-### Train a Model
-
-```bash
-cd trainer
-pip install -e .
-
-# Train on existing replay data
-trainer train --db ../data/replay.db --steps 1000
-# Or: python -m trainer train --db ../data/replay.db --steps 1000
-
-# Exports model to ./data/models/latest.onnx
-```
-
-### Evaluate the Model
-
-```bash
-# Evaluate model against random baseline
-trainer evaluate --model ../data/models/latest.onnx --games 100
-# Or: python -m trainer evaluate --model ../data/models/latest.onnx --games 100
-
-# Plays 100 games against random, reports win rate
-```
 
 ## Project Structure
 
@@ -146,8 +132,14 @@ cartridge2/
 |   |-- models/                # ONNX checkpoints
 |   +-- stats.json             # Training telemetry
 |
-+-- docs/
-    +-- MVP.md                 # Design document
+|-- docs/
+|   |-- MVP.md                 # Design document
+|   |-- claude-k8s-ideas.md    # K8s migration roadmap
+|   +-- codex-k8s-ideas.md     # K8s adoption checklist
+|
+|-- config.toml                # Central configuration
+|-- docker-compose.yml         # Local mode services
++-- docker-compose.k8s.yml     # K8s mode services (PostgreSQL + MinIO)
 ```
 
 ## Components
@@ -250,36 +242,59 @@ ALPHAZERO_ENV_ID=connect4 ALPHAZERO_DEVICE=cuda ALPHAZERO_EVAL_INTERVAL=0 \
     trainer loop --iterations 20 --episodes 300 --steps 1000
 ```
 
-Docker usage mirrors the same interface. The root-level `docker-compose.yml`
-defines an `alphazero` service that runs the synchronized loop and mounts the
-shared `./data` volume for replay, models, and stats:
+Docker usage mirrors the same interface. Use the `--profile local` flag to start
+the alphazero service:
 
 ```bash
-docker compose up alphazero
+docker compose --profile local up alphazero
 # Override parameters as needed
-ALPHAZERO_ENV_ID=connect4 ALPHAZERO_EVAL_GAMES=100 docker compose up alphazero
+CARTRIDGE_COMMON_ENV_ID=connect4 docker compose --profile local up alphazero
 ```
 
-#### K8s-Style Backends (PostgreSQL + MinIO)
+See [Deployment Modes](#deployment-modes) for K8s-style backends with PostgreSQL and MinIO.
 
-For horizontal scaling and cloud deployments, Cartridge2 supports PostgreSQL for
-the replay buffer and S3-compatible storage (MinIO) for models. This allows
-multiple actors to run in parallel, sharing a centralized replay buffer.
+## Deployment Modes
 
-Test the K8s backends locally with Docker Compose:
+Cartridge2 supports two deployment modes via Docker Compose profiles:
+
+### Local Mode (Default)
+
+Uses SQLite for replay buffer and filesystem for model storage. Simple, no external dependencies.
 
 ```bash
-# Start PostgreSQL, MinIO, and the training pipeline with K8s backends
+# Start synchronized training
+docker compose --profile local up alphazero
+
+# Start web UI to play against trained model
+docker compose --profile local up web frontend
+```
+
+### K8s Mode (Horizontal Scaling)
+
+Uses PostgreSQL for replay buffer and MinIO (S3-compatible) for model storage. Enables multiple actors running in parallel.
+
+```bash
+# Start infrastructure (PostgreSQL + MinIO) and training services
 docker compose -f docker-compose.yml -f docker-compose.k8s.yml --profile k8s up
 
 # Scale actors horizontally (4 parallel self-play workers)
 docker compose -f docker-compose.yml -f docker-compose.k8s.yml --profile k8s up --scale actor-k8s=4
 
 # Access MinIO web console at http://localhost:9001
-# Credentials: minioadmin / minioadmin
+# Credentials: aspect / password123
 ```
 
-Configuration is controlled via environment variables:
+**K8s Mode Services:**
+
+| Service | Description |
+|---------|-------------|
+| `postgres` | PostgreSQL 16 for replay buffer storage |
+| `minio` | S3-compatible object storage for models |
+| `actor-k8s` | Self-play actor (scalable with `--scale`) |
+| `trainer-k8s` | Continuous trainer consuming replay data |
+| `web-k8s` | Web backend with S3 model loading |
+
+**K8s Mode Environment Variables:**
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -288,6 +303,14 @@ Configuration is controlled via environment variables:
 | `CARTRIDGE_STORAGE_POSTGRES_URL` | PostgreSQL connection string | - |
 | `CARTRIDGE_STORAGE_S3_BUCKET` | S3 bucket for models | - |
 | `CARTRIDGE_STORAGE_S3_ENDPOINT` | S3-compatible endpoint (MinIO) | - |
+
+### Orchestrator Mode
+
+For synchronized AlphaZero training with K8s backends (single container running actor+trainer loop):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.k8s.yml --profile orchestrator up alphazero-k8s
+```
 
 ## Adding a New Game
 
@@ -357,33 +380,49 @@ cd web && cargo fmt && cargo clippy
 
 ## Current Status
 
+**Core:**
 - [x] Engine core abstractions (Game trait, adapter, registry, metadata)
 - [x] EngineContext high-level API
 - [x] TicTacToe game implementation
 - [x] Connect 4 game implementation
-- [x] Actor (episode runner, SQLite replay, MCTS + ONNX)
-- [x] MCTS implementation
-- [x] Model hot-reload via file watching
-- [x] Auto-derived game configuration from GameMetadata
-- [x] Web server (Axum, game API)
-- [x] Web frontend (Svelte, play UI, stats, Connect4 board)
-- [x] Python trainer (PyTorch, ONNX export)
+- [x] MCTS implementation with ONNX evaluation
+
+**Training:**
+- [x] Actor (episode runner, MCTS + ONNX, model hot-reload)
+- [x] Python trainer (PyTorch, ONNX export, cosine LR)
+- [x] Synchronized AlphaZero training loop (orchestrator)
 - [x] MCTS policy targets + game outcome propagation
 - [x] Model evaluation against random baseline
-- [x] K8s backends (PostgreSQL replay, S3 model storage)
-- [x] Loss visualization in frontend
+
+**Storage Backends:**
+- [x] SQLite replay buffer (local mode)
+- [x] PostgreSQL replay buffer (K8s mode)
+- [x] Filesystem model storage (local mode)
+- [x] S3/MinIO model storage (K8s mode)
+
+**Web:**
+- [x] Web server (Axum, game API)
+- [x] Web frontend (Svelte, play UI, stats)
+- [x] Loss visualization chart
+
+**Deployment:**
+- [x] Docker Compose with profiles (local, k8s, orchestrator)
+- [x] Horizontal actor scaling via `--scale`
+
+**Planned:**
 - [ ] Othello game
+- [ ] Kubernetes manifests (Helm/Kustomize)
 
 ## Design Decisions
 
 | Aspect | Choice | Rationale |
 |--------|--------|-----------|
 | Architecture | Monolith + Python | Simplicity for MVP, easy local development |
-| IPC | Filesystem (local), Postgres+S3 (cloud) | No network complexity locally, scales horizontally |
+| Deployment | Docker Compose profiles | `local` for simple setups, `k8s` for horizontal scaling |
 | Language | Rust + Python | Type safety + ML ecosystem |
 | Game Interface | Typed trait + erasure | Compile-time safety + runtime flexibility |
-| Replay Storage | SQLite (local), PostgreSQL (K8s) | Feature-gated for deployment flexibility |
-| Model Storage | Filesystem (local), S3/MinIO (K8s) | Hot-reload via file watch or ETag polling |
+| Replay Storage | SQLite / PostgreSQL | SQLite for local, PostgreSQL for multi-actor scaling |
+| Model Storage | Filesystem / S3 | Filesystem for local, S3/MinIO for distributed |
 | Model Format | ONNX | Framework-agnostic, production-ready |
 | RNG | ChaCha20 | Deterministic, reproducible simulations |
 
