@@ -366,7 +366,7 @@ mod tests {
     use rand::SeedableRng;
 
     fn setup_tictactoe() -> EngineContext {
-        games_tictactoe::register_tictactoe();
+        engine_games::register_all_games();
         EngineContext::new("tictactoe").unwrap()
     }
 

@@ -29,7 +29,7 @@ ndarray = { version = "0.16", optional = true }
 
 [dev-dependencies]
 # For testing with actual games
-games-tictactoe = { path = "../games-tictactoe" }
+engine-games = { path = "../engine-games" }
 
 # Benchmarking
 criterion = { workspace = true }

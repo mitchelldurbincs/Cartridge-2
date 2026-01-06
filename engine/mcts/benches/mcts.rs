@@ -13,9 +13,9 @@ use mcts::{MctsConfig, MctsSearch, MctsTree, UniformEvaluator};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
-/// Register TicTacToe game once for all benchmarks.
+/// Register all games once for all benchmarks.
 fn setup_tictactoe() -> EngineContext {
-    games_tictactoe::register_tictactoe();
+    engine_games::register_all_games();
     EngineContext::new("tictactoe").unwrap()
 }
 

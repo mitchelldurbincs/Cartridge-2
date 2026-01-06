@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use ort::{session::Session, value::Value};
-use tracing::info;
+use tracing::debug;
 
 use crate::evaluator::{EvalResult, Evaluator, EvaluatorError};
 
