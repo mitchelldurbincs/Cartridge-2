@@ -15,9 +15,31 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(feature = "onnx")]
 use tracing::{debug, info};
 
-use crate::GameStateResponse;
+use crate::types::GameStateResponse;
 #[cfg(not(feature = "onnx"))]
 use crate::OnnxEvaluator;
+
+// =============================================================================
+// Configuration Constants
+// =============================================================================
+
+/// Number of MCTS simulations for web play (less than training, more than eval)
+#[cfg(feature = "onnx")]
+const MCTS_SIMULATIONS: u32 = 200;
+
+/// MCTS temperature for web play (some randomness but not too much)
+#[cfg(feature = "onnx")]
+const MCTS_TEMPERATURE: f32 = 0.5;
+
+/// Threshold for determining if a move is legal from observation floats
+const LEGAL_MOVE_THRESHOLD: f32 = 0.5;
+
+/// Default human player number (1 = goes first)
+const DEFAULT_HUMAN_PLAYER: u8 = 1;
+
+// =============================================================================
+// Game Session
+// =============================================================================
 
 /// A game session tracking current state
 pub struct GameSession {
@@ -87,8 +109,8 @@ impl GameSession {
 
         // Configure MCTS for playing (less exploration than training)
         let mcts_config = MctsConfig::for_evaluation()
-            .with_simulations(200) // More simulations for better play
-            .with_temperature(0.5); // Some randomness but not too much
+            .with_simulations(MCTS_SIMULATIONS)
+            .with_temperature(MCTS_TEMPERATURE);
 
         // Pre-create simulation context for MCTS (avoids repeated registry lookups)
         let mcts_sim_ctx = EngineContext::new(env_id);
@@ -101,7 +123,7 @@ impl GameSession {
             board,
             current_player,
             winner,
-            human_player: 1, // Default: human goes first (will be updated by set_human_player)
+            human_player: DEFAULT_HUMAN_PLAYER,
             rng: ChaCha20Rng::seed_from_u64(seed),
             evaluator,
             mcts_config,
@@ -140,7 +162,7 @@ impl GameSession {
             board,
             current_player,
             winner,
-            human_player: 1, // Default: human goes first (will be updated by set_human_player)
+            human_player: DEFAULT_HUMAN_PLAYER,
             rng: ChaCha20Rng::seed_from_u64(seed),
             evaluator,
         })
@@ -216,7 +238,7 @@ impl GameSession {
             .enumerate()
             .filter_map(|(action, bytes)| {
                 let value = f32::from_le_bytes(bytes.try_into().unwrap());
-                (value > 0.5).then_some(action as u8)
+                (value > LEGAL_MOVE_THRESHOLD).then_some(action as u8)
             })
             .collect()
     }
@@ -239,7 +261,7 @@ impl GameSession {
         let start = action * 4;
         let bytes: [u8; 4] = mask_bytes[start..start + 4].try_into().unwrap();
         let value = f32::from_le_bytes(bytes);
-        value > 0.5
+        value > LEGAL_MOVE_THRESHOLD
     }
 
     /// Extract the legal moves slice from the observation buffer

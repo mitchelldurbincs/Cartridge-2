@@ -144,10 +144,27 @@ The ResNet uses He (Kaiming) initialization for all layers:
 
 ### LR Schedule
 
-The trainer supports cosine annealing with optional warmup:
+The trainer uses a two-phase learning rate schedule (implemented in `lr_scheduler.py`):
+
+1. **Warmup Phase**: LR increases linearly from `warmup_start_lr` to `target_lr`
+2. **Cosine Annealing Phase**: LR decreases following a cosine curve to `min_lr`
+
+```
+LR
+^
+|        target_lr
+|       /----------.
+|      /            '.
+|     /               '..
+|    /                   ''..._____ min_lr
+|   /
++--+----------------------------->  step
+   0   warmup    total_steps
+       steps
+```
 
 ```bash
-# Disable cosine annealing
+# Disable cosine annealing (constant LR)
 trainer train --no-lr-schedule
 
 # Custom min LR ratio (final LR = initial_lr * ratio)
@@ -164,6 +181,8 @@ For multi-iteration training (`trainer loop`), the LR schedule can span the enti
 trainer loop --iterations 50 --steps 500 --lr-total-steps 25000
 ```
 
+**Checkpoint Behavior**: When resuming from a checkpoint, warmup is automatically disabled to prevent loss spikes. The scheduler state is restored to continue the cosine annealing from where it left off.
+
 ### Wait Settings
 
 The trainer waits for the replay database to exist and contain data:
@@ -174,6 +193,8 @@ trainer train --wait-interval 5.0 --max-wait 600
 ```
 
 ## Architecture
+
+### Local Development
 
 ```
 +-------------------+     +------------------+     +------------------+
@@ -187,6 +208,32 @@ trainer train --wait-interval 5.0 --max-wait 600
                          |   (telemetry)    |
                          +------------------+
 ```
+
+### Kubernetes Deployment
+
+For distributed training, the trainer supports pluggable storage backends:
+
+```
++-------------------+     +------------------+     +------------------+
+|  PostgreSQL       |---->|  PyTorch Model   |---->|  S3/MinIO        |
+|  (multi-writer)   |     |  (policy+value)  |     |  (model storage) |
++-------------------+     +------------------+     +------------------+
+        ^                        |
+        |                        v
+  Multiple Actors         +------------------+
+  (parallel self-play)    |   stats.json     |
+                          |   (telemetry)    |
+                          +------------------+
+```
+
+Storage backends are selected via environment variables or config.toml:
+
+| Backend | Use Case | Config |
+|---------|----------|--------|
+| SQLite | Local dev, single machine | `CARTRIDGE_STORAGE_BACKEND=sqlite` (default) |
+| PostgreSQL | K8s, multi-actor | `CARTRIDGE_STORAGE_BACKEND=postgres` |
+| S3/MinIO | Cloud model storage | `CARTRIDGE_MODEL_STORAGE=s3` |
+| Filesystem | Local model storage | `CARTRIDGE_MODEL_STORAGE=filesystem` (default) |
 
 ## Loss Function
 
@@ -263,6 +310,7 @@ src/trainer/
 ├── __init__.py       # Package exports
 ├── __main__.py       # CLI entrypoint (train, evaluate, loop)
 ├── trainer.py        # Training loop, Trainer class
+├── lr_scheduler.py   # LR scheduling (warmup + cosine annealing)
 ├── network.py        # MLP network + AlphaZeroLoss + create_network() factory
 ├── resnet.py         # ResNet architecture (ConvPolicyValueNetwork, ResidualBlock)
 ├── replay.py         # Replay buffer interface
@@ -276,11 +324,11 @@ src/trainer/
 ├── central_config.py # Central config.toml loading
 └── storage/          # Storage backend implementations
     ├── __init__.py   # Package exports
-    ├── base.py       # Abstract base class for storage backends
+    ├── base.py       # Abstract interfaces (ReplayBufferBase, ModelStore)
     ├── factory.py    # Storage factory for backend selection
-    ├── sqlite.py     # SQLite storage backend (local)
-    ├── postgres.py   # PostgreSQL storage backend (K8s)
-    ├── s3.py         # S3/MinIO model storage backend
+    ├── sqlite.py     # SQLite replay backend (local dev)
+    ├── postgres.py   # PostgreSQL replay backend (K8s multi-writer)
+    ├── s3.py         # S3/MinIO model storage backend (cloud)
     └── filesystem.py # Local filesystem model storage
 ```
 
@@ -338,6 +386,56 @@ Example for a hypothetical 4x4 game:
 )
 ```
 
+## Storage Backends
+
+The trainer uses pluggable storage backends for both replay buffers and model storage, enabling deployment from local development to distributed Kubernetes clusters.
+
+### Replay Buffer Backends
+
+| Backend | Description | Configuration |
+|---------|-------------|---------------|
+| **SQLite** (default) | Single-file database, ideal for local dev | `--db ./data/replay.db` |
+| **PostgreSQL** | Multi-writer safe, for K8s with multiple actors | `CARTRIDGE_STORAGE_BACKEND=postgres` |
+
+PostgreSQL connection is configured via environment variables:
+```bash
+CARTRIDGE_POSTGRES_HOST=localhost
+CARTRIDGE_POSTGRES_PORT=5432
+CARTRIDGE_POSTGRES_DB=cartridge
+CARTRIDGE_POSTGRES_USER=cartridge
+CARTRIDGE_POSTGRES_PASSWORD=secret
+```
+
+### Model Storage Backends
+
+| Backend | Description | Configuration |
+|---------|-------------|---------------|
+| **Filesystem** (default) | Local directory storage | `--model-dir ./data/models` |
+| **S3/MinIO** | Cloud object storage for distributed training | `CARTRIDGE_MODEL_STORAGE=s3` |
+
+S3 connection is configured via environment variables:
+```bash
+CARTRIDGE_S3_ENDPOINT=http://minio:9000
+CARTRIDGE_S3_BUCKET=models
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin
+```
+
+### Backend Selection
+
+Backends are auto-selected based on configuration, or can be explicitly set:
+
+```python
+from trainer.storage import create_replay_buffer, create_model_store
+
+# Auto-detect from environment/config
+replay = create_replay_buffer()
+models = create_model_store()
+
+# Explicit backend selection
+replay = create_replay_buffer(backend="postgres", connection_string="...")
+```
+
 ## Development
 
 ```bash
@@ -356,10 +454,16 @@ black .
 
 ## Dependencies
 
+**Core:**
 - `torch>=2.0.0` - Neural network training
 - `numpy>=1.24.0` - Numerical operations
 - `onnx>=1.14.0` - Model export
 - `onnxruntime>=1.15.0` - Model inference for evaluation
+- `tomli>=2.0.0` - TOML config parsing (Python <3.11)
+
+**Optional (K8s deployment):**
+- `psycopg2-binary` - PostgreSQL backend
+- `boto3` - S3/MinIO model storage
 
 ## Evaluator
 

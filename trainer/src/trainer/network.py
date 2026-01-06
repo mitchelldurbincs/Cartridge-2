@@ -151,9 +151,7 @@ class AlphaZeroLoss:
             # Only mask where we have legal moves; otherwise keep original logits
             # This prevents all-inf inputs to softmax which cause NaN
             masked_logits = policy_logits.masked_fill(legal_mask == 0, float("-inf"))
-            policy_logits = torch.where(
-                has_legal_moves, masked_logits, policy_logits
-            )
+            policy_logits = torch.where(has_legal_moves, masked_logits, policy_logits)
 
         log_probs = F.log_softmax(policy_logits, dim=-1)
 

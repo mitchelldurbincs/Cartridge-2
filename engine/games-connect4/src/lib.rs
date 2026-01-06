@@ -31,11 +31,11 @@
 //! let reset = ctx.reset(42, &[]).unwrap();
 //! ```
 
-use engine_core::game_utils::{calculate_reward, encode_f32_slices, info_bits};
+use engine_core::game_utils::{calculate_reward, info_bits};
 use engine_core::typed::{
     ActionSpace, Capabilities, DecodeError, EncodeError, Encoding, EngineId, Game,
 };
-use engine_core::{register_game, GameAdapter, GameMetadata};
+use engine_core::{register_game, GameAdapter, GameMetadata, TwoPlayerObs};
 use rand_chacha::ChaCha20Rng;
 
 /// Board dimensions
@@ -221,58 +221,16 @@ impl Default for State {
 /// Connect4 action - column to drop a piece in (0-6)
 pub type Action = u8;
 
-/// Connect4 observation
-///
-/// Provides a neural network-friendly representation of the game state.
-/// Format: [Red_positions (42), Yellow_positions (42), legal_moves (7), current_player (2)]
-/// Total: 93 floats
-#[derive(Debug, Clone, PartialEq)]
-pub struct Observation {
-    /// One-hot encoding of board: [Red_positions (42), Yellow_positions (42)]
-    pub board_view: [f32; BOARD_SIZE * 2],
-    /// Legal moves mask (7 values: 1.0 = legal, 0.0 = illegal)
-    pub legal_moves: [f32; COLS],
-    /// Current player indicator: [is_Red, is_Yellow] (2 values)
-    pub current_player: [f32; 2],
-}
+/// Connect4 observation (84 board view + 7 legal moves + 2 current player = 93 floats)
+pub type Observation = TwoPlayerObs<84, 7>;
 
-impl Observation {
-    /// Create observation from game state
-    pub fn from_state(state: &State) -> Self {
-        let mut board_view = [0.0; BOARD_SIZE * 2];
-        let mut legal_moves = [0.0; COLS];
-        let mut current_player = [0.0; 2];
-
-        // Encode board state (one-hot for Red and Yellow)
-        for (i, &cell) in state.board.iter().enumerate() {
-            if cell == 1 {
-                board_view[i] = 1.0; // Red positions
-            } else if cell == 2 {
-                board_view[i + BOARD_SIZE] = 1.0; // Yellow positions
-            }
-        }
-
-        // Encode legal moves
-        let mask = state.legal_moves_mask();
-        for (col, slot) in legal_moves.iter_mut().enumerate() {
-            if (mask & (1u8 << col)) != 0 {
-                *slot = 1.0;
-            }
-        }
-
-        // Encode current player
-        if state.current_player == 1 {
-            current_player[0] = 1.0; // Red
-        } else {
-            current_player[1] = 1.0; // Yellow
-        }
-
-        Self {
-            board_view,
-            legal_moves,
-            current_player,
-        }
-    }
+/// Create observation from game state
+pub fn observation_from_state(state: &State) -> Observation {
+    TwoPlayerObs::from_board(
+        &state.board,
+        state.legal_moves_mask() as u64,
+        state.current_player,
+    )
 }
 
 /// Connect4 game implementation
@@ -355,7 +313,7 @@ impl Game for Connect4 {
 
     fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {
         let state = State::new();
-        let obs = Observation::from_state(&state);
+        let obs = observation_from_state(&state);
         (state, obs)
     }
 
@@ -368,7 +326,7 @@ impl Game for Connect4 {
         let previous_player = state.current_player;
         *state = state.drop_piece(action);
 
-        let obs = Observation::from_state(state);
+        let obs = observation_from_state(state);
         let reward = calculate_reward(state.winner, previous_player);
         let done = state.is_done();
         let info = Self::compute_info_bits(state);
@@ -474,15 +432,7 @@ impl Game for Connect4 {
     }
 
     fn encode_obs(obs: &Self::Obs, out: &mut Vec<u8>) -> Result<(), EncodeError> {
-        // Encode as OBS_SIZE f32 values in little-endian format
-        encode_f32_slices(
-            out,
-            [
-                &obs.board_view[..],
-                &obs.legal_moves[..],
-                &obs.current_player[..],
-            ],
-        );
+        obs.encode(out);
         Ok(())
     }
 }

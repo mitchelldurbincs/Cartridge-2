@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { getStats, getModelInfo, type TrainingStats, type ModelInfo } from './lib/api';
+  import { STATS_POLL_INTERVAL_MS, MS_PER_SECOND } from './lib/constants';
   import LossChart from './LossChart.svelte';
 
   let stats: TrainingStats | null = $state(null);
@@ -24,8 +25,7 @@
 
   onMount(() => {
     fetchData();
-    // Poll every 5 seconds
-    pollInterval = setInterval(fetchData, 5000);
+    pollInterval = setInterval(fetchData, STATS_POLL_INTERVAL_MS);
   });
 
   onDestroy(() => {
@@ -44,13 +44,13 @@
 
   function formatTimestamp(ts: number | null | undefined): string {
     if (!ts) return '-';
-    const date = new Date(ts * 1000);
+    const date = new Date(ts * MS_PER_SECOND);
     return date.toLocaleTimeString();
   }
 
   function formatTimeAgo(ts: number | null | undefined): string {
     if (!ts) return '-';
-    const now = Date.now() / 1000;
+    const now = Date.now() / MS_PER_SECOND;
     const diff = now - ts;
     if (diff < 60) return `${Math.floor(diff)}s ago`;
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;

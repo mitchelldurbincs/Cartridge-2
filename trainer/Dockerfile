@@ -16,6 +16,9 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Create non-root user for security
+RUN useradd -m -u 1000 -s /bin/bash aspect
+
 WORKDIR /app
 
 # Copy package files
@@ -28,8 +31,11 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 # Install trainer package (includes trainer, trainer-loop, trainer-evaluate commands)
 RUN pip install --no-cache-dir .
 
-# Create data directory
-RUN mkdir -p /app/data/models
+# Create data directory with proper ownership
+RUN mkdir -p /app/data/models && chown -R aspect:aspect /app
+
+# Switch to non-root user
+USER aspect
 
 # Environment variables with defaults
 ENV DATA_DIR="/app/data"

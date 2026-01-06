@@ -214,19 +214,8 @@ class Trainer:
             logger.info(
                 f"Gradient clipping enabled: max_norm={self.config.grad_clip_norm}"
             )
-        if self.scheduler:
-            min_lr = self.config.learning_rate * self.config.lr_min_ratio
-            if self.warmup_steps > 0:
-                logger.info(
-                    f"LR schedule: {self.warmup_steps}-step warmup "
-                    f"({self.warmup_start_lr:.2e} -> {self.target_lr:.2e}), "
-                    f"then cosine annealing to {min_lr:.2e}"
-                )
-            else:
-                logger.info(
-                    f"LR scheduler enabled: cosine annealing "
-                    f"{self.config.learning_rate} -> {min_lr}"
-                )
+        if self.lr_scheduler.config.enabled:
+            logger.info(f"LR scheduler: {self.lr_scheduler}")
 
         # Wait for replay buffer to exist with proper backoff
         db_path = Path(self.config.db_path)
@@ -322,7 +311,7 @@ class Trainer:
                 metrics = self._train_step(observations, policy_targets, value_targets)
 
                 # Update learning rate (warmup then cosine annealing)
-                self._update_learning_rate(step)
+                self.lr_scheduler.step()
 
                 # Update stats
                 self.stats.total_loss = metrics["loss/total"]
@@ -419,24 +408,6 @@ class Trainer:
 
         logger.info("Training complete")
         return self.stats
-
-    def _update_learning_rate(self, step: int) -> None:
-        """Update learning rate with warmup and cosine annealing.
-
-        Args:
-            step: Current training step (1-indexed within this training run).
-        """
-        if step <= self.warmup_steps:
-            # Linear warmup: interpolate from warmup_start_lr to target_lr
-            warmup_progress = step / self.warmup_steps
-            lr = self.warmup_start_lr + warmup_progress * (
-                self.target_lr - self.warmup_start_lr
-            )
-            for param_group in self.optimizer.param_groups:
-                param_group["lr"] = lr
-        elif self.scheduler:
-            # After warmup, step the cosine scheduler
-            self.scheduler.step()
 
     def _train_step(
         self,
@@ -560,7 +531,7 @@ class Trainer:
             optimizer=self.optimizer,
             step=step,
             model_dir=model_dir,
-            scheduler=self.scheduler,
+            scheduler=self.lr_scheduler,
         )
 
         # Track checkpoints for cleanup

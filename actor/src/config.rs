@@ -264,21 +264,33 @@ mod tests {
     fn validate_rejects_invalid_log_level() {
         let mut cfg = base_config();
         cfg.log_level = "nope".into();
-        assert!(cfg.validate().unwrap_err().to_string().contains("invalid log level"));
+        assert!(cfg
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("invalid log level"));
     }
 
     #[test]
     fn validate_rejects_zero_episode_timeout() {
         let mut cfg = base_config();
         cfg.episode_timeout_secs = 0;
-        assert!(cfg.validate().unwrap_err().to_string().contains("episode_timeout_secs"));
+        assert!(cfg
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("episode_timeout_secs"));
     }
 
     #[test]
     fn validate_rejects_zero_flush_interval() {
         let mut cfg = base_config();
         cfg.flush_interval_secs = 0;
-        assert!(cfg.validate().unwrap_err().to_string().contains("flush_interval_secs"));
+        assert!(cfg
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("flush_interval_secs"));
     }
 
     #[test]

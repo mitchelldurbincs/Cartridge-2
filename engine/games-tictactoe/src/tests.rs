@@ -80,7 +80,7 @@ fn test_draw_game() {
 #[test]
 fn test_observation_encoding() {
     let state = State::new();
-    let obs = Observation::from_state(&state);
+    let obs = observation_from_state(&state);
 
     // All board positions should be 0 initially
     assert_eq!(obs.board_view, [0.0; 18]);
@@ -145,7 +145,7 @@ fn test_observation_byte_encoding() {
         current_player: 2,
         winner: 0,
     };
-    let obs = Observation::from_state(&state);
+    let obs = observation_from_state(&state);
 
     let mut buf = Vec::new();
     TicTacToe::encode_obs(&obs, &mut buf).unwrap();
@@ -453,7 +453,7 @@ fn test_observation_encoding_roundtrip() {
     ];
 
     for state in &states {
-        let obs = Observation::from_state(state);
+        let obs = observation_from_state(state);
         let mut buf = Vec::new();
         TicTacToe::encode_obs(&obs, &mut buf).expect("encode should succeed");
         assert_eq!(

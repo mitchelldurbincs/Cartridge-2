@@ -17,11 +17,11 @@
 //! let reset = ctx.reset(42, &[]).unwrap();
 //! ```
 
-use engine_core::game_utils::{calculate_reward, encode_f32_slices, info_bits};
+use engine_core::game_utils::{calculate_reward, info_bits};
 use engine_core::typed::{
     ActionSpace, Capabilities, DecodeError, EncodeError, Encoding, EngineId, Game,
 };
-use engine_core::{register_game, GameAdapter, GameMetadata};
+use engine_core::{register_game, GameAdapter, GameMetadata, TwoPlayerObs};
 use rand_chacha::ChaCha20Rng;
 
 /// Register TicTacToe with the global game registry
@@ -154,57 +154,16 @@ impl Default for State {
 /// TicTacToe action - position to place a piece (0-8)
 pub type Action = u8;
 
-/// TicTacToe observation
-///
-/// Provides a neural network-friendly representation of the game state
-/// including board state and legal move mask.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Observation {
-    /// One-hot encoding of board: [X_positions, O_positions] (18 values)
-    pub board_view: [f32; 18],
-    /// Legal moves mask (9 values: 1.0 = legal, 0.0 = illegal)
-    pub legal_moves: [f32; 9],
-    /// Current player indicator: [is_X, is_O] (2 values)
-    pub current_player: [f32; 2],
-}
+/// TicTacToe observation (18 board view + 9 legal moves + 2 current player = 29 floats)
+pub type Observation = TwoPlayerObs<18, 9>;
 
-impl Observation {
-    /// Create observation from game state
-    pub fn from_state(state: &State) -> Self {
-        let mut board_view = [0.0; 18];
-        let mut legal_moves = [0.0; 9];
-        let mut current_player = [0.0; 2];
-
-        // Encode board state (one-hot for X and O)
-        for (i, &cell) in state.board.iter().enumerate() {
-            if cell == 1 {
-                board_view[i] = 1.0; // X positions
-            } else if cell == 2 {
-                board_view[i + 9] = 1.0; // O positions
-            }
-        }
-
-        // Encode legal moves
-        let mask = state.legal_moves_mask();
-        for (pos, slot) in legal_moves.iter_mut().enumerate() {
-            if (mask & (1u16 << pos)) != 0 {
-                *slot = 1.0;
-            }
-        }
-
-        // Encode current player
-        if state.current_player == 1 {
-            current_player[0] = 1.0; // X
-        } else {
-            current_player[1] = 1.0; // O
-        }
-
-        Self {
-            board_view,
-            legal_moves,
-            current_player,
-        }
-    }
+/// Create observation from game state
+pub fn observation_from_state(state: &State) -> Observation {
+    TwoPlayerObs::from_board(
+        &state.board,
+        state.legal_moves_mask() as u64,
+        state.current_player,
+    )
 }
 
 /// TicTacToe game implementation
@@ -279,7 +238,7 @@ impl Game for TicTacToe {
 
     fn reset(&mut self, _rng: &mut ChaCha20Rng, _hint: &[u8]) -> (Self::State, Self::Obs) {
         let state = State::new();
-        let obs = Observation::from_state(&state);
+        let obs = observation_from_state(&state);
         (state, obs)
     }
 
@@ -292,7 +251,7 @@ impl Game for TicTacToe {
         let previous_player = state.current_player;
         *state = state.make_move(action);
 
-        let obs = Observation::from_state(state);
+        let obs = observation_from_state(state);
         let reward = calculate_reward(state.winner, previous_player);
         let done = state.is_done();
         let info = Self::compute_info_bits(state);
@@ -385,15 +344,7 @@ impl Game for TicTacToe {
     }
 
     fn encode_obs(obs: &Self::Obs, out: &mut Vec<u8>) -> Result<(), EncodeError> {
-        // Encode as 29 f32 values in little-endian format
-        encode_f32_slices(
-            out,
-            [
-                &obs.board_view[..],
-                &obs.legal_moves[..],
-                &obs.current_player[..],
-            ],
-        );
+        obs.encode(out);
         Ok(())
     }
 }

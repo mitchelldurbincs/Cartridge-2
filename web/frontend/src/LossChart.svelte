@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HistoryEntry } from './lib/api';
+  import { LARGE_NUMBER_THRESHOLD } from './lib/constants';
 
   interface Props {
     history: HistoryEntry[];
@@ -94,7 +95,7 @@
 
   // Format tick labels
   function formatStep(value: number): string {
-    if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+    if (value >= LARGE_NUMBER_THRESHOLD) return `${(value / LARGE_NUMBER_THRESHOLD).toFixed(1)}k`;
     return Math.round(value).toString();
   }
 

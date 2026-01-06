@@ -9,7 +9,7 @@ use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
 
-use super::{ReplayStore, StoredGameMetadata, Transition};
+use super::{ReplayStore, Transition};
 
 /// SQLite-based replay buffer implementation.
 ///
@@ -194,49 +194,12 @@ impl ReplayStore for SqliteReplayStore {
         Ok(())
     }
 
-    async fn get_metadata(&self, env_id: &str) -> Result<Option<StoredGameMetadata>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT env_id, display_name, board_width, board_height, num_actions,
-                    obs_size, legal_mask_offset, player_count
-             FROM game_metadata WHERE env_id = ?1",
-        )?;
-
-        let result = stmt.query_row([env_id], |row| {
-            Ok(StoredGameMetadata {
-                env_id: row.get(0)?,
-                display_name: row.get(1)?,
-                board_width: row.get::<_, i64>(2)? as usize,
-                board_height: row.get::<_, i64>(3)? as usize,
-                num_actions: row.get::<_, i64>(4)? as usize,
-                obs_size: row.get::<_, i64>(5)? as usize,
-                legal_mask_offset: row.get::<_, i64>(6)? as usize,
-                player_count: row.get::<_, i64>(7)? as usize,
-            })
-        });
-
-        match result {
-            Ok(meta) => Ok(Some(meta)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
-    }
-
     async fn clear(&self) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
         conn.execute("DELETE FROM transitions", [])?;
-        Ok(())
-    }
-
-    async fn close(&self) -> Result<()> {
-        // SQLite connection is closed when dropped
-        // Nothing special needed here
         Ok(())
     }
 }

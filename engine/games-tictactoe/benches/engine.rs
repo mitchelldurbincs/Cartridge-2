@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use engine_core::Game;
-use games_tictactoe::{Action, Observation, State, TicTacToe};
+use games_tictactoe::{observation_from_state, State, TicTacToe};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
@@ -28,7 +28,7 @@ fn bench_step(c: &mut Criterion) {
         b.iter_batched(
             || base_state,
             |mut state| {
-                let action = Action::Place(4);
+                let action = 4u8; // Center position
                 let _ = game.step(&mut state, action, &mut rng);
             },
             BatchSize::SmallInput,
@@ -54,7 +54,7 @@ fn bench_encode_decode(c: &mut Criterion) {
     });
 
     group.bench_function("observation_encode", |b| {
-        let obs = Observation::from_state(&State::new());
+        let obs = observation_from_state(&State::new());
         b.iter_batched(
             || Vec::with_capacity(128),
             |mut buffer| {

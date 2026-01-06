@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { getStats, type HistoryEntry } from './lib/api';
+  import { STATS_POLL_INTERVAL_MS, LARGE_NUMBER_THRESHOLD } from './lib/constants';
 
   let history: HistoryEntry[] = $state([]);
   let error: string | null = $state(null);
@@ -47,7 +48,7 @@
 
   onMount(() => {
     fetchData();
-    pollInterval = setInterval(fetchData, 5000);
+    pollInterval = setInterval(fetchData, STATS_POLL_INTERVAL_MS);
   });
 
   onDestroy(() => {
@@ -163,8 +164,9 @@
   }
 
   function formatStep(value: number): string {
-    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-    if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+    const million = LARGE_NUMBER_THRESHOLD * LARGE_NUMBER_THRESHOLD;
+    if (value >= million) return `${(value / million).toFixed(1)}M`;
+    if (value >= LARGE_NUMBER_THRESHOLD) return `${(value / LARGE_NUMBER_THRESHOLD).toFixed(1)}k`;
     return Math.round(value).toString();
   }
 

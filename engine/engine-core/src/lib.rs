@@ -8,6 +8,7 @@
 //! - `EngineContext`: High-level API for running game simulations
 
 pub mod adapter;
+pub mod board_game;
 pub mod context;
 pub mod erased;
 pub mod game_utils;
@@ -17,6 +18,7 @@ pub mod typed;
 
 // Re-export main types for convenience
 pub use adapter::GameAdapter;
+pub use board_game::TwoPlayerObs;
 pub use context::{EngineContext, ResetResult, StepResult};
 pub use erased::ErasedGame;
 pub use metadata::GameMetadata;

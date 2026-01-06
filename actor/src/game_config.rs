@@ -60,6 +60,40 @@ impl GameConfig {
     pub fn legal_mask_bits(&self) -> u64 {
         (1u64 << self.num_actions) - 1
     }
+
+    /// Extract a legal moves mask from the observation bytes.
+    ///
+    /// The observation contains f32 values where indices starting at `legal_mask_offset`
+    /// are the legal moves (1.0 = legal, 0.0 = illegal). This function extracts
+    /// those values and packs them into a u64 bitmask.
+    pub fn extract_legal_mask(&self, obs: &[u8]) -> u64 {
+        let legal_start_byte = self.legal_mask_offset * 4;
+        let legal_end_byte = legal_start_byte + self.num_actions * 4;
+
+        if obs.len() < legal_end_byte {
+            tracing::warn!(
+                "Observation too short ({} bytes), expected at least {}. Using fallback mask.",
+                obs.len(),
+                legal_end_byte
+            );
+            return self.legal_mask_bits();
+        }
+
+        let mut mask = 0u64;
+        for i in 0..self.num_actions {
+            let byte_offset = legal_start_byte + i * 4;
+            let value = f32::from_le_bytes([
+                obs[byte_offset],
+                obs[byte_offset + 1],
+                obs[byte_offset + 2],
+                obs[byte_offset + 3],
+            ]);
+            if value > 0.5 {
+                mask |= 1u64 << i;
+            }
+        }
+        mask
+    }
 }
 
 impl From<&GameMetadata> for GameConfig {

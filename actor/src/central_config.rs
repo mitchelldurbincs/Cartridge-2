@@ -63,36 +63,96 @@ pub struct CentralConfig {
 
 // Serde default functions (required for #[serde(default = "...")])
 // These are thin wrappers around constants
-fn d_data_dir() -> String { defaults::DATA_DIR.into() }
-fn d_env_id() -> String { defaults::ENV_ID.into() }
-fn d_log_level() -> String { defaults::LOG_LEVEL.into() }
-fn d_iterations() -> i32 { defaults::ITERATIONS }
-fn d_start_iteration() -> i32 { defaults::START_ITERATION }
-fn d_episodes() -> i32 { defaults::EPISODES_PER_ITERATION }
-fn d_steps() -> i32 { defaults::STEPS_PER_ITERATION }
-fn d_batch_size() -> i32 { defaults::BATCH_SIZE }
-fn d_lr() -> f64 { defaults::LEARNING_RATE }
-fn d_weight_decay() -> f64 { defaults::WEIGHT_DECAY }
-fn d_grad_clip() -> f64 { defaults::GRAD_CLIP_NORM }
-fn d_device() -> String { defaults::DEVICE.into() }
-fn d_ckpt_interval() -> i32 { defaults::CHECKPOINT_INTERVAL }
-fn d_max_ckpts() -> i32 { defaults::MAX_CHECKPOINTS }
-fn d_eval_interval() -> i32 { defaults::EVAL_INTERVAL }
-fn d_eval_games() -> i32 { defaults::EVAL_GAMES }
-fn d_actor_id() -> String { defaults::ACTOR_ID.into() }
-fn d_max_episodes() -> i32 { defaults::MAX_EPISODES }
-fn d_episode_timeout() -> u64 { defaults::EPISODE_TIMEOUT_SECS }
-fn d_flush_interval() -> u64 { defaults::FLUSH_INTERVAL_SECS }
-fn d_log_interval() -> u32 { defaults::LOG_INTERVAL }
-fn d_host() -> String { defaults::HOST.into() }
-fn d_port() -> u16 { defaults::PORT }
-fn d_num_sims() -> u32 { defaults::NUM_SIMULATIONS }
-fn d_c_puct() -> f64 { defaults::C_PUCT }
-fn d_temperature() -> f64 { defaults::TEMPERATURE }
-fn d_dirichlet_alpha() -> f64 { defaults::DIRICHLET_ALPHA }
-fn d_dirichlet_weight() -> f64 { defaults::DIRICHLET_WEIGHT }
-fn d_replay_backend() -> String { defaults::REPLAY_BACKEND.into() }
-fn d_model_backend() -> String { defaults::MODEL_BACKEND.into() }
+fn d_data_dir() -> String {
+    defaults::DATA_DIR.into()
+}
+fn d_env_id() -> String {
+    defaults::ENV_ID.into()
+}
+fn d_log_level() -> String {
+    defaults::LOG_LEVEL.into()
+}
+fn d_iterations() -> i32 {
+    defaults::ITERATIONS
+}
+fn d_start_iteration() -> i32 {
+    defaults::START_ITERATION
+}
+fn d_episodes() -> i32 {
+    defaults::EPISODES_PER_ITERATION
+}
+fn d_steps() -> i32 {
+    defaults::STEPS_PER_ITERATION
+}
+fn d_batch_size() -> i32 {
+    defaults::BATCH_SIZE
+}
+fn d_lr() -> f64 {
+    defaults::LEARNING_RATE
+}
+fn d_weight_decay() -> f64 {
+    defaults::WEIGHT_DECAY
+}
+fn d_grad_clip() -> f64 {
+    defaults::GRAD_CLIP_NORM
+}
+fn d_device() -> String {
+    defaults::DEVICE.into()
+}
+fn d_ckpt_interval() -> i32 {
+    defaults::CHECKPOINT_INTERVAL
+}
+fn d_max_ckpts() -> i32 {
+    defaults::MAX_CHECKPOINTS
+}
+fn d_eval_interval() -> i32 {
+    defaults::EVAL_INTERVAL
+}
+fn d_eval_games() -> i32 {
+    defaults::EVAL_GAMES
+}
+fn d_actor_id() -> String {
+    defaults::ACTOR_ID.into()
+}
+fn d_max_episodes() -> i32 {
+    defaults::MAX_EPISODES
+}
+fn d_episode_timeout() -> u64 {
+    defaults::EPISODE_TIMEOUT_SECS
+}
+fn d_flush_interval() -> u64 {
+    defaults::FLUSH_INTERVAL_SECS
+}
+fn d_log_interval() -> u32 {
+    defaults::LOG_INTERVAL
+}
+fn d_host() -> String {
+    defaults::HOST.into()
+}
+fn d_port() -> u16 {
+    defaults::PORT
+}
+fn d_num_sims() -> u32 {
+    defaults::NUM_SIMULATIONS
+}
+fn d_c_puct() -> f64 {
+    defaults::C_PUCT
+}
+fn d_temperature() -> f64 {
+    defaults::TEMPERATURE
+}
+fn d_dirichlet_alpha() -> f64 {
+    defaults::DIRICHLET_ALPHA
+}
+fn d_dirichlet_weight() -> f64 {
+    defaults::DIRICHLET_WEIGHT
+}
+fn d_replay_backend() -> String {
+    defaults::REPLAY_BACKEND.into()
+}
+fn d_model_backend() -> String {
+    defaults::MODEL_BACKEND.into()
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -279,11 +339,7 @@ impl Default for StorageConfig {
 }
 
 /// Standard locations to search for config.toml
-const CONFIG_SEARCH_PATHS: &[&str] = &[
-    "config.toml",
-    "../config.toml",
-    "/app/config.toml",
-];
+const CONFIG_SEARCH_PATHS: &[&str] = &["config.toml", "../config.toml", "/app/config.toml"];
 
 /// Load the central configuration from config.toml.
 pub fn load_config() -> CentralConfig {
@@ -293,7 +349,10 @@ pub fn load_config() -> CentralConfig {
             info!("Loading config from CARTRIDGE_CONFIG: {}", path.display());
             return load_from_path(&path);
         }
-        warn!("CARTRIDGE_CONFIG={} not found, searching defaults", path.display());
+        warn!(
+            "CARTRIDGE_CONFIG={} not found, searching defaults",
+            path.display()
+        );
     }
 
     for path_str in CONFIG_SEARCH_PATHS {
@@ -334,7 +393,9 @@ macro_rules! env_override {
     };
     // Parseable field (i32, u64, f64, etc.)
     ($config:expr, $section:ident . $field:ident, $key:expr, parse) => {
-        if let Ok(v) = std::env::var($key).and_then(|s| s.parse().map_err(|_| std::env::VarError::NotPresent)) {
+        if let Ok(v) =
+            std::env::var($key).and_then(|s| s.parse().map_err(|_| std::env::VarError::NotPresent))
+        {
             $config.$section.$field = v;
         }
     };
@@ -353,46 +414,169 @@ fn apply_env_overrides(mut config: CentralConfig) -> CentralConfig {
     env_override!(config, common.log_level, "CARTRIDGE_COMMON_LOG_LEVEL");
 
     // Training
-    env_override!(config, training.iterations, "CARTRIDGE_TRAINING_ITERATIONS", parse);
-    env_override!(config, training.start_iteration, "CARTRIDGE_TRAINING_START_ITERATION", parse);
-    env_override!(config, training.episodes_per_iteration, "CARTRIDGE_TRAINING_EPISODES_PER_ITERATION", parse);
-    env_override!(config, training.steps_per_iteration, "CARTRIDGE_TRAINING_STEPS_PER_ITERATION", parse);
-    env_override!(config, training.batch_size, "CARTRIDGE_TRAINING_BATCH_SIZE", parse);
-    env_override!(config, training.learning_rate, "CARTRIDGE_TRAINING_LEARNING_RATE", parse);
-    env_override!(config, training.weight_decay, "CARTRIDGE_TRAINING_WEIGHT_DECAY", parse);
-    env_override!(config, training.grad_clip_norm, "CARTRIDGE_TRAINING_GRAD_CLIP_NORM", parse);
+    env_override!(
+        config,
+        training.iterations,
+        "CARTRIDGE_TRAINING_ITERATIONS",
+        parse
+    );
+    env_override!(
+        config,
+        training.start_iteration,
+        "CARTRIDGE_TRAINING_START_ITERATION",
+        parse
+    );
+    env_override!(
+        config,
+        training.episodes_per_iteration,
+        "CARTRIDGE_TRAINING_EPISODES_PER_ITERATION",
+        parse
+    );
+    env_override!(
+        config,
+        training.steps_per_iteration,
+        "CARTRIDGE_TRAINING_STEPS_PER_ITERATION",
+        parse
+    );
+    env_override!(
+        config,
+        training.batch_size,
+        "CARTRIDGE_TRAINING_BATCH_SIZE",
+        parse
+    );
+    env_override!(
+        config,
+        training.learning_rate,
+        "CARTRIDGE_TRAINING_LEARNING_RATE",
+        parse
+    );
+    env_override!(
+        config,
+        training.weight_decay,
+        "CARTRIDGE_TRAINING_WEIGHT_DECAY",
+        parse
+    );
+    env_override!(
+        config,
+        training.grad_clip_norm,
+        "CARTRIDGE_TRAINING_GRAD_CLIP_NORM",
+        parse
+    );
     env_override!(config, training.device, "CARTRIDGE_TRAINING_DEVICE");
-    env_override!(config, training.checkpoint_interval, "CARTRIDGE_TRAINING_CHECKPOINT_INTERVAL", parse);
-    env_override!(config, training.max_checkpoints, "CARTRIDGE_TRAINING_MAX_CHECKPOINTS", parse);
+    env_override!(
+        config,
+        training.checkpoint_interval,
+        "CARTRIDGE_TRAINING_CHECKPOINT_INTERVAL",
+        parse
+    );
+    env_override!(
+        config,
+        training.max_checkpoints,
+        "CARTRIDGE_TRAINING_MAX_CHECKPOINTS",
+        parse
+    );
 
     // Evaluation
-    env_override!(config, evaluation.interval, "CARTRIDGE_EVALUATION_INTERVAL", parse);
-    env_override!(config, evaluation.games, "CARTRIDGE_EVALUATION_GAMES", parse);
+    env_override!(
+        config,
+        evaluation.interval,
+        "CARTRIDGE_EVALUATION_INTERVAL",
+        parse
+    );
+    env_override!(
+        config,
+        evaluation.games,
+        "CARTRIDGE_EVALUATION_GAMES",
+        parse
+    );
 
     // Actor
     env_override!(config, actor.actor_id, "CARTRIDGE_ACTOR_ACTOR_ID");
-    env_override!(config, actor.max_episodes, "CARTRIDGE_ACTOR_MAX_EPISODES", parse);
-    env_override!(config, actor.episode_timeout_secs, "CARTRIDGE_ACTOR_EPISODE_TIMEOUT_SECS", parse);
-    env_override!(config, actor.flush_interval_secs, "CARTRIDGE_ACTOR_FLUSH_INTERVAL_SECS", parse);
-    env_override!(config, actor.log_interval, "CARTRIDGE_ACTOR_LOG_INTERVAL", parse);
+    env_override!(
+        config,
+        actor.max_episodes,
+        "CARTRIDGE_ACTOR_MAX_EPISODES",
+        parse
+    );
+    env_override!(
+        config,
+        actor.episode_timeout_secs,
+        "CARTRIDGE_ACTOR_EPISODE_TIMEOUT_SECS",
+        parse
+    );
+    env_override!(
+        config,
+        actor.flush_interval_secs,
+        "CARTRIDGE_ACTOR_FLUSH_INTERVAL_SECS",
+        parse
+    );
+    env_override!(
+        config,
+        actor.log_interval,
+        "CARTRIDGE_ACTOR_LOG_INTERVAL",
+        parse
+    );
 
     // Web
     env_override!(config, web.host, "CARTRIDGE_WEB_HOST");
     env_override!(config, web.port, "CARTRIDGE_WEB_PORT", parse);
 
     // MCTS
-    env_override!(config, mcts.num_simulations, "CARTRIDGE_MCTS_NUM_SIMULATIONS", parse);
+    env_override!(
+        config,
+        mcts.num_simulations,
+        "CARTRIDGE_MCTS_NUM_SIMULATIONS",
+        parse
+    );
     env_override!(config, mcts.c_puct, "CARTRIDGE_MCTS_C_PUCT", parse);
-    env_override!(config, mcts.temperature, "CARTRIDGE_MCTS_TEMPERATURE", parse);
-    env_override!(config, mcts.dirichlet_alpha, "CARTRIDGE_MCTS_DIRICHLET_ALPHA", parse);
-    env_override!(config, mcts.dirichlet_weight, "CARTRIDGE_MCTS_DIRICHLET_WEIGHT", parse);
+    env_override!(
+        config,
+        mcts.temperature,
+        "CARTRIDGE_MCTS_TEMPERATURE",
+        parse
+    );
+    env_override!(
+        config,
+        mcts.dirichlet_alpha,
+        "CARTRIDGE_MCTS_DIRICHLET_ALPHA",
+        parse
+    );
+    env_override!(
+        config,
+        mcts.dirichlet_weight,
+        "CARTRIDGE_MCTS_DIRICHLET_WEIGHT",
+        parse
+    );
 
     // Storage
-    env_override!(config, storage.replay_backend, "CARTRIDGE_STORAGE_REPLAY_BACKEND");
-    env_override!(config, storage.model_backend, "CARTRIDGE_STORAGE_MODEL_BACKEND");
-    env_override!(config, storage.postgres_url, "CARTRIDGE_STORAGE_POSTGRES_URL", optional);
-    env_override!(config, storage.s3_bucket, "CARTRIDGE_STORAGE_S3_BUCKET", optional);
-    env_override!(config, storage.s3_endpoint, "CARTRIDGE_STORAGE_S3_ENDPOINT", optional);
+    env_override!(
+        config,
+        storage.replay_backend,
+        "CARTRIDGE_STORAGE_REPLAY_BACKEND"
+    );
+    env_override!(
+        config,
+        storage.model_backend,
+        "CARTRIDGE_STORAGE_MODEL_BACKEND"
+    );
+    env_override!(
+        config,
+        storage.postgres_url,
+        "CARTRIDGE_STORAGE_POSTGRES_URL",
+        optional
+    );
+    env_override!(
+        config,
+        storage.s3_bucket,
+        "CARTRIDGE_STORAGE_S3_BUCKET",
+        optional
+    );
+    env_override!(
+        config,
+        storage.s3_endpoint,
+        "CARTRIDGE_STORAGE_S3_ENDPOINT",
+        optional
+    );
 
     config
 }
@@ -479,21 +663,33 @@ s3_endpoint = "http://minio:9000"
         let config: CentralConfig = toml::from_str(toml_content).unwrap();
         assert_eq!(config.storage.replay_backend, "postgres");
         assert_eq!(config.storage.model_backend, "s3");
-        assert_eq!(config.storage.postgres_url, Some("postgresql://user:pass@localhost:5432/cartridge".to_string()));
+        assert_eq!(
+            config.storage.postgres_url,
+            Some("postgresql://user:pass@localhost:5432/cartridge".to_string())
+        );
         assert_eq!(config.storage.s3_bucket, Some("my-bucket".to_string()));
-        assert_eq!(config.storage.s3_endpoint, Some("http://minio:9000".to_string()));
+        assert_eq!(
+            config.storage.s3_endpoint,
+            Some("http://minio:9000".to_string())
+        );
     }
 
     #[test]
     fn test_storage_env_overrides() {
         std::env::set_var("CARTRIDGE_STORAGE_REPLAY_BACKEND", "postgres");
         std::env::set_var("CARTRIDGE_STORAGE_MODEL_BACKEND", "s3");
-        std::env::set_var("CARTRIDGE_STORAGE_POSTGRES_URL", "postgresql://test@localhost/db");
+        std::env::set_var(
+            "CARTRIDGE_STORAGE_POSTGRES_URL",
+            "postgresql://test@localhost/db",
+        );
 
         let config = load_config();
         assert_eq!(config.storage.replay_backend, "postgres");
         assert_eq!(config.storage.model_backend, "s3");
-        assert_eq!(config.storage.postgres_url, Some("postgresql://test@localhost/db".to_string()));
+        assert_eq!(
+            config.storage.postgres_url,
+            Some("postgresql://test@localhost/db".to_string())
+        );
 
         std::env::remove_var("CARTRIDGE_STORAGE_REPLAY_BACKEND");
         std::env::remove_var("CARTRIDGE_STORAGE_MODEL_BACKEND");

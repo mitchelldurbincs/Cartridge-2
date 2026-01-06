@@ -44,11 +44,11 @@ Pure game logic library. No network I/O. Library-only design (no gRPC).
 - `model-watcher/` - Shared model hot-reload utilities
 
 ### Actor (Rust Binary) - `actor/`
-**Status: COMPLETE (46 tests)**
+**Status: COMPLETE (36 tests)**
 
 Self-play episode runner using engine-core directly:
 - Uses `EngineContext` for game simulation (no gRPC)
-- Stores transitions in SQLite (`./data/replay.db`)
+- Pluggable storage backends (SQLite for local, PostgreSQL for K8s)
 - MCTS policy with ONNX neural network evaluation
 - Hot-reloads model when `latest.onnx` changes (via model_watcher)
 - Stores MCTS visit distributions as policy targets
@@ -105,10 +105,10 @@ cartridge2/
 │       ├── main.rs         # Entry point
 │       ├── actor.rs        # Episode runner using EngineContext
 │       ├── config.rs       # CLI configuration
+│       ├── central_config.rs # Central config.toml loading
 │       ├── game_config.rs  # Game-specific config derived from metadata
 │       ├── mcts_policy.rs  # MCTS policy implementation
 │       ├── model_watcher.rs # ONNX model hot-reload via file watching
-│       ├── replay.rs       # SQLite replay buffer
 │       └── storage/        # Storage backends (SQLite, PostgreSQL)
 ├── engine/                 # Rust workspace
 │   ├── Cargo.toml         # Workspace config
@@ -300,7 +300,7 @@ cd web && cargo build --release
 
 # Run all tests
 cd engine && cargo test   # 134 tests (64 + 27 + 21 + 22)
-cd actor && cargo test    # 46 tests
+cd actor && cargo test    # 36 tests
 cd web && cargo test      # 22 tests
 
 # Format and lint
@@ -363,7 +363,7 @@ python -m trainer train --db ./data/replay.db --steps 1000
 - [x] TicTacToe game implementation - 27 tests
 - [x] Connect 4 game implementation - 21 tests
 - [x] Removed gRPC/proto dependencies (library-only)
-- [x] Actor core (episode runner, SQLite replay) - 46 tests
+- [x] Actor core (episode runner, pluggable storage backends) - 36 tests
 - [x] MCTS integration in actor with ONNX evaluation
 - [x] Model hot-reload via file watching (model-watcher crate)
 - [x] Auto-derived game configuration from GameMetadata

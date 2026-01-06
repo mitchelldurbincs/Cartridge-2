@@ -43,13 +43,19 @@ RUN apt-get update && apt-get install -y \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
+# Create non-root user for security
+RUN useradd -m -u 1000 -s /bin/bash aspect
+
 WORKDIR /app
 
 # Copy the compiled binary from builder
 COPY --from=builder /app/actor/target/release/actor /app/actor
 
-# Create data directory
-RUN mkdir -p /app/data/models
+# Create data directory with proper ownership
+RUN mkdir -p /app/data/models && chown -R aspect:aspect /app
+
+# Switch to non-root user
+USER aspect
 
 # Environment variables with defaults
 ENV ACTOR_ACTOR_ID="actor-1"

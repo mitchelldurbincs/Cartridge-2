@@ -7,7 +7,7 @@
 # =============================================================================
 target/
 **/target/
-Cargo.lock
+# Note: Cargo.lock is NOT excluded - it ensures reproducible builds in Docker
 
 # =============================================================================
 # Runtime data (mounted as volume, not copied into image)

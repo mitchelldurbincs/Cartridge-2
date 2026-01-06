@@ -15,6 +15,41 @@
 #
 # Web UI for MinIO: http://localhost:9001 (aspect/password123)
 
+# =============================================================================
+# Extension Fields - Reusable configuration blocks
+# =============================================================================
+
+# AWS/MinIO credentials (shared by all services that access S3)
+x-aws-env: &aws-env
+  AWS_ACCESS_KEY_ID: aspect
+  AWS_SECRET_ACCESS_KEY: password123
+  AWS_REGION: us-east-1
+
+# S3 storage configuration (for services that only need model storage)
+x-s3-env: &s3-env
+  <<: *aws-env
+  CARTRIDGE_STORAGE_MODEL_BACKEND: s3
+  CARTRIDGE_STORAGE_S3_BUCKET: cartridge-models
+  CARTRIDGE_STORAGE_S3_ENDPOINT: http://minio:9000
+
+# Full K8s storage configuration (PostgreSQL + S3)
+x-k8s-storage-env: &k8s-storage-env
+  <<: *s3-env
+  CARTRIDGE_STORAGE_REPLAY_BACKEND: postgres
+  CARTRIDGE_STORAGE_POSTGRES_URL: postgresql://cartridge:cartridge@postgres:5432/cartridge
+
+# Common volumes for K8s services
+x-k8s-volumes: &k8s-volumes
+  - ./data:/app/data
+  - ./config.toml:/app/config.toml:ro
+
+# Common dependencies for services that need both postgres and minio
+x-k8s-depends: &k8s-depends
+  postgres:
+    condition: service_healthy
+  minio-setup:
+    condition: service_completed_successfully
+
 services:
   # ==========================================================================
   # PostgreSQL - Replay Buffer Storage
@@ -44,7 +79,7 @@ services:
   # MinIO - S3-Compatible Model Storage
   # ==========================================================================
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
     container_name: cartridge-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -68,7 +103,7 @@ services:
   # MinIO Setup - Creates bucket on startup
   # ==========================================================================
   minio-setup:
-    image: minio/mc:latest
+    image: minio/mc:RELEASE.2024-11-05T11-29-45Z
     container_name: cartridge-minio-setup
     depends_on:
       minio:
@@ -96,29 +131,14 @@ services:
     profiles:
       - orchestrator  # Use --profile orchestrator to run this instead of separate trainer+actors
     depends_on:
-      postgres:
-        condition: service_healthy
-      minio-setup:
-        condition: service_completed_successfully
-    volumes:
-      - ./data:/app/data
-      - ./config.toml:/app/config.toml:ro
+      <<: *k8s-depends
+    volumes: *k8s-volumes
     environment:
-      # Game configuration
-      - CARTRIDGE_COMMON_ENV_ID=connect4
-      # Storage backend configuration
-      - CARTRIDGE_STORAGE_REPLAY_BACKEND=postgres
-      - CARTRIDGE_STORAGE_MODEL_BACKEND=s3
-      - CARTRIDGE_STORAGE_POSTGRES_URL=postgresql://cartridge:cartridge@postgres:5432/cartridge
-      - CARTRIDGE_STORAGE_S3_BUCKET=cartridge-models
-      - CARTRIDGE_STORAGE_S3_ENDPOINT=http://minio:9000
-      # AWS credentials for MinIO
-      - AWS_ACCESS_KEY_ID=aspect
-      - AWS_SECRET_ACCESS_KEY=password123
-      - AWS_REGION=us-east-1
+      <<: *k8s-storage-env
+      CARTRIDGE_COMMON_ENV_ID: connect4
       # Legacy env vars (override if needed)
-      - ALPHAZERO_ENV_ID=${ALPHAZERO_ENV_ID:-}
-      - ALPHAZERO_ITERATIONS=${ALPHAZERO_ITERATIONS:-}
+      ALPHAZERO_ENV_ID: ${ALPHAZERO_ENV_ID:-}
+      ALPHAZERO_ITERATIONS: ${ALPHAZERO_ITERATIONS:-}
     networks:
       - cartridge-net
 
@@ -136,26 +156,11 @@ services:
       - k8s
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
-      minio-setup:
-        condition: service_completed_successfully
-    volumes:
-      - ./data:/app/data
-      - ./config.toml:/app/config.toml:ro
+      <<: *k8s-depends
+    volumes: *k8s-volumes
     environment:
-      # Game configuration
-      - CARTRIDGE_COMMON_ENV_ID=connect4
-      # Storage backend configuration
-      - CARTRIDGE_STORAGE_REPLAY_BACKEND=postgres
-      - CARTRIDGE_STORAGE_MODEL_BACKEND=s3
-      - CARTRIDGE_STORAGE_POSTGRES_URL=postgresql://cartridge:cartridge@postgres:5432/cartridge
-      - CARTRIDGE_STORAGE_S3_BUCKET=cartridge-models
-      - CARTRIDGE_STORAGE_S3_ENDPOINT=http://minio:9000
-      # AWS credentials for MinIO
-      - AWS_ACCESS_KEY_ID=aspect
-      - AWS_SECRET_ACCESS_KEY=password123
-      - AWS_REGION=us-east-1
+      <<: *k8s-storage-env
+      CARTRIDGE_COMMON_ENV_ID: connect4
     networks:
       - cartridge-net
     deploy:
@@ -174,26 +179,11 @@ services:
       - k8s
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
-      minio-setup:
-        condition: service_completed_successfully
-    volumes:
-      - ./data:/app/data
-      - ./config.toml:/app/config.toml:ro
+      <<: *k8s-depends
+    volumes: *k8s-volumes
     environment:
-      # Game configuration
-      - CARTRIDGE_COMMON_ENV_ID=connect4
-      # Storage backend configuration
-      - CARTRIDGE_STORAGE_REPLAY_BACKEND=postgres
-      - CARTRIDGE_STORAGE_MODEL_BACKEND=s3
-      - CARTRIDGE_STORAGE_POSTGRES_URL=postgresql://cartridge:cartridge@postgres:5432/cartridge
-      - CARTRIDGE_STORAGE_S3_BUCKET=cartridge-models
-      - CARTRIDGE_STORAGE_S3_ENDPOINT=http://minio:9000
-      # AWS credentials for MinIO
-      - AWS_ACCESS_KEY_ID=aspect
-      - AWS_SECRET_ACCESS_KEY=password123
-      - AWS_REGION=us-east-1
+      <<: *k8s-storage-env
+      CARTRIDGE_COMMON_ENV_ID: connect4
     # Continuous training: train 1000 steps, exit, Docker restarts, repeat
     # This allows picking up fresh data from actors between training cycles
     entrypoint: ["python", "-m", "trainer", "train", "--steps", "1000"]
@@ -216,19 +206,10 @@ services:
     depends_on:
       minio-setup:
         condition: service_completed_successfully
-    volumes:
-      - ./data:/app/data
-      - ./config.toml:/app/config.toml:ro
+    volumes: *k8s-volumes
     environment:
-      - RUST_LOG=info
-      # Storage backend configuration
-      - CARTRIDGE_STORAGE_MODEL_BACKEND=s3
-      - CARTRIDGE_STORAGE_S3_BUCKET=cartridge-models
-      - CARTRIDGE_STORAGE_S3_ENDPOINT=http://minio:9000
-      # AWS credentials for MinIO
-      - AWS_ACCESS_KEY_ID=aspect
-      - AWS_SECRET_ACCESS_KEY=password123
-      - AWS_REGION=us-east-1
+      <<: *s3-env
+      RUST_LOG: info
     ports:
       - "8080:8080"
     networks:

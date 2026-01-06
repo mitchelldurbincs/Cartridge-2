@@ -58,6 +58,7 @@ pub struct Transition {
 /// Implementations must be thread-safe and support concurrent writes
 /// from multiple actor instances (for PostgreSQL backend).
 #[async_trait]
+#[allow(dead_code)]
 pub trait ReplayStore: Send + Sync {
     /// Store a single transition in the replay buffer
     async fn store(&self, transition: &Transition) -> Result<()>;

@@ -20,7 +20,8 @@
       "Bash(grep:*)",
       "Bash(ls:*)",
       "Bash(wc:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(cargo check:*)"
     ],
     "deny": [],
     "ask": []

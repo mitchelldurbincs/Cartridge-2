@@ -13,15 +13,11 @@
 //! - GET  /game/state    - Get current game state
 
 use axum::{
-    extract::{Path, State},
-    http::StatusCode,
     routing::{get, post},
-    Json, Router,
+    Router,
 };
-use engine_core::{create_game, list_registered_games, GameMetadata};
 #[cfg(feature = "onnx")]
 use mcts::OnnxEvaluator;
-use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
@@ -29,11 +25,17 @@ use tracing::info;
 
 mod central_config;
 mod game;
+mod handlers;
 #[cfg(feature = "onnx")]
 mod model_watcher;
+mod types;
 
 use central_config::{get_data_dir, get_default_game, get_host, get_port};
 use game::GameSession;
+use handlers::{
+    get_game_info, get_game_state, get_model_info, get_stats, health, list_games, make_move,
+    new_game, selfplay,
+};
 #[cfg(feature = "onnx")]
 use model_watcher::{ModelInfo, ModelWatcher};
 
@@ -55,15 +57,15 @@ pub struct ModelInfo {
 /// Shared application state
 pub struct AppState {
     /// Current game session
-    session: Mutex<GameSession>,
+    pub session: Mutex<GameSession>,
     /// Current game ID (for creating new sessions)
-    current_game: RwLock<String>,
+    pub current_game: RwLock<String>,
     /// Data directory for stats.json
-    data_dir: String,
+    pub data_dir: String,
     /// Shared evaluator for MCTS (hot-reloaded)
-    evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
+    pub evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
     /// Model info (updated on reload)
-    model_info: Arc<RwLock<ModelInfo>>,
+    pub model_info: Arc<RwLock<ModelInfo>>,
 }
 
 /// Create the application router with the given state.
@@ -209,425 +211,15 @@ async fn main() -> anyhow::Result<()> {
 }
 
 // ============================================================================
-// Health Check
-// ============================================================================
-
-#[derive(Serialize, Deserialize)]
-struct HealthResponse {
-    status: String,
-    version: String,
-}
-
-async fn health() -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "ok".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-    })
-}
-
-// ============================================================================
-// Games List and Info
-// ============================================================================
-
-#[derive(Serialize, Deserialize)]
-struct GamesListResponse {
-    games: Vec<String>,
-}
-
-async fn list_games() -> Json<GamesListResponse> {
-    Json(GamesListResponse {
-        games: list_registered_games(),
-    })
-}
-
-#[derive(Serialize, Deserialize)]
-struct GameInfoResponse {
-    env_id: String,
-    display_name: String,
-    board_width: usize,
-    board_height: usize,
-    num_actions: usize,
-    obs_size: usize,
-    legal_mask_offset: usize,
-    player_count: usize,
-    player_names: Vec<String>,
-    player_symbols: Vec<char>,
-    description: String,
-    board_type: String,
-}
-
-impl From<GameMetadata> for GameInfoResponse {
-    fn from(meta: GameMetadata) -> Self {
-        Self {
-            env_id: meta.env_id,
-            display_name: meta.display_name,
-            board_width: meta.board_width,
-            board_height: meta.board_height,
-            num_actions: meta.num_actions,
-            obs_size: meta.obs_size,
-            legal_mask_offset: meta.legal_mask_offset,
-            player_count: meta.player_count,
-            player_names: meta.player_names,
-            player_symbols: meta.player_symbols,
-            description: meta.description,
-            board_type: meta.board_type,
-        }
-    }
-}
-
-async fn get_game_info(
-    Path(id): Path<String>,
-) -> Result<Json<GameInfoResponse>, (StatusCode, String)> {
-    let game = create_game(&id).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            format!(
-                "Game not found: {}. Use /games to list available games.",
-                id
-            ),
-        )
-    })?;
-
-    let metadata = game.metadata();
-    Ok(Json(metadata.into()))
-}
-
-// ============================================================================
-// Game State
-// ============================================================================
-
-#[derive(Serialize, Deserialize)]
-struct GameStateResponse {
-    /// Board cells: 0=empty, 1=X (player), 2=O (bot)
-    /// Length depends on game (e.g., 9 for TicTacToe, 42 for Connect 4)
-    board: Vec<u8>,
-    /// Current player: 1=X, 2=O
-    current_player: u8,
-    /// Which player the human is: 1 or 2 (depends on who went first)
-    human_player: u8,
-    /// Winner: 0=ongoing, 1=X wins, 2=O wins, 3=draw
-    winner: u8,
-    /// Is the game over?
-    game_over: bool,
-    /// Legal moves (positions)
-    legal_moves: Vec<u8>,
-    /// Status message
-    message: String,
-}
-
-async fn get_game_state(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<GameStateResponse>, (StatusCode, String)> {
-    let session = state.session.lock().await;
-    Ok(Json(session.to_response()))
-}
-
-// ============================================================================
-// New Game
-// ============================================================================
-
-#[derive(Deserialize)]
-struct NewGameRequest {
-    /// Who plays first: "player" or "bot"
-    #[serde(default = "default_first")]
-    first: String,
-    /// Game to play (e.g., "tictactoe", "connect4")
-    #[serde(default)]
-    game: Option<String>,
-}
-
-fn default_first() -> String {
-    "player".to_string()
-}
-
-async fn new_game(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<NewGameRequest>,
-) -> Result<Json<GameStateResponse>, (StatusCode, String)> {
-    let mut session = state.session.lock().await;
-
-    // Determine which game to use
-    let game_id = if let Some(ref game) = req.game {
-        // Update current game if specified
-        if let Ok(mut current) = state.current_game.write() {
-            *current = game.clone();
-        }
-        game.clone()
-    } else {
-        // Use current game
-        state
-            .current_game
-            .read()
-            .map(|g| g.clone())
-            .unwrap_or_else(|_| "tictactoe".to_string())
-    };
-
-    // Reset the game with shared evaluator (for hot-reloading)
-    *session =
-        GameSession::with_evaluator(&game_id, Arc::clone(&state.evaluator)).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to create game '{}': {}", game_id, e),
-            )
-        })?;
-
-    // If bot goes first, bot is player 1, human is player 2
-    // If player goes first, human is player 1, bot is player 2
-    if req.first == "bot" {
-        session.set_human_player(2); // Human plays as O (player 2)
-        session.bot_move().map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Bot move failed: {}", e),
-            )
-        })?;
-    } else {
-        session.set_human_player(1); // Human plays as X (player 1) - default
-    }
-
-    Ok(Json(session.to_response()))
-}
-
-// ============================================================================
-// Make Move
-// ============================================================================
-
-#[derive(Deserialize)]
-struct MoveRequest {
-    /// Position or column to play (game-specific: 0-8 for TicTacToe, 0-6 for Connect4)
-    position: u8,
-}
-
-#[derive(Serialize, Deserialize)]
-struct MoveResponse {
-    /// Updated game state
-    #[serde(flatten)]
-    state: GameStateResponse,
-    /// Bot's move position (if bot moved)
-    bot_move: Option<u8>,
-}
-
-async fn make_move(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<MoveRequest>,
-) -> Result<Json<MoveResponse>, (StatusCode, String)> {
-    let mut session = state.session.lock().await;
-
-    // Check if game is over
-    if session.is_game_over() {
-        return Err((StatusCode::BAD_REQUEST, "Game is already over".to_string()));
-    }
-
-    // Check if it's the human's turn
-    if !session.is_human_turn() {
-        return Err((StatusCode::BAD_REQUEST, "Not your turn".to_string()));
-    }
-
-    // Check if move is legal (this handles position validation based on game type)
-    if !session.is_legal_move(req.position) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!(
-                "Illegal move: position/column {} is not valid",
-                req.position
-            ),
-        ));
-    }
-
-    // Make player's move
-    session.player_move(req.position).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Move failed: {}", e),
-        )
-    })?;
-
-    // If game is not over, bot makes a move
-    let bot_move = if !session.is_game_over() {
-        let pos = session.bot_move().map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Bot move failed: {}", e),
-            )
-        })?;
-        Some(pos)
-    } else {
-        None
-    };
-
-    Ok(Json(MoveResponse {
-        state: session.to_response(),
-        bot_move,
-    }))
-}
-
-// ============================================================================
-// Stats
-// ============================================================================
-
-/// Training history entry for loss visualization
-#[derive(Deserialize, Serialize, Clone, Default)]
-struct HistoryEntry {
-    #[serde(default)]
-    step: u32,
-    #[serde(default)]
-    total_loss: f64,
-    #[serde(default)]
-    value_loss: f64,
-    #[serde(default)]
-    policy_loss: f64,
-    #[serde(default)]
-    learning_rate: f64,
-}
-
-/// Evaluation stats from a single evaluation run
-#[derive(Deserialize, Serialize, Clone, Default)]
-struct EvalStats {
-    #[serde(default)]
-    step: u32,
-    #[serde(default)]
-    win_rate: f64,
-    #[serde(default)]
-    draw_rate: f64,
-    #[serde(default)]
-    loss_rate: f64,
-    #[serde(default)]
-    games_played: u32,
-    #[serde(default)]
-    avg_game_length: f64,
-    #[serde(default)]
-    timestamp: f64,
-}
-
-/// Training stats read from Python trainer and sent to frontend
-#[derive(Serialize, Deserialize, Default)]
-struct TrainingStats {
-    #[serde(default)]
-    step: u32,
-    #[serde(default)]
-    total_steps: u32,
-    #[serde(default)]
-    total_loss: f64,
-    #[serde(default)]
-    policy_loss: f64,
-    #[serde(default)]
-    value_loss: f64,
-    #[serde(default)]
-    replay_buffer_size: u64,
-    #[serde(default)]
-    learning_rate: f64,
-    #[serde(default)]
-    timestamp: f64,
-    #[serde(default)]
-    env_id: String,
-    #[serde(default)]
-    last_eval: Option<EvalStats>,
-    #[serde(default)]
-    eval_history: Vec<EvalStats>,
-    #[serde(default)]
-    history: Vec<HistoryEntry>,
-}
-
-async fn get_stats(State(state): State<Arc<AppState>>) -> Json<TrainingStats> {
-    let stats_path = format!("{}/stats.json", state.data_dir);
-
-    match tokio::fs::read_to_string(&stats_path).await {
-        Ok(content) => match serde_json::from_str::<TrainingStats>(&content) {
-            Ok(stats) => Json(stats),
-            Err(e) => {
-                tracing::warn!("Failed to parse stats.json: {}", e);
-                Json(TrainingStats::default())
-            }
-        },
-        Err(_) => {
-            // Return empty stats if file doesn't exist
-            Json(TrainingStats::default())
-        }
-    }
-}
-
-// ============================================================================
-// Model Info
-// ============================================================================
-
-#[derive(Serialize)]
-struct ModelInfoResponse {
-    /// Whether a model is currently loaded
-    loaded: bool,
-    /// Path to the loaded model file
-    path: Option<String>,
-    /// When the model file was last modified (Unix timestamp)
-    file_modified: Option<u64>,
-    /// When the model was loaded into memory (Unix timestamp)
-    loaded_at: Option<u64>,
-    /// Training step from filename (if parseable)
-    training_step: Option<u32>,
-    /// Human-readable status message
-    status: String,
-}
-
-async fn get_model_info(State(state): State<Arc<AppState>>) -> Json<ModelInfoResponse> {
-    let info = state
-        .model_info
-        .read()
-        .map(|guard| guard.clone())
-        .unwrap_or_default();
-
-    let status = if info.loaded {
-        match info.training_step {
-            Some(step) => format!("Model loaded (step {})", step),
-            None => "Model loaded".to_string(),
-        }
-    } else {
-        "No model loaded - bot plays randomly".to_string()
-    };
-
-    Json(ModelInfoResponse {
-        loaded: info.loaded,
-        path: info.path,
-        file_modified: info.file_modified,
-        loaded_at: info.loaded_at,
-        training_step: info.training_step,
-        status,
-    })
-}
-
-// ============================================================================
-// Self-Play Control (Placeholder)
-// ============================================================================
-
-#[derive(Deserialize)]
-struct SelfPlayRequest {
-    action: String, // "start" or "stop"
-}
-
-#[derive(Serialize)]
-struct SelfPlayResponse {
-    status: String,
-    message: String,
-}
-
-async fn selfplay(Json(req): Json<SelfPlayRequest>) -> Json<SelfPlayResponse> {
-    // Placeholder - actual implementation would control the actor process
-    let message = match req.action.as_str() {
-        "start" => "Self-play start requested (not implemented yet)",
-        "stop" => "Self-play stop requested (not implemented yet)",
-        _ => "Unknown action",
-    };
-
-    Json(SelfPlayResponse {
-        status: "placeholder".to_string(),
-        message: message.to_string(),
-    })
-}
-
-// ============================================================================
 // Integration Tests
 // ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{
+        GameInfoResponse, GameStateResponse, GamesListResponse, HealthResponse, MoveResponse,
+    };
     use axum::{
         body::Body,
         http::{Request, StatusCode},

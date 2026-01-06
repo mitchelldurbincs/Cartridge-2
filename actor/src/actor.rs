@@ -39,45 +39,40 @@ use crate::model_watcher::ModelWatcher;
 use crate::storage::{create_replay_store, ReplayStore, StorageBackend, StorageConfig, Transition};
 use std::sync::Arc;
 
-/// Extract a legal moves mask from the observation bytes.
-///
-/// The observation contains f32 values where indices starting at `legal_mask_offset`
-/// are the legal moves (1.0 = legal, 0.0 = illegal). This function extracts
-/// those values and packs them into a u64 bitmask.
-///
-/// This is more robust than hardcoding the initial mask, as it works for:
-/// - Any initial state (including non-empty boards if reset from saved state)
-/// - Any game that encodes legal moves in the observation
-fn extract_legal_mask_from_obs(obs: &[u8], config: &GameConfig) -> u64 {
-    // Each f32 is 4 bytes
-    let legal_start_byte = config.legal_mask_offset * 4;
-    let legal_end_byte = legal_start_byte + config.num_actions * 4;
+/// Context for a single episode, containing metadata and timing information.
+struct EpisodeContext {
+    id: String,
+    start_time: Instant,
+    timeout: Duration,
+    max_steps: u32,
+}
 
-    if obs.len() < legal_end_byte {
-        // Fallback: if observation is too short, assume all legal (shouldn't happen)
-        warn!(
-            "Observation too short ({} bytes), expected at least {}. Using fallback mask.",
-            obs.len(),
-            legal_end_byte
-        );
-        return config.legal_mask_bits();
+impl EpisodeContext {
+    /// Create a new episode context with generated ID and timing.
+    fn new(
+        actor_id: &str,
+        episode_count: u32,
+        timeout_secs: u64,
+        max_horizon: u32,
+    ) -> Result<Self> {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
+        let id = format!("{}-ep-{}-{}", actor_id, episode_count, now.as_secs());
+        let timeout = Duration::from_secs(timeout_secs);
+        // Use 10x max_horizon as generous upper bound to protect against infinite loops
+        let max_steps = max_horizon.saturating_mul(10).max(1000);
+
+        Ok(Self {
+            id,
+            start_time: Instant::now(),
+            timeout,
+            max_steps,
+        })
     }
 
-    let mut mask = 0u64;
-    for i in 0..config.num_actions {
-        let byte_offset = legal_start_byte + i * 4;
-        let value = f32::from_le_bytes([
-            obs[byte_offset],
-            obs[byte_offset + 1],
-            obs[byte_offset + 2],
-            obs[byte_offset + 3],
-        ]);
-        // If value > 0.5, consider it legal (should be 1.0 for legal, 0.0 for illegal)
-        if value > 0.5 {
-            mask |= 1u64 << i;
-        }
+    /// Check if the episode has exceeded its timeout.
+    fn is_timed_out(&self) -> bool {
+        self.start_time.elapsed() > self.timeout
     }
-    mask
 }
 
 pub struct Actor {
@@ -302,93 +297,114 @@ impl Actor {
             .map_err(|e| anyhow!("MCTS policy lock poisoned: {}", e))
     }
 
-    async fn run_episode(&self) -> Result<(u32, f32)> {
-        let episode_count = self.episode_count.load(Ordering::Relaxed);
-        let episode_id = format!(
-            "{}-ep-{}-{}",
-            self.config.actor_id,
-            episode_count,
-            SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
-        );
+    /// Check episode limits and return error if exceeded.
+    fn check_episode_limits(&self, ctx: &EpisodeContext, steps_taken: u32) -> Result<()> {
+        if ctx.is_timed_out() {
+            warn!(
+                "Episode {} timed out after {:?} ({} steps taken)",
+                ctx.id,
+                ctx.start_time.elapsed(),
+                steps_taken
+            );
+            return Err(anyhow!(
+                "Episode timed out after {} seconds",
+                ctx.timeout.as_secs()
+            ));
+        }
+
+        if steps_taken >= ctx.max_steps {
+            warn!(
+                "Episode {} exceeded max steps ({}) without terminating",
+                ctx.id, ctx.max_steps
+            );
+            return Err(anyhow!(
+                "Episode exceeded {} steps without terminating",
+                ctx.max_steps
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Backfill game outcomes and store transitions.
+    async fn finalize_episode(
+        &self,
+        mut transitions: Vec<Transition>,
+        final_reward: f32,
+        episode_id: &str,
+    ) -> Result<()> {
+        let total_steps = transitions.len() as u32;
+
+        // Backfill game outcomes for all transitions
+        // The final reward indicates the outcome from the last mover's perspective:
+        // +1 = win, -1 = loss, 0 = draw
+        for t in &mut transitions {
+            let steps_from_end = total_steps.saturating_sub(1).saturating_sub(t.step_number);
+            let sign = if steps_from_end % 2 == 0 { 1.0 } else { -1.0 };
+            t.game_outcome = Some(final_reward * sign);
+        }
+
+        // Batch store all transitions in a single transaction
+        self.replay.store_batch(&transitions).await.map_err(|e| {
+            error!(
+                "Failed to store transitions for episode {}: {}",
+                episode_id, e
+            );
+            e
+        })?;
 
         debug!(
-            episode = episode_count + 1,
-            env_id = %self.config.env_id,
-            "Starting new episode"
+            "Stored {} transitions with game_outcome={} for episode {}",
+            transitions.len(),
+            final_reward,
+            episode_id
         );
 
-        // Generate a seed for this episode
-        let seed = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos() as u64;
+        Ok(())
+    }
 
-        // Reset the game and get max_horizon for step limit
+    async fn run_episode(&self) -> Result<(u32, f32)> {
+        let episode_count = self.episode_count.load(Ordering::Relaxed);
+
+        // Get max_horizon and reset the game
         let (reset_result, max_horizon) = {
             let mut engine = self.lock_engine()?;
             let caps = engine.capabilities();
+            let seed = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos() as u64;
             let reset = engine.reset(seed, &[])?;
             (reset, caps.max_horizon)
         };
 
+        // Create episode context with timing and limits
+        let ctx = EpisodeContext::new(
+            &self.config.actor_id,
+            episode_count,
+            self.config.episode_timeout_secs,
+            max_horizon,
+        )?;
+
+        debug!(
+            episode = episode_count + 1,
+            env_id = %self.config.env_id,
+            timeout_secs = ctx.timeout.as_secs(),
+            max_steps = ctx.max_steps,
+            "Starting episode {}",
+            ctx.id
+        );
+
+        // Episode state
         let mut current_state = reset_result.state;
         let mut current_obs = reset_result.obs;
+        let mut current_legal_mask = self.game_config.extract_legal_mask(&current_obs);
         let mut step_number = 0u32;
         let mut steps_taken = 0u32;
         let mut total_reward = 0.0f32;
-
-        // Pre-allocate transition buffer for batched insert (reduces fsync overhead)
-        // TicTacToe games are typically 5-9 moves
         let mut transitions: Vec<Transition> = Vec::with_capacity(12);
 
-        // Extract initial legal moves mask from the observation.
-        // The observation format is game-specific:
-        //   - board_view: N floats (indices 0 to legal_mask_offset-1)
-        //   - legal_moves: num_actions floats (1.0 = legal, 0.0 = illegal)
-        //   - other game-specific data
-        // This approach works for any game that encodes legal moves in the observation.
-        let mut current_legal_mask = extract_legal_mask_from_obs(&current_obs, &self.game_config);
-
-        // Timeout tracking
-        let episode_start = Instant::now();
-        let timeout = Duration::from_secs(self.config.episode_timeout_secs);
-        // Step limit: use 10x max_horizon as a generous upper bound
-        // This protects against infinite loops in buggy game implementations
-        let max_steps = max_horizon.saturating_mul(10).max(1000);
-
-        debug!(
-            "Started episode {} (timeout={}s, max_steps={})",
-            episode_id,
-            timeout.as_secs(),
-            max_steps
-        );
-
         loop {
-            // Check timeout
-            if episode_start.elapsed() > timeout {
-                warn!(
-                    "Episode {} timed out after {:?} ({} steps taken)",
-                    episode_id,
-                    episode_start.elapsed(),
-                    steps_taken
-                );
-                return Err(anyhow!(
-                    "Episode timed out after {} seconds",
-                    timeout.as_secs()
-                ));
-            }
-
-            // Check step limit
-            if steps_taken >= max_steps {
-                warn!(
-                    "Episode {} exceeded max steps ({}) without terminating",
-                    episode_id, max_steps
-                );
-                return Err(anyhow!(
-                    "Episode exceeded {} steps without terminating",
-                    max_steps
-                ));
-            }
+            self.check_episode_limits(&ctx, steps_taken)?;
 
             // Select action using MCTS policy
-            // Pass step_number for temperature schedule (lower temp in late game)
             let policy_result = {
                 let mut policy = self.lock_mcts_policy()?;
                 policy.select_action(
@@ -408,26 +424,17 @@ impl Actor {
             total_reward += step_result.reward;
             steps_taken += 1;
 
-            // Extract legal moves mask from info for next step
-            // Games pack legal_moves_mask in lower N bits of info (N = num_actions)
-            let next_legal_mask = step_result.info & self.game_config.legal_mask_bits();
-
-            // Convert policy to bytes for storage
+            // Create transition (moves current_state/obs to avoid cloning)
             let policy_bytes: Vec<u8> = policy_result
                 .policy
                 .iter()
                 .flat_map(|f| f.to_le_bytes())
                 .collect();
 
-            // Create transition - we'll batch insert at episode end
-            // game_outcome is initially None - we backfill it after the episode ends
-            //
-            // Note: We move current_state/current_obs into the transition and then
-            // update them from step_result. This avoids cloning on each step.
-            let transition = Transition {
-                id: format!("{}-step-{}", episode_id, step_number),
+            transitions.push(Transition {
+                id: format!("{}-step-{}", ctx.id, step_number),
                 env_id: self.config.env_id.clone(),
-                episode_id: episode_id.clone(),
+                episode_id: ctx.id.clone(),
                 step_number,
                 state: std::mem::take(&mut current_state),
                 action: policy_result.action,
@@ -440,52 +447,24 @@ impl Actor {
                 policy_probs: policy_bytes,
                 mcts_value: policy_result.value,
                 game_outcome: None,
-            };
+            });
 
-            // Add to batch (we'll store all at once at episode end)
-            transitions.push(transition);
-
-            // Check if episode is done
             if step_result.done {
-                let total_steps = step_number + 1;
                 debug!(
                     "Episode {} completed in {} steps, total reward: {:.2}",
-                    episode_id, total_steps, total_reward
+                    ctx.id,
+                    step_number + 1,
+                    total_reward
                 );
-
-                // Backfill game outcomes for all transitions before storing
-                // The final reward indicates the outcome from the last mover's perspective:
-                // +1 = win, -1 = loss, 0 = draw
-                let final_outcome = step_result.reward;
-                for t in &mut transitions {
-                    let steps_from_end =
-                        total_steps.saturating_sub(1).saturating_sub(t.step_number);
-                    let sign = if steps_from_end % 2 == 0 { 1.0 } else { -1.0 };
-                    t.game_outcome = Some(final_outcome * sign);
-                }
-
-                // Batch store all transitions in a single transaction
-                // This dramatically reduces fsync overhead (1 fsync vs N fsyncs)
-                if let Err(e) = self.replay.store_batch(&transitions).await {
-                    error!(
-                        "Failed to store transitions for episode {}: {}",
-                        episode_id, e
-                    );
-                    return Err(e);
-                }
-                debug!(
-                    "Stored {} transitions with game_outcome={} for episode {}",
-                    transitions.len(),
-                    final_outcome,
-                    episode_id
-                );
+                self.finalize_episode(transitions, step_result.reward, &ctx.id)
+                    .await?;
                 break;
             }
 
             // Update state for next step
             current_state = step_result.state;
             current_obs = step_result.obs;
-            current_legal_mask = next_legal_mask;
+            current_legal_mask = step_result.info & self.game_config.legal_mask_bits();
             step_number += 1;
         }
 

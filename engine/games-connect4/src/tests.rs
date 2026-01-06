@@ -206,7 +206,7 @@ fn test_draw_game() {
 #[test]
 fn test_observation_encoding() {
     let state = State::new();
-    let obs = Observation::from_state(&state);
+    let obs = observation_from_state(&state);
 
     // All board positions should be 0 initially
     assert_eq!(obs.board_view, [0.0; BOARD_SIZE * 2]);
@@ -270,7 +270,7 @@ fn test_observation_byte_encoding() {
     let mut state = State::new();
     state = state.drop_piece(3);
 
-    let obs = Observation::from_state(&state);
+    let obs = observation_from_state(&state);
 
     let mut buf = Vec::new();
     Connect4::encode_obs(&obs, &mut buf).unwrap();

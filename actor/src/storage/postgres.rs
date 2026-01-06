@@ -11,7 +11,7 @@ use engine_core::GameMetadata;
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
 
-use super::{ReplayStore, StoredGameMetadata, Transition};
+use super::{ReplayStore, Transition};
 
 /// PostgreSQL-backed replay buffer implementation.
 ///
@@ -253,43 +253,9 @@ impl ReplayStore for PostgresReplayStore {
         Ok(())
     }
 
-    async fn get_metadata(&self, env_id: &str) -> Result<Option<StoredGameMetadata>> {
-        let client = self.client.lock().await;
-        let rows = client
-            .query(
-                "SELECT env_id, display_name, board_width, board_height, num_actions,
-                        obs_size, legal_mask_offset, player_count
-                 FROM game_metadata WHERE env_id = $1",
-                &[&env_id],
-            )
-            .await?;
-
-        if rows.is_empty() {
-            return Ok(None);
-        }
-
-        let row = &rows[0];
-        Ok(Some(StoredGameMetadata {
-            env_id: row.get(0),
-            display_name: row.get(1),
-            board_width: row.get::<_, i32>(2) as usize,
-            board_height: row.get::<_, i32>(3) as usize,
-            num_actions: row.get::<_, i32>(4) as usize,
-            obs_size: row.get::<_, i32>(5) as usize,
-            legal_mask_offset: row.get::<_, i32>(6) as usize,
-            player_count: row.get::<_, i32>(7) as usize,
-        }))
-    }
-
     async fn clear(&self) -> Result<()> {
         let client = self.client.lock().await;
         client.execute("DELETE FROM transitions", &[]).await?;
-        Ok(())
-    }
-
-    async fn close(&self) -> Result<()> {
-        // Connection is closed when the client is dropped
-        // The connection handle will complete
         Ok(())
     }
 }
