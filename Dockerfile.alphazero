@@ -7,8 +7,8 @@
 #   docker build -f Dockerfile.alphazero -t cartridge-alphazero .
 #   docker run -v ./data:/app/data cartridge-alphazero
 #
-# For K8s backends (PostgreSQL + S3):
-#   docker build -f Dockerfile.alphazero --build-arg CARGO_FEATURES="postgres,s3" .
+# For K8s backends (S3 model storage):
+#   docker build -f Dockerfile.alphazero --build-arg CARGO_FEATURES="s3" .
 #
 # Or via docker-compose:
 #   docker compose up alphazero
@@ -19,7 +19,7 @@
 # ============================================
 FROM rust:1.88-bookworm AS rust-builder
 
-# Optional features: postgres (PostgreSQL replay), s3 (S3 model storage)
+# PostgreSQL is built-in. Optional feature: s3 (S3 model storage)
 ARG CARGO_FEATURES=""
 
 RUN apt-get update && apt-get install -y \
@@ -52,9 +52,6 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security
-RUN useradd -m -u 1000 -s /bin/bash aspect
-
 WORKDIR /app
 
 # Copy actor binary from rust builder
@@ -70,11 +67,8 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 # Install trainer package
 RUN pip install --no-cache-dir ./trainer
 
-# Create data directory with proper ownership
-RUN mkdir -p /app/data/models && chown -R aspect:aspect /app
-
-# Switch to non-root user
-USER aspect
+# Create data directory
+RUN mkdir -p /app/data/models
 
 # ============================================
 # Environment Configuration

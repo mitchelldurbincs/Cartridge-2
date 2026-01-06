@@ -10,6 +10,7 @@ dependencies = [
     "onnx>=1.14.0",
     "onnxscript>=0.1.0",
     "onnxruntime>=1.15.0",
+    "psycopg2-binary>=2.9.0",
     "tomli>=2.0.0;python_version<'3.11'",
 ]
 

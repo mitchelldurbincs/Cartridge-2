@@ -1,12 +1,12 @@
 """PostgreSQL backend for replay buffer storage.
 
-This backend is designed for Kubernetes deployments where multiple
-actors and trainers need concurrent access to the replay buffer.
+This is the primary backend for all deployments (local and cloud).
+Supports concurrent access from multiple actors and trainers.
 
-Requires: psycopg2 or asyncpg
+Requires: psycopg2
 
 Environment variables:
-    CARTRIDGE_POSTGRES_URL: PostgreSQL connection string
+    CARTRIDGE_STORAGE_POSTGRES_URL: PostgreSQL connection string
         Format: postgresql://user:password@host:port/database
 """
 
@@ -29,8 +29,6 @@ class PostgresReplayBuffer(ReplayBufferBase):
     - Concurrent reads from multiple trainers
     - Efficient random sampling using TABLESAMPLE or ORDER BY RANDOM()
     - Connection pooling for high throughput
-
-    The schema matches the SQLite version for compatibility.
     """
 
     def __init__(
@@ -340,6 +338,31 @@ class PostgresReplayBuffer(ReplayBufferBase):
         try:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM transitions")
+                count = cur.rowcount
+                conn.commit()
+                return count
+        finally:
+            self._put_conn(conn)
+
+    def cleanup(self, window_size: int) -> int:
+        """Delete old transitions to maintain a sliding window.
+
+        Returns the number of deleted transitions.
+        """
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM transitions
+                    WHERE id NOT IN (
+                        SELECT id FROM transitions
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                    )
+                    """,
+                    (window_size,),
+                )
                 count = cur.rowcount
                 conn.commit()
                 return count

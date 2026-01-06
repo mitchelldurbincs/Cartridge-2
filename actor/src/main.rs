@@ -38,8 +38,8 @@ fn init_tracing(level: &str) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Parse configuration and apply defaults from central config
-    let config = Config::parse().with_defaults();
+    // Parse configuration
+    let config = Config::parse();
 
     // Validate configuration
     config.validate()?;

@@ -1,13 +1,13 @@
 """Evaluator for measuring trained model performance against baselines.
 
 This module provides evaluation capabilities to measure how well a trained
-model plays games compared to random play. It loads game configuration from
-the replay database (like the Rust actor does), making it self-describing
+model plays games compared to random play. It can load game configuration from
+the PostgreSQL database (like the Rust actor does), making it self-describing
 and supporting multiple games.
 
 Usage (defaults assume running from trainer/ directory):
     python -m trainer.evaluator --model ../data/models/latest.onnx --games 100
-    python -m trainer.evaluator --db ../data/replay.db --env-id connect4 --games 100
+    python -m trainer.evaluator --env-id connect4 --games 100
 """
 
 import argparse
@@ -23,7 +23,7 @@ import numpy as np
 import onnxruntime as ort
 
 from .game_config import GameConfig, get_config
-from .replay import GameMetadata, ReplayBuffer
+from .storage import GameMetadata, create_replay_buffer
 
 logger = logging.getLogger(__name__)
 
@@ -43,31 +43,30 @@ class Cell(IntEnum):
     SECOND = 2  # Second player's piece
 
 
-def get_game_metadata_or_config(
-    db_path: str | None, env_id: str
-) -> GameConfig | GameMetadata:
+def get_game_metadata_or_config(env_id: str) -> GameConfig | GameMetadata:
     """Load game configuration from database or fall back to hardcoded config.
 
     This follows the same pattern as trainer.py, making the evaluator self-describing
-    by reading metadata from the replay database when available.
+    by reading metadata from the PostgreSQL database when available.
 
     Args:
-        db_path: Path to replay database. If None or doesn't exist, uses fallback.
         env_id: Environment ID (e.g., "tictactoe", "connect4").
 
     Returns:
         GameConfig or GameMetadata with game configuration.
     """
-    if db_path and Path(db_path).exists():
+    try:
+        replay = create_replay_buffer()
         try:
-            with ReplayBuffer(db_path, validate_schema=False) as replay:
-                metadata = replay.get_metadata(env_id)
-                if metadata:
-                    logger.info(f"Loaded game metadata from database for {env_id}")
-                    return metadata
-                logger.warning(f"No metadata in database for {env_id}, using fallback")
-        except Exception as e:
-            logger.warning(f"Failed to read database metadata: {e}, using fallback")
+            metadata = replay.get_metadata(env_id)
+            if metadata:
+                logger.info(f"Loaded game metadata from database for {env_id}")
+                return metadata
+            logger.warning(f"No metadata in database for {env_id}, using fallback")
+        finally:
+            replay.close()
+    except Exception as e:
+        logger.warning(f"Failed to read database metadata: {e}, using fallback")
 
     return get_config(env_id)
 
@@ -782,12 +781,6 @@ def main() -> int:
         help="Path to ONNX model file",
     )
     parser.add_argument(
-        "--db",
-        type=str,
-        default="../data/replay.db",
-        help="Path to replay database (for loading game metadata)",
-    )
-    parser.add_argument(
         "--env-id",
         type=str,
         default="tictactoe",
@@ -830,7 +823,7 @@ def main() -> int:
 
     # Load game configuration from database (preferred) or fallback to hardcoded
     # This follows the same pattern as the Rust actor, making the evaluator self-describing
-    config = get_game_metadata_or_config(args.db, args.env_id)
+    config = get_game_metadata_or_config(args.env_id)
     logger.info(
         f"Game config for {args.env_id}: "
         f"board={config.board_width}x{config.board_height}, "

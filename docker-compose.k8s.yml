@@ -126,7 +126,7 @@ services:
       context: .
       dockerfile: Dockerfile.alphazero
       args:
-        CARGO_FEATURES: "postgres,s3"
+        CARGO_FEATURES: "s3"
     container_name: cartridge-alphazero-k8s
     profiles:
       - orchestrator  # Use --profile orchestrator to run this instead of separate trainer+actors
@@ -150,7 +150,7 @@ services:
       context: .
       dockerfile: actor/Dockerfile
       args:
-        CARGO_FEATURES: "postgres,s3"
+        CARGO_FEATURES: "s3"
     # Note: No container_name to allow horizontal scaling with --scale actor-k8s=N
     profiles:
       - k8s
@@ -220,3 +220,7 @@ volumes:
     driver: local
   minio_data:
     driver: local
+
+networks:
+  cartridge-net:
+    driver: bridge

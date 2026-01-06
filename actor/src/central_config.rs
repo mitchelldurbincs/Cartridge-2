@@ -38,8 +38,8 @@ mod defaults {
     pub const TEMPERATURE: f64 = 1.0;
     pub const DIRICHLET_ALPHA: f64 = 0.3;
     pub const DIRICHLET_WEIGHT: f64 = 0.25;
-    pub const REPLAY_BACKEND: &str = "sqlite";
     pub const MODEL_BACKEND: &str = "filesystem";
+    pub const POSTGRES_URL: &str = "postgresql://cartridge:cartridge@localhost:5432/cartridge";
 }
 
 /// Root configuration structure matching config.toml
@@ -147,11 +147,11 @@ fn d_dirichlet_alpha() -> f64 {
 fn d_dirichlet_weight() -> f64 {
     defaults::DIRICHLET_WEIGHT
 }
-fn d_replay_backend() -> String {
-    defaults::REPLAY_BACKEND.into()
-}
 fn d_model_backend() -> String {
     defaults::MODEL_BACKEND.into()
+}
+fn d_postgres_url() -> Option<String> {
+    Some(defaults::POSTGRES_URL.into())
 }
 
 #[derive(Debug, Deserialize)]
@@ -310,15 +310,13 @@ impl Default for MctsConfig {
     }
 }
 
-/// Storage backend configuration for K8s deployments
+/// Storage backend configuration
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct StorageConfig {
-    #[serde(default = "d_replay_backend")]
-    pub replay_backend: String,
     #[serde(default = "d_model_backend")]
     pub model_backend: String,
-    #[serde(default)]
+    #[serde(default = "d_postgres_url")]
     pub postgres_url: Option<String>,
     #[serde(default)]
     pub s3_bucket: Option<String>,
@@ -329,9 +327,8 @@ pub struct StorageConfig {
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
-            replay_backend: defaults::REPLAY_BACKEND.into(),
             model_backend: defaults::MODEL_BACKEND.into(),
-            postgres_url: None,
+            postgres_url: Some(defaults::POSTGRES_URL.into()),
             s3_bucket: None,
             s3_endpoint: None,
         }
@@ -551,11 +548,6 @@ fn apply_env_overrides(mut config: CentralConfig) -> CentralConfig {
     // Storage
     env_override!(
         config,
-        storage.replay_backend,
-        "CARTRIDGE_STORAGE_REPLAY_BACKEND"
-    );
-    env_override!(
-        config,
         storage.model_backend,
         "CARTRIDGE_STORAGE_MODEL_BACKEND"
     );
@@ -643,9 +635,11 @@ env_id = "connect4"
     #[test]
     fn test_storage_config_defaults() {
         let config = CentralConfig::default();
-        assert_eq!(config.storage.replay_backend, "sqlite");
         assert_eq!(config.storage.model_backend, "filesystem");
-        assert!(config.storage.postgres_url.is_none());
+        assert_eq!(
+            config.storage.postgres_url,
+            Some("postgresql://cartridge:cartridge@localhost:5432/cartridge".to_string())
+        );
         assert!(config.storage.s3_bucket.is_none());
         assert!(config.storage.s3_endpoint.is_none());
     }
@@ -654,14 +648,12 @@ env_id = "connect4"
     fn test_storage_config_from_toml() {
         let toml_content = r#"
 [storage]
-replay_backend = "postgres"
 model_backend = "s3"
 postgres_url = "postgresql://user:pass@localhost:5432/cartridge"
 s3_bucket = "my-bucket"
 s3_endpoint = "http://minio:9000"
 "#;
         let config: CentralConfig = toml::from_str(toml_content).unwrap();
-        assert_eq!(config.storage.replay_backend, "postgres");
         assert_eq!(config.storage.model_backend, "s3");
         assert_eq!(
             config.storage.postgres_url,
@@ -676,7 +668,6 @@ s3_endpoint = "http://minio:9000"
 
     #[test]
     fn test_storage_env_overrides() {
-        std::env::set_var("CARTRIDGE_STORAGE_REPLAY_BACKEND", "postgres");
         std::env::set_var("CARTRIDGE_STORAGE_MODEL_BACKEND", "s3");
         std::env::set_var(
             "CARTRIDGE_STORAGE_POSTGRES_URL",
@@ -684,14 +675,12 @@ s3_endpoint = "http://minio:9000"
         );
 
         let config = load_config();
-        assert_eq!(config.storage.replay_backend, "postgres");
         assert_eq!(config.storage.model_backend, "s3");
         assert_eq!(
             config.storage.postgres_url,
             Some("postgresql://test@localhost/db".to_string())
         );
 
-        std::env::remove_var("CARTRIDGE_STORAGE_REPLAY_BACKEND");
         std::env::remove_var("CARTRIDGE_STORAGE_MODEL_BACKEND");
         std::env::remove_var("CARTRIDGE_STORAGE_POSTGRES_URL");
     }

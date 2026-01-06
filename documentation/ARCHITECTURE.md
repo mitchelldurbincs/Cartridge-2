@@ -44,7 +44,7 @@ Cartridge2 is a simplified AlphaZero training and visualization platform that en
 | Training | Python (PyTorch, ONNX) |
 | Backend API | Rust (Axum) |
 | Frontend | Svelte 5 + TypeScript |
-| Storage | SQLite/PostgreSQL + Filesystem/S3 |
+| Storage | PostgreSQL + Filesystem/S3 |
 
 ---
 
@@ -55,7 +55,7 @@ Cartridge2 is a simplified AlphaZero training and visualization platform that en
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           Shared Filesystem / Storage                        │
-│  ./data/replay.db          - SQLite replay buffer (or PostgreSQL for K8s)   │
+│  PostgreSQL                 - Replay buffer database                         │
 │  ./data/models/latest.onnx - Current ONNX model (hot-reloaded)              │
 │  ./data/stats.json         - Training telemetry for web UI                  │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -66,7 +66,7 @@ Cartridge2 is a simplified AlphaZero training and visualization platform that en
 │  (Rust Binary)  │  │   (Python)    │  │  (Axum :8080)   │  │  (Svelte :5173) │
 │                 │  │               │  │                 │  │                 │
 │  - Engine lib   │  │  - PyTorch    │  │  - Engine lib   │  │  - Play UI      │
-│  - MCTS policy  │  │  - SQLite     │  │  - Game API     │  │  - Stats charts │
+│  - MCTS policy  │  │  - PostgreSQL │  │  - Game API     │  │  - Stats charts │
 │  - Self-play    │  │  - ONNX export│  │  - Stats API    │  │  - Loss display │
 │  - Model watch  │  │  - Evaluation │  │  - Model watch  │  │                 │
 └─────────────────┘  └───────────────┘  └─────────────────┘  └─────────────────┘
@@ -104,8 +104,8 @@ Cartridge2 is a simplified AlphaZero training and visualization platform that en
                        └──────▲──────┘ │                  │
                               │ samples│                  │
                        ┌──────┴──────┐ │                  │
-                       │  replay.db  │◄┘                  │
-                       │  (SQLite)   │                    │
+                       │  PostgreSQL │◄┘                  │
+                       │  (Database) │                    │
                        └──────▲──────┘                    │
                               │ stores transitions        │
                        ┌──────┴──────┐                    │
@@ -372,7 +372,6 @@ actor/
     ├── central_config.rs  # config.toml loading
     └── storage/
         ├── mod.rs         # ReplayStore trait
-        ├── sqlite.rs      # SQLite backend
         └── postgres.rs    # PostgreSQL backend
 ```
 
@@ -492,7 +491,6 @@ trainer/
     └── storage/
         ├── base.py        # Abstract interfaces
         ├── factory.py     # Backend factory
-        ├── sqlite.py      # SQLite implementation
         ├── postgres.py    # PostgreSQL implementation
         ├── s3.py          # S3 model storage
         └── filesystem.py  # Filesystem model storage
@@ -502,7 +500,7 @@ trainer/
 
 ```bash
 # Standalone training
-python -m trainer train --db ./data/replay.db --steps 1000
+python -m trainer train --steps 1000
 
 # Model evaluation
 python -m trainer evaluate --model ./data/models/latest.onnx --games 100
@@ -713,12 +711,13 @@ Features:
 
 ## 7. Storage Backends
 
-### Replay Buffer
-
-#### SQLite (Local Development)
+### Replay Buffer (PostgreSQL)
 
 ```python
-replay = create_replay_buffer(backend="sqlite", path="./data/replay.db")
+replay = create_replay_buffer(
+    backend="postgres",
+    connection_string="postgresql://user:pass@host:5432/db"
+)
 ```
 
 Schema:
@@ -728,10 +727,10 @@ CREATE TABLE transitions (
     env_id TEXT,
     episode_id TEXT,
     step_number INTEGER,
-    state BLOB,
-    action BLOB,
-    observation BLOB,
-    policy_probs BLOB,
+    state BYTEA,
+    action BYTEA,
+    observation BYTEA,
+    policy_probs BYTEA,
     mcts_value REAL,
     game_outcome REAL,
     ...
@@ -745,16 +744,7 @@ CREATE TABLE game_metadata (
 );
 ```
 
-#### PostgreSQL (Kubernetes)
-
-```python
-replay = create_replay_buffer(
-    backend="postgres",
-    connection_string="postgresql://user:pass@host:5432/db"
-)
-```
-
-Same schema, supports concurrent writers from multiple actors.
+Supports concurrent writers from multiple actors.
 
 ### Model Storage
 
@@ -827,9 +817,9 @@ host = "0.0.0.0"
 port = 8080
 
 [storage]
-replay_backend = "sqlite"
+replay_backend = "postgres"
 model_backend = "filesystem"
-# postgres_url = "postgresql://..."
+postgres_url = "postgresql://..."
 # s3_bucket = "cartridge-models"
 # s3_endpoint = "http://minio:9000"
 ```
@@ -1108,7 +1098,6 @@ rm -rf ./data/replay.db ./data/models/*.onnx ./data/stats.json
 | File | Purpose |
 |------|---------|
 | `config.toml` | Central configuration |
-| `data/replay.db` | SQLite replay buffer |
 | `data/models/latest.onnx` | Current model |
 | `data/models/best.onnx` | Best model |
 | `data/stats.json` | Training statistics |
@@ -1121,5 +1110,5 @@ rm -rf ./data/replay.db ./data/models/*.onnx ./data/stats.json
 | `CARTRIDGE_COMMON_ENV_ID` | Game to train |
 | `CARTRIDGE_TRAINING_DEVICE` | cpu, cuda, mps |
 | `CARTRIDGE_MCTS_NUM_SIMULATIONS` | MCTS simulations |
-| `CARTRIDGE_STORAGE_REPLAY_BACKEND` | sqlite, postgres |
+| `CARTRIDGE_STORAGE_REPLAY_BACKEND` | postgres |
 | `CARTRIDGE_STORAGE_POSTGRES_URL` | PostgreSQL connection |

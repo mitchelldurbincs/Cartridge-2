@@ -49,11 +49,12 @@ def cli_field(
 
 @dataclass
 class TrainerConfig:
-    """Configuration for the trainer."""
+    """Configuration for the trainer.
 
-    db_path: str = cli_field(
-        "./data/replay.db", cli="--db", help="Path to SQLite replay database"
-    )
+    Note: Replay buffer connection is configured via CARTRIDGE_STORAGE_POSTGRES_URL
+    environment variable, not a config field.
+    """
+
     model_dir: str = cli_field(
         "./data/models", cli="--model-dir", help="Directory for ONNX model checkpoints"
     )

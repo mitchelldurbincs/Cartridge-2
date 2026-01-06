@@ -21,7 +21,8 @@
       "Bash(ls:*)",
       "Bash(wc:*)",
       "Bash(tree:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(.venv/bin/ruff check src/trainer/)"
     ],
     "deny": [],
     "ask": []

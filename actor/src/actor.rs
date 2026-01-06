@@ -36,7 +36,7 @@ use crate::config::Config;
 use crate::game_config::{get_config, GameConfig};
 use crate::mcts_policy::MctsPolicy;
 use crate::model_watcher::ModelWatcher;
-use crate::storage::{create_replay_store, ReplayStore, StorageBackend, StorageConfig, Transition};
+use crate::storage::{create_replay_store, ReplayStore, StorageConfig, Transition};
 use std::sync::Arc;
 
 /// Context for a single episode, containing metadata and timing information.
@@ -149,20 +149,13 @@ impl Actor {
             Err(e) => warn!("Failed to load existing model: {}", e),
         }
 
-        // Initialize replay buffer based on configured backend
-        let backend: StorageBackend = config.replay_backend.parse()?;
+        // Initialize replay buffer (PostgreSQL)
         let storage_config = StorageConfig {
-            backend,
-            sqlite_path: Some(config.replay_db_path.clone()),
-            #[cfg(feature = "postgres")]
             postgres_url: config.postgres_url.clone(),
         };
 
         let replay = create_replay_store(&storage_config).await?;
-        info!(
-            "Replay buffer initialized with {:?} backend",
-            config.replay_backend
-        );
+        info!("Replay buffer initialized (PostgreSQL)");
 
         // Store game metadata in database (makes it self-describing for trainer)
         let metadata = engine.metadata();
@@ -481,9 +474,10 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
-    fn test_config(db_path: &str) -> Config {
+    fn test_config() -> Config {
+        // These tests require a running PostgreSQL instance
+        // Run: docker compose up postgres
         Config {
             actor_id: "test-actor".into(),
             env_id: "tictactoe".into(),
@@ -492,30 +486,27 @@ mod tests {
             flush_interval_secs: 5,
             log_level: "info".into(),
             log_interval: 10,
-            replay_db_path: db_path.into(),
             data_dir: "./data".into(),
             num_simulations: 50, // Fewer for tests
             temp_threshold: 0,   // Disabled for tests
-            replay_backend: "sqlite".into(),
-            postgres_url: None,
+            postgres_url: std::env::var("CARTRIDGE_STORAGE_POSTGRES_URL")
+                .unwrap_or_else(|_| "postgresql://cartridge:cartridge@localhost:5432/cartridge".into()),
         }
     }
 
     #[tokio::test]
+    #[ignore] // Requires running PostgreSQL: docker compose up postgres
     async fn test_actor_creation() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test_replay.db");
-        let config = test_config(db_path.to_str().unwrap());
+        let config = test_config();
 
         let actor = Actor::new(config).await;
         assert!(actor.is_ok());
     }
 
     #[tokio::test]
+    #[ignore] // Requires running PostgreSQL: docker compose up postgres
     async fn test_actor_run_single_episode() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test_replay.db");
-        let config = test_config(db_path.to_str().unwrap());
+        let config = test_config();
 
         let actor = Actor::new(config).await.unwrap();
 
@@ -531,10 +522,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore] // Requires running PostgreSQL: docker compose up postgres
     async fn test_actor_nonexistent_game() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test_replay.db");
-        let mut config = test_config(db_path.to_str().unwrap());
+        let mut config = test_config();
         config.env_id = "nonexistent_game".into();
 
         let result = Actor::new(config).await;
@@ -550,10 +540,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore] // Requires running PostgreSQL: docker compose up postgres
     async fn test_actor_stores_transitions() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test_replay.db");
-        let config = test_config(db_path.to_str().unwrap());
+        let config = test_config();
 
         let actor = Actor::new(config).await.unwrap();
 

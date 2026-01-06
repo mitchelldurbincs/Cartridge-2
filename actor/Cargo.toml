@@ -9,8 +9,6 @@ path = "src/main.rs"
 
 [features]
 default = []
-# Enable PostgreSQL backend for K8s deployments
-postgres = ["tokio-postgres"]
 # Enable S3/MinIO model storage for K8s deployments
 s3 = ["model-watcher/s3"]
 
@@ -46,18 +44,14 @@ async-trait = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# SQLite for replay buffer (default backend)
-rusqlite = { version = "0.32", features = ["bundled"] }
-
-# PostgreSQL for replay buffer (K8s backend, feature-gated)
-tokio-postgres = { version = "0.7", optional = true }
+# PostgreSQL for replay buffer (required)
+tokio-postgres = "0.7"
 
 # Time utilities
 uuid = { version = "1.6", features = ["v4"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-tempfile = "3"
 
 [dependencies.once_cell]
 version = "1.18"

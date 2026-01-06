@@ -214,7 +214,7 @@ impl Evaluator for OnnxEvaluator {
         if count % 10_000 == 0 {
             let total_us = self.total_inference_time_us.load(Ordering::Relaxed);
             let avg_us = total_us / count;
-            info!(
+            debug!(
                 "ONNX inference stats: {} calls, avg {:.2}ms per call",
                 count,
                 avg_us as f64 / 1000.0
@@ -316,7 +316,7 @@ impl Evaluator for OnnxEvaluator {
         #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable
         if count % 10_000 == 0 {
             let avg_us = total_us / count;
-            info!(
+            debug!(
                 "ONNX inference stats: {} calls, avg {:.2}ms per call",
                 count,
                 avg_us as f64 / 1000.0

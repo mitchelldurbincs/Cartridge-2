@@ -10,7 +10,6 @@ def test_configure_parser_adds_expected_arguments():
     args = parser.parse_args([])
     config = TrainerConfig.from_args(args)
 
-    assert config.db_path == "./data/replay.db"
     assert config.model_dir == "./data/models"
     assert config.stats_path == "./data/stats.json"
     assert config.batch_size == 64
@@ -28,8 +27,6 @@ def test_from_args_overrides_defaults_and_actions():
 
     args = parser.parse_args(
         [
-            "--db",
-            "custom.db",
             "--model-dir",
             "./checkpoints",
             "--stats",
@@ -54,7 +51,6 @@ def test_from_args_overrides_defaults_and_actions():
 
     config = TrainerConfig.from_args(args)
 
-    assert config.db_path == "custom.db"
     assert config.model_dir == "./checkpoints"
     assert config.stats_path == "./stats/out.json"
     assert config.batch_size == 128

@@ -1,18 +1,22 @@
-"""Storage abstraction layer for K8s-ready backends.
+"""Storage abstraction layer for replay buffer and model storage.
 
-This package provides pluggable storage backends that work both locally
-(SQLite, filesystem) and in Kubernetes (PostgreSQL, S3).
+PostgreSQL is the only replay buffer backend (local via Docker or cloud).
+Model storage supports filesystem (local) and S3 (cloud/MinIO).
 
 Usage:
     from trainer.storage import create_replay_buffer, create_model_store
 
-    # Uses config.toml [storage] section to select backend
+    # Reads CARTRIDGE_STORAGE_POSTGRES_URL from environment
     buffer = create_replay_buffer()
-    model_store = create_model_store()
 
-    # Or explicitly specify backend
-    buffer = create_replay_buffer(backend="sqlite", path="./data/replay.db")
-    buffer = create_replay_buffer(backend="postgres", connection_string="...")
+    # Or explicitly specify connection string
+    buffer = create_replay_buffer(
+        connection_string="postgresql://user:pass@localhost:5432/cartridge"
+    )
+
+    # Model store defaults to filesystem, or use S3 for cloud
+    model_store = create_model_store()  # filesystem
+    model_store = create_model_store(backend="s3", bucket="my-bucket")
 """
 
 from trainer.storage.base import (
@@ -22,6 +26,7 @@ from trainer.storage.base import (
     Transition,
 )
 from trainer.storage.factory import create_model_store, create_replay_buffer
+from trainer.storage.postgres import PostgresReplayBuffer
 
 __all__ = [
     # Base classes
@@ -29,6 +34,8 @@ __all__ = [
     "ModelStore",
     "Transition",
     "GameMetadata",
+    # Implementation
+    "PostgresReplayBuffer",
     # Factory functions
     "create_replay_buffer",
     "create_model_store",

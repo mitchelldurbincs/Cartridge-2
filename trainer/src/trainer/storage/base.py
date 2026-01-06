@@ -124,10 +124,22 @@ class ReplayBufferBase(ABC):
         pass
 
     @abstractmethod
+    def cleanup(self, window_size: int) -> int:
+        """Delete old transitions to maintain a sliding window.
+
+        Args:
+            window_size: Maximum number of transitions to keep.
+
+        Returns:
+            Number of deleted transitions.
+        """
+        pass
+
+    @abstractmethod
     def vacuum(self) -> None:
         """Reclaim storage space after deletions.
 
-        Implementation-specific optimization (e.g., SQLite VACUUM).
+        Implementation-specific optimization (e.g., PostgreSQL VACUUM).
         May be a no-op for some backends.
         """
         pass

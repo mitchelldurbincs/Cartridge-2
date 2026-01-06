@@ -21,17 +21,16 @@ COPY . ./
 RUN npm run build
 
 # ============================================
-# Stage 2: Serve with nginx (unprivileged)
+# Stage 2: Serve with nginx
 # ============================================
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+FROM nginx:1.27-alpine
 
 # Copy built frontend to nginx html directory
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy custom nginx config (user already set to nginx:nginx)
+# Copy custom nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# nginx-unprivileged runs on port 8080 by default as non-root
 EXPOSE 8080
 
 # Healthcheck to verify nginx is serving content

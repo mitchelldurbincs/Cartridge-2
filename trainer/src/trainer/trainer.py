@@ -1,7 +1,7 @@
 """Training loop with ONNX export and stats tracking.
 
 This module provides the main training loop that:
-1. Loads batches from the SQLite replay buffer
+1. Loads batches from the replay buffer (SQLite or PostgreSQL)
 2. Trains the AlphaZero-style network
 3. Exports ONNX checkpoints using atomic write-then-rename
 4. Writes stats.json for web visualization
@@ -35,8 +35,8 @@ from .evaluator import OnnxPolicy, RandomPolicy, evaluate
 from .game_config import GameConfig, get_config
 from .lr_scheduler import LRConfig, WarmupCosineScheduler
 from .network import AlphaZeroLoss, create_network
-from .replay import ReplayBuffer
 from .stats import EvalStats, TrainerStats, load_stats, write_stats
+from .storage import create_replay_buffer
 
 # Re-export for convenience (used by tests and external callers)
 __all__ = ["Trainer", "TrainerConfig", "EvalStats", "TrainerStats", "WaitTimeout"]
@@ -199,6 +199,15 @@ class Trainer:
             logger=logger,
         )
 
+    def _create_replay_buffer(self):
+        """Create PostgreSQL replay buffer using the factory.
+
+        Returns:
+            PostgresReplayBuffer instance.
+        """
+        logger.info("Connecting to PostgreSQL replay buffer...")
+        return create_replay_buffer()
+
     def train(self) -> TrainerStats:
         """Run the training loop.
 
@@ -209,7 +218,6 @@ class Trainer:
             WaitTimeout: If max_wait is exceeded waiting for database or data.
         """
         logger.info(f"Starting training for {self.config.total_steps} steps")
-        logger.info(f"Loading replay buffer from {self.config.db_path}")
         if self.config.grad_clip_norm > 0:
             logger.info(
                 f"Gradient clipping enabled: max_norm={self.config.grad_clip_norm}"
@@ -217,16 +225,8 @@ class Trainer:
         if self.lr_scheduler.config.enabled:
             logger.info(f"LR scheduler: {self.lr_scheduler}")
 
-        # Wait for replay buffer to exist with proper backoff
-        db_path = Path(self.config.db_path)
-        if not db_path.exists():
-            self._wait_with_backoff(
-                lambda: db_path.exists(),
-                f"replay database at {db_path}",
-            )
-            logger.info("Replay database found, opening connection")
-
-        with ReplayBuffer(self.config.db_path) as replay:
+        replay = self._create_replay_buffer()
+        try:
             env_id = self.config.env_id
 
             if self.config.clear_replay_on_start:
@@ -405,6 +405,8 @@ class Trainer:
             final_global_step = start_step + self.config.total_steps
             self._save_checkpoint(final_global_step, is_final=True)
             self._write_stats()
+        finally:
+            replay.close()
 
         logger.info("Training complete")
         return self.stats

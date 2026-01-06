@@ -1,9 +1,7 @@
 //! PostgreSQL backend for replay buffer storage.
 //!
-//! This backend is designed for Kubernetes deployments where multiple
-//! actors need concurrent access to the replay buffer.
-//!
-//! Requires the `postgres` feature to be enabled.
+//! This is the only storage backend for the actor.
+//! Supports concurrent writes from multiple actor instances.
 
 use anyhow::Result;
 use async_trait::async_trait;

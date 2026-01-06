@@ -41,7 +41,7 @@ from .central_config import get_config as get_central_config
 from .evaluator import OnnxPolicy, RandomPolicy
 from .evaluator import evaluate as run_eval
 from .game_config import get_config as get_game_config
-from .replay import ReplayBuffer, create_empty_db
+from .storage import create_replay_buffer
 
 logger = logging.getLogger(__name__)
 
@@ -82,11 +82,12 @@ class LoopConfig:
 
     # Actor settings
     actor_log_interval: int = 200
+    num_actors: int = 1  # Number of parallel actor processes
 
     # MCTS simulation ramping: start_sims + (iteration-1) * sim_ramp_rate, capped at max_sims
-    mcts_start_sims: int = 200  # Simulations for first iteration
-    mcts_max_sims: int = 800  # Maximum simulations (reached after ramping)
-    mcts_sim_ramp_rate: int = 30  # Simulations to add per iteration
+    mcts_start_sims: int = 50  # Simulations for first iteration
+    mcts_max_sims: int = 400  # Maximum simulations (reached after ramping)
+    mcts_sim_ramp_rate: int = 20  # Simulations to add per iteration
 
     # Temperature schedule: after temp_threshold moves, reduce temperature for exploitation
     # Set to 0 to disable (always use temp=1.0)
@@ -107,10 +108,6 @@ class LoopConfig:
 
     # Logging
     log_level: str = "INFO"
-
-    @property
-    def replay_db_path(self) -> Path:
-        return self.data_dir / "replay.db"
 
     @property
     def models_dir(self) -> Path:
@@ -345,103 +342,157 @@ class Orchestrator:
 
         Returns the number of deleted transitions.
         """
-        if not self.config.replay_db_path.exists():
-            logger.info("Replay database doesn't exist, creating empty one")
-            create_empty_db(self.config.replay_db_path)
-            return 0
-
-        with ReplayBuffer(self.config.replay_db_path) as replay:
+        replay = create_replay_buffer()
+        try:
             deleted = replay.clear_transitions()
-            # VACUUM to reclaim disk space and prevent database file growth
-            # from degrading SQLite performance over many iterations
             replay.vacuum()
             logger.info(f"Cleared {deleted} transitions from replay buffer (vacuumed)")
             return deleted
+        finally:
+            replay.close()
 
     def _get_transition_count(self) -> int:
         """Get the current number of transitions in the replay buffer."""
-        if not self.config.replay_db_path.exists():
-            return 0
-        with ReplayBuffer(self.config.replay_db_path) as replay:
+        replay = create_replay_buffer()
+        try:
             return replay.count(env_id=self.config.env_id)
+        finally:
+            replay.close()
 
     def _run_actor(self, num_episodes: int, iteration: int) -> tuple[bool, float]:
-        """Run the actor for a specified number of episodes.
+        """Run actor(s) for a specified number of episodes.
 
         Args:
-            num_episodes: Number of self-play episodes to run.
+            num_episodes: Total number of self-play episodes to run.
             iteration: Current training iteration (for simulation ramping).
 
         Returns (success, elapsed_seconds).
         """
+        import threading
+
         actor_binary = self._find_actor_binary()
+        num_actors = self.config.num_actors
 
         # Calculate MCTS simulations based on iteration (ramping schedule)
         num_simulations = self.config.get_num_simulations(iteration)
 
-        cmd = [
-            str(actor_binary),
-            "--env-id",
-            self.config.env_id,
-            "--max-episodes",
-            str(num_episodes),
-            "--replay-db-path",
-            str(self.config.replay_db_path),
-            "--data-dir",
-            str(self.config.data_dir),
-            "--log-interval",
-            str(self.config.actor_log_interval),
-            "--log-level",
-            "info",
-            "--num-simulations",
-            str(num_simulations),
-            "--temp-threshold",
-            str(self.config.temp_threshold),
-        ]
+        # Split episodes across actors
+        base_episodes = num_episodes // num_actors
+        remainder = num_episodes % num_actors
 
         logger.info(
-            f"Starting actor: {num_simulations} sims (iter {iteration}), "
+            f"Starting {num_actors} actor(s): {num_simulations} sims (iter {iteration}), "
             f"temp_threshold={self.config.temp_threshold}"
         )
-        logger.info(f"Command: {' '.join(cmd)}")
+
         start_time = time.time()
+        processes: list[tuple[subprocess.Popen, int, str]] = []  # (process, episodes, actor_id)
 
         try:
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
+            # Spawn all actors
+            for i in range(num_actors):
+                actor_id = f"actor-{i + 1}"
+                # First actor gets remainder episodes
+                episodes_for_actor = base_episodes + (remainder if i == 0 else 0)
 
-            # Stream output in real-time
-            while True:
+                if episodes_for_actor == 0:
+                    continue
+
+                cmd = [
+                    str(actor_binary),
+                    "--env-id",
+                    self.config.env_id,
+                    "--max-episodes",
+                    str(episodes_for_actor),
+                    "--data-dir",
+                    str(self.config.data_dir),
+                    "--log-interval",
+                    str(self.config.actor_log_interval),
+                    "--log-level",
+                    "info",
+                    "--num-simulations",
+                    str(num_simulations),
+                    "--temp-threshold",
+                    str(self.config.temp_threshold),
+                    "--actor-id",
+                    actor_id,
+                ]
+
+                if num_actors == 1:
+                    logger.info(f"Command: {' '.join(cmd)}")
+
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+                processes.append((process, episodes_for_actor, actor_id))
+                logger.info(f"Started {actor_id} for {episodes_for_actor} episodes")
+
+            # Stream output from all actors using threads
+            def stream_output(proc: subprocess.Popen, actor_id: str):
+                while True:
+                    line = proc.stdout.readline()
+                    if not line and proc.poll() is not None:
+                        break
+                    if line:
+                        print(f"[{actor_id}] {line.rstrip()}", flush=True)
+
+            threads = []
+            for proc, _, actor_id in processes:
+                t = threading.Thread(target=stream_output, args=(proc, actor_id), daemon=True)
+                t.start()
+                threads.append(t)
+
+            # Wait for all processes, checking for shutdown
+            all_success = True
+            while processes:
                 if self._shutdown_requested:
-                    logger.warning("Shutdown requested, terminating actor...")
-                    process.terminate()
-                    process.wait(timeout=5)
+                    logger.warning("Shutdown requested, terminating actors...")
+                    for proc, _, actor_id in processes:
+                        proc.terminate()
+                    for proc, _, _ in processes:
+                        proc.wait(timeout=5)
                     return False, time.time() - start_time
 
-                line = process.stdout.readline()
-                if not line and process.poll() is not None:
-                    break
-                if line:
-                    # Forward actor output with prefix
-                    print(f"[actor] {line.rstrip()}", flush=True)
+                # Check which processes are done
+                still_running = []
+                for proc, episodes, actor_id in processes:
+                    ret = proc.poll()
+                    if ret is None:
+                        still_running.append((proc, episodes, actor_id))
+                    else:
+                        if ret != 0:
+                            logger.error(f"{actor_id} exited with code {ret}")
+                            all_success = False
+                        else:
+                            logger.info(f"{actor_id} completed ({episodes} episodes)")
+                processes = still_running
 
-            return_code = process.wait()
+                if processes:
+                    time.sleep(0.1)
+
+            # Wait for output threads to finish
+            for t in threads:
+                t.join(timeout=1.0)
+
             elapsed = time.time() - start_time
 
-            if return_code != 0:
-                logger.error(f"Actor exited with code {return_code}")
-                return False, elapsed
-
-            logger.info(f"Actor completed in {elapsed:.1f}s")
-            return True, elapsed
+            if all_success:
+                logger.info(f"All {num_actors} actor(s) completed in {elapsed:.1f}s")
+            return all_success, elapsed
 
         except Exception as e:
-            logger.error(f"Actor failed: {e}")
+            logger.error(f"Actor(s) failed: {e}")
+            # Clean up any running processes
+            for proc, _, _ in processes:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2)
+                except Exception:
+                    pass
             return False, time.time() - start_time
 
     def _run_trainer(self, num_steps: int, start_step: int) -> tuple[bool, float]:
@@ -458,7 +509,6 @@ class Orchestrator:
         lr_total_steps = self.config.iterations * self.config.steps_per_iteration
 
         config = TrainerConfig(
-            db_path=str(self.config.replay_db_path),
             model_dir=str(self.config.models_dir),
             stats_path=str(self.config.stats_path),
             env_id=self.config.env_id,
@@ -853,6 +903,7 @@ class Orchestrator:
         logger.info(f"Target iterations: {self.config.iterations}")
         logger.info(f"Episodes per iteration: {self.config.episodes_per_iteration}")
         logger.info(f"Steps per iteration: {self.config.steps_per_iteration}")
+        logger.info(f"Parallel actors: {self.config.num_actors}")
         logger.info(f"Data directory: {self.config.data_dir}")
 
         # Show MCTS simulation ramping settings
@@ -1044,25 +1095,31 @@ Examples:
         default=cfg.actor.log_interval,
         help="Actor log interval in episodes",
     )
+    parser.add_argument(
+        "--num-actors",
+        type=int,
+        default=cfg.training.num_actors,
+        help="Number of parallel actor processes for self-play",
+    )
 
     # MCTS simulation ramping settings
     parser.add_argument(
         "--mcts-start-sims",
         type=int,
-        default=200,
-        help="MCTS simulations for first iteration (default: 200)",
+        default=cfg.mcts.start_sims,
+        help="MCTS simulations for first iteration",
     )
     parser.add_argument(
         "--mcts-max-sims",
         type=int,
-        default=cfg.mcts.num_simulations,
-        help="Maximum MCTS simulations after ramping (default: from config)",
+        default=cfg.mcts.max_sims,
+        help="Maximum MCTS simulations after ramping",
     )
     parser.add_argument(
         "--mcts-sim-ramp-rate",
         type=int,
-        default=30,
-        help="MCTS simulations to add per iteration (default: 30)",
+        default=cfg.mcts.sim_ramp_rate,
+        help="MCTS simulations to add per iteration",
     )
 
     # Temperature schedule
@@ -1147,6 +1204,7 @@ Examples:
         data_dir=Path(args.data_dir),
         actor_binary=Path(args.actor_binary) if args.actor_binary else None,
         actor_log_interval=args.actor_log_interval,
+        num_actors=args.num_actors,
         mcts_start_sims=args.mcts_start_sims,
         mcts_max_sims=args.mcts_max_sims,
         mcts_sim_ramp_rate=args.mcts_sim_ramp_rate,

@@ -5,7 +5,7 @@ Python training loop for Cartridge2. Implements AlphaZero-style learning from se
 ## Overview
 
 The trainer:
-1. Reads transitions from SQLite replay buffer
+1. Reads transitions from PostgreSQL replay buffer
 2. Trains a PyTorch neural network (MLP or ResNet based on game)
 3. Exports ONNX models for the Rust actor
 4. Writes stats.json for the web frontend
@@ -15,6 +15,12 @@ The trainer:
 ```bash
 # Install
 pip install -e .
+
+# Start PostgreSQL (required)
+docker compose up postgres -d
+
+# Set connection string
+export CARTRIDGE_STORAGE_POSTGRES_URL="postgresql://cartridge:cartridge@localhost:5432/cartridge"
 
 # Run training (defaults assume running from trainer/ directory)
 trainer train --steps 1000
@@ -128,9 +134,10 @@ The ResNet uses He (Kaiming) initialization for all layers:
 
 ## CLI Arguments (`trainer train`)
 
+Note: The replay buffer connection is configured via `CARTRIDGE_STORAGE_POSTGRES_URL` environment variable.
+
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--db` | `../data/replay.db` | SQLite replay database path |
 | `--model-dir` | `../data/models` | Directory for ONNX checkpoints |
 | `--stats` | `../data/stats.json` | Stats file for web polling |
 | `--steps` | 1000 | Total training steps |
@@ -194,46 +201,28 @@ trainer train --wait-interval 5.0 --max-wait 600
 
 ## Architecture
 
-### Local Development
+PostgreSQL is the only replay buffer backend (consistent for local and cloud).
 
 ```
 +-------------------+     +------------------+     +------------------+
-|  SQLite Replay    |---->|  PyTorch Model   |---->|  ONNX Export     |
-|  (transitions)    |     |  (policy+value)  |     |  (model.onnx)    |
+|  PostgreSQL       |---->|  PyTorch Model   |---->|  ONNX Export     |
+|  (replay buffer)  |     |  (policy+value)  |     |  (model.onnx)    |
 +-------------------+     +------------------+     +------------------+
-                                 |
-                                 v
-                         +------------------+
-                         |   stats.json     |
+        ^                        |
+        |                        v
+  Rust Actor(s)          +------------------+
+  (self-play)            |   stats.json     |
                          |   (telemetry)    |
                          +------------------+
 ```
 
-### Kubernetes Deployment
+### Storage Configuration
 
-For distributed training, the trainer supports pluggable storage backends:
-
-```
-+-------------------+     +------------------+     +------------------+
-|  PostgreSQL       |---->|  PyTorch Model   |---->|  S3/MinIO        |
-|  (multi-writer)   |     |  (policy+value)  |     |  (model storage) |
-+-------------------+     +------------------+     +------------------+
-        ^                        |
-        |                        v
-  Multiple Actors         +------------------+
-  (parallel self-play)    |   stats.json     |
-                          |   (telemetry)    |
-                          +------------------+
-```
-
-Storage backends are selected via environment variables or config.toml:
-
-| Backend | Use Case | Config |
-|---------|----------|--------|
-| SQLite | Local dev, single machine | `CARTRIDGE_STORAGE_BACKEND=sqlite` (default) |
-| PostgreSQL | K8s, multi-actor | `CARTRIDGE_STORAGE_BACKEND=postgres` |
-| S3/MinIO | Cloud model storage | `CARTRIDGE_MODEL_STORAGE=s3` |
-| Filesystem | Local model storage | `CARTRIDGE_MODEL_STORAGE=filesystem` (default) |
+| Backend | Use Case | Environment Variable |
+|---------|----------|---------------------|
+| PostgreSQL | Replay buffer (required) | `CARTRIDGE_STORAGE_POSTGRES_URL` |
+| S3/MinIO | Cloud model storage | `CARTRIDGE_STORAGE_S3_BUCKET` |
+| Filesystem | Local model storage (default) | `CARTRIDGE_MODEL_DIR` |
 
 ## Loss Function
 
@@ -313,7 +302,6 @@ src/trainer/
 ├── lr_scheduler.py   # LR scheduling (warmup + cosine annealing)
 ├── network.py        # MLP network + AlphaZeroLoss + create_network() factory
 ├── resnet.py         # ResNet architecture (ConvPolicyValueNetwork, ResidualBlock)
-├── replay.py         # Replay buffer interface
 ├── evaluator.py      # Model evaluation against baselines
 ├── game_config.py    # Game-specific configurations (dimensions, network type)
 ├── stats.py          # TrainerStats, EvalStats, load/write functions
@@ -326,8 +314,7 @@ src/trainer/
     ├── __init__.py   # Package exports
     ├── base.py       # Abstract interfaces (ReplayBufferBase, ModelStore)
     ├── factory.py    # Storage factory for backend selection
-    ├── sqlite.py     # SQLite replay backend (local dev)
-    ├── postgres.py   # PostgreSQL replay backend (K8s multi-writer)
+    ├── postgres.py   # PostgreSQL replay backend
     ├── s3.py         # S3/MinIO model storage backend (cloud)
     └── filesystem.py # Local filesystem model storage
 ```
@@ -388,22 +375,18 @@ Example for a hypothetical 4x4 game:
 
 ## Storage Backends
 
-The trainer uses pluggable storage backends for both replay buffers and model storage, enabling deployment from local development to distributed Kubernetes clusters.
+The trainer uses pluggable storage backends for model storage, enabling deployment from local development to distributed Kubernetes clusters.
 
-### Replay Buffer Backends
+### Replay Buffer Backend
 
-| Backend | Description | Configuration |
-|---------|-------------|---------------|
-| **SQLite** (default) | Single-file database, ideal for local dev | `--db ./data/replay.db` |
-| **PostgreSQL** | Multi-writer safe, for K8s with multiple actors | `CARTRIDGE_STORAGE_BACKEND=postgres` |
+PostgreSQL is the only replay buffer backend, providing consistent behavior between local development (via Docker) and cloud deployment.
 
-PostgreSQL connection is configured via environment variables:
 ```bash
-CARTRIDGE_POSTGRES_HOST=localhost
-CARTRIDGE_POSTGRES_PORT=5432
-CARTRIDGE_POSTGRES_DB=cartridge
-CARTRIDGE_POSTGRES_USER=cartridge
-CARTRIDGE_POSTGRES_PASSWORD=secret
+# Connection via URL (required)
+export CARTRIDGE_STORAGE_POSTGRES_URL="postgresql://cartridge:cartridge@localhost:5432/cartridge"
+
+# Start PostgreSQL locally with Docker
+docker compose up postgres -d
 ```
 
 ### Model Storage Backends
@@ -488,10 +471,11 @@ trainer evaluate --model ../data/models/model_step_000100.onnx --games 100
 
 ### CLI Arguments
 
+Note: Game metadata is loaded from PostgreSQL (via `CARTRIDGE_STORAGE_POSTGRES_URL`) or falls back to hardcoded configs.
+
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--model` | `../data/models/latest.onnx` | Path to ONNX model file |
-| `--db` | `../data/replay.db` | Replay database for loading metadata (self-describing configs) |
 | `--env-id` | `tictactoe` | Game environment to evaluate |
 | `--games` | 100 | Number of games to play |
 | `--temperature` | 0.0 | Sampling temperature (0 = greedy/argmax) |
@@ -560,17 +544,20 @@ trainer evaluate --model ./data/models/latest.onnx --games 100
 ## Integration with Actor
 
 ```bash
+# Start PostgreSQL first
+docker compose up postgres -d
+export CARTRIDGE_STORAGE_POSTGRES_URL="postgresql://cartridge:cartridge@localhost:5432/cartridge"
+
 # Terminal 1: Actor generates data
 cd actor
-cargo run -- --env-id tictactoe --replay-db-path ../data/replay.db
+cargo run -- --env-id tictactoe
 
-# Terminal 2: Trainer consumes data (defaults work from trainer/ directory)
+# Terminal 2: Trainer consumes data
 cd trainer
 trainer train
-# Or: python -m trainer train
 ```
 
-The actor will hot-reload `model.onnx` when it changes.
+The actor will hot-reload `model.onnx` when it changes. Both actor and trainer connect to the same PostgreSQL database.
 
 ## Synchronized AlphaZero Loop
 

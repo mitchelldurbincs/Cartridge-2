@@ -110,9 +110,15 @@ port = 8080
 # MCTS Settings (Monte Carlo Tree Search)
 # =============================================================================
 [mcts]
-# Number of MCTS simulations per move
-# Higher = better quality policy targets but slower episodes
-# 200 is a reasonable tradeoff for Connect4 on CPU
+# MCTS simulation ramping: starts low and increases over iterations
+# Formula: start_sims + (iteration-1) * sim_ramp_rate, capped at max_sims
+# This speeds up early training when the network is still weak
+start_sims = 50       # Simulations for first iteration
+max_sims = 400        # Maximum simulations (reached after ramping)
+sim_ramp_rate = 20    # Simulations to add per iteration
+# With these settings: iter 1=50, iter 10=230, iter 18+=400
+
+# Legacy setting (used if ramping not configured)
 num_simulations = 200
 
 # Exploration constant (c_puct)
@@ -134,20 +140,17 @@ dirichlet_alpha = 0.4
 dirichlet_weight = 0.25
 
 # =============================================================================
-# Storage Backend Settings (for K8s/cloud deployments)
+# Storage Backend Settings
 # =============================================================================
 [storage]
-# Replay buffer backend: sqlite (local), postgres (K8s)
-# For K8s, set CARTRIDGE_POSTGRES_URL environment variable
-replay_backend = "sqlite"
-
 # Model storage backend: filesystem (local), s3 (K8s)
 # For S3, set CARTRIDGE_S3_BUCKET and optionally CARTRIDGE_S3_ENDPOINT
 model_backend = "filesystem"
 
-# PostgreSQL connection string (only used when replay_backend = "postgres")
-# Can also be set via CARTRIDGE_POSTGRES_URL environment variable
-# postgres_url = "postgresql://user:pass@host:5432/cartridge"
+# PostgreSQL connection string (required for replay buffer)
+# Can also be set via CARTRIDGE_STORAGE_POSTGRES_URL environment variable
+# For local dev: docker compose up postgres
+postgres_url = "postgresql://cartridge:cartridge@localhost:5432/cartridge"
 
 # S3 bucket for model storage (only used when model_backend = "s3")
 # Can also be set via CARTRIDGE_S3_BUCKET environment variable

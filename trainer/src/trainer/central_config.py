@@ -68,6 +68,7 @@ class TrainingConfig:
     device: str = "cpu"
     checkpoint_interval: int = 100
     max_checkpoints: int = 10
+    num_actors: int = 1  # Number of parallel actor processes for self-play
 
 
 @dataclass
@@ -111,6 +112,10 @@ class MctsConfig:
     )
     dirichlet_alpha: float = 0.3
     dirichlet_weight: float = 0.25
+    # Simulation ramping: start_sims + (iteration-1) * sim_ramp_rate, capped at max_sims
+    start_sims: int = 50  # Simulations for first iteration
+    max_sims: int = 400  # Maximum simulations
+    sim_ramp_rate: int = 20  # Simulations to add per iteration
 
 
 @dataclass

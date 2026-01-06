@@ -56,9 +56,16 @@ fn default_log_interval() -> u32 {
         .unwrap_or(CENTRAL_CONFIG.actor.log_interval)
 }
 
-fn default_replay_db_path() -> String {
-    std::env::var("ACTOR_REPLAY_DB_PATH")
-        .unwrap_or_else(|_| format!("{}/replay.db", CENTRAL_CONFIG.common.data_dir))
+fn default_postgres_url() -> String {
+    std::env::var("CARTRIDGE_STORAGE_POSTGRES_URL")
+        .or_else(|_| std::env::var("ACTOR_POSTGRES_URL"))
+        .unwrap_or_else(|_| {
+            CENTRAL_CONFIG
+                .storage
+                .postgres_url
+                .clone()
+                .unwrap_or_else(|| "postgresql://cartridge:cartridge@localhost:5432/cartridge".to_string())
+        })
 }
 
 fn default_data_dir() -> String {
@@ -79,16 +86,6 @@ fn default_temp_threshold() -> u32 {
         .unwrap_or(0)
 }
 
-fn default_replay_backend() -> String {
-    std::env::var("ACTOR_REPLAY_BACKEND")
-        .unwrap_or_else(|_| CENTRAL_CONFIG.storage.replay_backend.clone())
-}
-
-fn default_postgres_url() -> Option<String> {
-    std::env::var("ACTOR_POSTGRES_URL")
-        .ok()
-        .or_else(|| CENTRAL_CONFIG.storage.postgres_url.clone())
-}
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(name = "actor")]
@@ -115,9 +112,6 @@ pub struct Config {
     #[arg(long, default_value_t = default_log_interval())]
     pub log_interval: u32,
 
-    #[arg(long, default_value_t = default_replay_db_path())]
-    pub replay_db_path: String,
-
     #[arg(long, default_value_t = default_data_dir())]
     pub data_dir: String,
 
@@ -127,12 +121,8 @@ pub struct Config {
     #[arg(long, default_value_t = default_temp_threshold())]
     pub temp_threshold: u32,
 
-    #[arg(long, default_value_t = default_replay_backend())]
-    pub replay_backend: String,
-
-    #[arg(long)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub postgres_url: Option<String>,
+    #[arg(long, default_value_t = default_postgres_url())]
+    pub postgres_url: String,
 }
 
 impl Default for Config {
@@ -145,24 +135,15 @@ impl Default for Config {
             flush_interval_secs: default_flush_interval(),
             log_level: default_log_level(),
             log_interval: default_log_interval(),
-            replay_db_path: default_replay_db_path(),
             data_dir: default_data_dir(),
             num_simulations: default_num_simulations(),
             temp_threshold: default_temp_threshold(),
-            replay_backend: default_replay_backend(),
             postgres_url: default_postgres_url(),
         }
     }
 }
 
 impl Config {
-    pub fn with_defaults(mut self) -> Self {
-        if self.postgres_url.is_none() {
-            self.postgres_url = default_postgres_url();
-        }
-        self
-    }
-
     pub fn validate(&self) -> Result<()> {
         if self.actor_id.is_empty() {
             return Err(anyhow!("actor_id cannot be empty"));
@@ -182,23 +163,8 @@ impl Config {
                 self.log_level
             ));
         }
-
-        match self.replay_backend.as_str() {
-            "sqlite" => {}
-            "postgres" | "postgresql" => {
-                if self.postgres_url.is_none() {
-                    return Err(anyhow!(
-                        "postgres_url is required when replay_backend is '{}'",
-                        self.replay_backend
-                    ));
-                }
-            }
-            _ => {
-                return Err(anyhow!(
-                    "invalid replay_backend '{}', expected 'sqlite' or 'postgres'",
-                    self.replay_backend
-                ));
-            }
+        if self.postgres_url.is_empty() {
+            return Err(anyhow!("postgres_url cannot be empty"));
         }
 
         Ok(())
@@ -232,12 +198,10 @@ mod tests {
             flush_interval_secs: 5,
             log_level: "info".into(),
             log_interval: 10,
-            replay_db_path: "../data/replay.db".into(),
             data_dir: "../data".into(),
             num_simulations: 100,
             temp_threshold: 0,
-            replay_backend: "sqlite".into(),
-            postgres_url: None,
+            postgres_url: "postgresql://test:test@localhost:5432/test".into(),
         }
     }
 

@@ -6,12 +6,15 @@ Provides subcommands for different operations:
     python -m trainer loop      - Run synchronized AlphaZero training
 
 For backwards compatibility, running without a subcommand defaults to 'train':
-    python -m trainer --db data/replay.db --steps 1000
+    python -m trainer --steps 1000
 
 Entry points after pip install:
     trainer           - Same as 'python -m trainer train'
     trainer-loop      - Same as 'python -m trainer loop'
     trainer-evaluate  - Same as 'python -m trainer evaluate'
+
+Note: Replay buffer connection is configured via CARTRIDGE_STORAGE_POSTGRES_URL
+environment variable.
 """
 
 import argparse
@@ -26,7 +29,7 @@ def cmd_train(args: argparse.Namespace) -> int:
 
     logger = logging.getLogger(__name__)
     logger.info("Cartridge2 Trainer starting...")
-    logger.info(f"Config: db={args.db}, model_dir={args.model_dir}, steps={args.steps}")
+    logger.info(f"Config: model_dir={args.model_dir}, steps={args.steps}")
 
     config = TrainerConfig.from_args(args)
 
@@ -61,7 +64,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     logger = logging.getLogger(__name__)
 
     # Load game configuration
-    config = get_game_metadata_or_config(args.db, args.env_id)
+    config = get_game_metadata_or_config(args.env_id)
     logger.info(
         f"Game config for {args.env_id}: "
         f"board={config.board_width}x{config.board_height}, "
@@ -152,12 +155,6 @@ def setup_evaluate_parser(subparsers: argparse._SubParsersAction) -> None:
         type=str,
         default="./data/models/latest.onnx",
         help="Path to ONNX model file",
-    )
-    parser.add_argument(
-        "--db",
-        type=str,
-        default="./data/replay.db",
-        help="Path to replay database (for game metadata)",
     )
     parser.add_argument(
         "--env-id",
