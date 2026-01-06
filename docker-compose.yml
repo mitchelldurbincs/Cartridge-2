@@ -84,7 +84,6 @@ services:
     entrypoint: ["python", "-m", "trainer", "evaluate"]
     command:
       - "--model=/app/data/models/latest.onnx"
-      - "--db=/app/data/replay.db"
     networks:
       - cartridge-net
 
