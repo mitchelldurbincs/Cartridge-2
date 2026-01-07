@@ -1,0 +1,115 @@
+# Development overlay
+# Minimal resources, single replicas, local storage
+#
+# Deploy with: kubectl apply -k k8s/overlays/dev
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cartridge
+
+resources:
+  - ../../base
+
+# Development-specific patches
+patches:
+  # Reduce actor replicas for local development
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: actor
+      spec:
+        replicas: 2
+    target:
+      kind: Deployment
+      name: actor
+
+  # Disable HPA in dev
+  - patch: |-
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: actor-hpa
+    target:
+      kind: HorizontalPodAutoscaler
+      name: actor-hpa
+
+  # Reduce resource requests for local clusters
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: actor
+      spec:
+        template:
+          spec:
+            containers:
+              - name: actor
+                resources:
+                  requests:
+                    memory: "256Mi"
+                    cpu: "100m"
+                  limits:
+                    memory: "512Mi"
+                    cpu: "500m"
+    target:
+      kind: Deployment
+      name: actor
+
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: trainer
+      spec:
+        template:
+          spec:
+            containers:
+              - name: trainer
+                resources:
+                  requests:
+                    memory: "512Mi"
+                    cpu: "500m"
+                  limits:
+                    memory: "2Gi"
+                    cpu: "1000m"
+    target:
+      kind: Deployment
+      name: trainer
+
+  # Use ReadWriteOnce for models PVC (works on single-node clusters)
+  - patch: |-
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: models-shared
+      spec:
+        accessModes:
+          - ReadWriteOnce
+    target:
+      kind: PersistentVolumeClaim
+      name: models-shared
+
+  # Smaller storage for dev
+  - patch: |-
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: models-shared
+      spec:
+        resources:
+          requests:
+            storage: 1Gi
+    target:
+      kind: PersistentVolumeClaim
+      name: models-shared
+
+# Override images to use local builds (no registry prefix)
+images:
+  - name: cartridge-alphazero
+    newTag: latest
+  - name: cartridge-web
+    newTag: latest
+  - name: cartridge-frontend
+    newTag: latest

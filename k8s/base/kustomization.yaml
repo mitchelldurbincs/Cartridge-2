@@ -1,0 +1,32 @@
+# Kustomize base configuration
+# Deploy all resources with: kubectl apply -k k8s/base
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cartridge
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/managed-by: kustomize
+  app.kubernetes.io/part-of: cartridge2
+
+resources:
+  # Namespace and shared config
+  - namespace.yaml
+  - configmap.yaml
+  - models-pvc.yaml
+
+  # Infrastructure
+  - postgres/init-configmap.yaml
+  - postgres/statefulset.yaml
+  - postgres/service.yaml
+  - minio/deployment.yaml
+  - minio/service.yaml
+  - minio/setup-job.yaml
+
+  # Application components
+  - actor/deployment.yaml
+  - trainer/deployment.yaml
+  - web/deployment.yaml
+  - web/service.yaml
+  - web/ingress.yaml

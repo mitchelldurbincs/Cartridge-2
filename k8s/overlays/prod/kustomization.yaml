@@ -1,0 +1,109 @@
+# Production overlay
+# Higher replicas, production-grade settings, external storage
+#
+# Deploy with: kubectl apply -k k8s/overlays/prod
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cartridge
+
+resources:
+  - ../../base
+
+# Production-specific patches
+patches:
+  # Scale up actors for production
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: actor
+      spec:
+        replicas: 8
+    target:
+      kind: Deployment
+      name: actor
+
+  # Higher HPA limits for production
+  - patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: actor-hpa
+      spec:
+        minReplicas: 4
+        maxReplicas: 32
+    target:
+      kind: HorizontalPodAutoscaler
+      name: actor-hpa
+
+  # Production resource limits
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: trainer
+      spec:
+        template:
+          spec:
+            containers:
+              - name: trainer
+                resources:
+                  requests:
+                    memory: "2Gi"
+                    cpu: "2000m"
+                  limits:
+                    memory: "8Gi"
+                    cpu: "4000m"
+    target:
+      kind: Deployment
+      name: trainer
+
+  # Larger storage for production
+  - patch: |-
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: models-shared
+      spec:
+        resources:
+          requests:
+            storage: 50Gi
+    target:
+      kind: PersistentVolumeClaim
+      name: models-shared
+
+  # Use EFS storage class for ReadWriteMany (AWS)
+  - patch: |-
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: models-shared
+      spec:
+        storageClassName: efs-sc
+    target:
+      kind: PersistentVolumeClaim
+      name: models-shared
+
+# Use registry images for production
+images:
+  - name: cartridge-alphazero
+    newName: your-registry.example.com/cartridge/alphazero
+    newTag: v1.0.0
+  - name: cartridge-web
+    newName: your-registry.example.com/cartridge/web
+    newTag: v1.0.0
+  - name: cartridge-frontend
+    newName: your-registry.example.com/cartridge/frontend
+    newTag: v1.0.0
+
+# Production ConfigMap patches
+configMapGenerator:
+  - name: cartridge-config
+    behavior: merge
+    literals:
+      # Production training settings
+      - TRAINING_ITERATIONS=1000
+      - EPISODES_PER_ITERATION=1000
+      - STEPS_PER_ITERATION=800
+      - MCTS_MAX_SIMS=800
