@@ -7,20 +7,27 @@
 # ============================================
 # Stage 1: Build Backend (Rust)
 # ============================================
-FROM rust:1.88-bookworm AS builder
+# Using Ubuntu 24.04 for glibc >= 2.38 (required by onnxruntime prebuilt binaries)
+FROM ubuntu:24.04 AS builder
 
 # Optional features: s3 (S3 model storage)
 ARG CARGO_FEATURES=""
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
     pkg-config \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Rust via rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 WORKDIR /app
 
-# Copy the entire workspace (engine + web)
+# Copy the workspace (engine + web)
 COPY engine/ ./engine/
 COPY web/ ./web/
 
@@ -35,7 +42,8 @@ RUN if [ -z "$CARGO_FEATURES" ]; then \
 # ============================================
 # Stage 2: Runtime
 # ============================================
-FROM debian:bookworm-slim
+# Using Ubuntu 24.04 for glibc >= 2.38 (required by onnxruntime prebuilt binaries)
+FROM ubuntu:24.04
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
