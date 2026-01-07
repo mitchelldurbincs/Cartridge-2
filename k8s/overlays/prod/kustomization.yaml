@@ -10,9 +10,6 @@ namespace: cartridge
 resources:
   - ../../base
 
-# Name prefix for production resources
-namePrefix: prod-
-
 # Production-specific patches
 patches:
   # Scale up actors for production
@@ -90,9 +87,6 @@ patches:
 
 # Use registry images for production
 images:
-  - name: cartridge-actor
-    newName: your-registry.example.com/cartridge/actor
-    newTag: v1.0.0
   - name: cartridge-alphazero
     newName: your-registry.example.com/cartridge/alphazero
     newTag: v1.0.0

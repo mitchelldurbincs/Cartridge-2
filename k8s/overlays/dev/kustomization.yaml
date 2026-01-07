@@ -107,8 +107,6 @@ patches:
 
 # Override images to use local builds (no registry prefix)
 images:
-  - name: cartridge-actor
-    newTag: latest
   - name: cartridge-alphazero
     newTag: latest
   - name: cartridge-web

@@ -35,6 +35,20 @@ spec:
                 name: web
                 port:
                   number: 8080
+          - path: /games
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 8080
+          - path: /game-info
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 8080
           - path: /game
             pathType: Prefix
             backend:
@@ -50,6 +64,20 @@ spec:
                 port:
                   number: 8080
           - path: /stats
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 8080
+          - path: /model
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 8080
+          - path: /selfplay
             pathType: Prefix
             backend:
               service:
