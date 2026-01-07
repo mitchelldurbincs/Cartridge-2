@@ -29,6 +29,12 @@ pub struct MctsConfig {
     /// Whether to add virtual loss during parallel search.
     /// Virtual loss discourages multiple threads from exploring the same path.
     pub virtual_loss: f32,
+
+    /// Batch size for neural network evaluation.
+    /// Leaves are collected until this batch size is reached, then evaluated together.
+    /// Higher values improve throughput but increase latency per batch.
+    /// Set to 1 to disable batching (original behavior).
+    pub eval_batch_size: usize,
 }
 
 impl Default for MctsConfig {
@@ -40,6 +46,7 @@ impl Default for MctsConfig {
             dirichlet_epsilon: 0.25,
             temperature: 1.0,
             virtual_loss: 1.0,
+            eval_batch_size: 32,
         }
     }
 }
@@ -59,6 +66,7 @@ impl MctsConfig {
             dirichlet_epsilon: 0.0,
             temperature: 0.0, // Greedy
             virtual_loss: 1.0,
+            eval_batch_size: 32,
         }
     }
 
@@ -71,6 +79,7 @@ impl MctsConfig {
             dirichlet_epsilon: 0.0,
             temperature: 0.0,
             virtual_loss: 1.0,
+            eval_batch_size: 8,
         }
     }
 
@@ -89,6 +98,12 @@ impl MctsConfig {
     /// Builder pattern: set temperature.
     pub fn with_temperature(mut self, t: f32) -> Self {
         self.temperature = t;
+        self
+    }
+
+    /// Builder pattern: set evaluation batch size.
+    pub fn with_eval_batch_size(mut self, size: usize) -> Self {
+        self.eval_batch_size = size;
         self
     }
 }
