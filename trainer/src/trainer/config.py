@@ -166,7 +166,9 @@ class TrainerConfig:
     )
 
     # Stats history settings
-    max_history_length: int = 100
+    # Should be large enough to hold recent entries (1 per stats_interval steps)
+    # plus downsampled entries from older iterations (~10 per 1000 steps)
+    max_history_length: int = 1000
 
     # Environment
     env_id: str = cli_field("tictactoe", cli="--env-id", help="Environment ID")

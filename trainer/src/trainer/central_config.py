@@ -116,6 +116,8 @@ class MctsConfig:
     start_sims: int = 50  # Simulations for first iteration
     max_sims: int = 400  # Maximum simulations
     sim_ramp_rate: int = 20  # Simulations to add per iteration
+    # Batch size for neural network evaluation during MCTS (1 = disabled)
+    eval_batch_size: int = 1
 
 
 @dataclass
