@@ -72,7 +72,7 @@ num_actors = 4
 interval = 5
 
 # Number of games per evaluation
-games = 50
+games = 200
 
 # Win rate threshold to become new "best" model (gatekeeper)
 # Current model must win > this rate against best to replace it
