@@ -29,7 +29,8 @@
       "Bash(python -m black:*)",
       "Bash(python -m ruff check:*)",
       "Bash(python:*)",
-      "Bash(cargo update:*)"
+      "Bash(cargo update:*)",
+      "Bash(cargo bench:*)"
     ],
     "deny": [],
     "ask": []
