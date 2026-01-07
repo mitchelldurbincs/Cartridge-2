@@ -83,7 +83,7 @@ pub struct Actor {
     replay: Arc<dyn ReplayStore>,
     episode_count: AtomicU32,
     shutdown_signal: AtomicBool,
-    model_watcher: ModelWatcher,
+    model_watcher: Option<ModelWatcher>,
 }
 
 impl Actor {
@@ -130,23 +130,42 @@ impl Actor {
             config.num_simulations, config.temp_threshold
         );
 
-        // Create model watcher
+        // Create model watcher (optional when --no-watch is set)
         let model_dir = format!("{}/models", config.data_dir);
-        let model_watcher = ModelWatcher::new(
-            &model_dir,
-            "latest.onnx",
-            obs_size,
-            mcts_policy.evaluator_ref(),
-        );
-
-        // Try to load existing model
-        match model_watcher.try_load_existing() {
-            Ok(true) => info!("Loaded existing model"),
-            Ok(false) => {
-                info!("No existing model found, will use random policy until model available")
+        let model_watcher = if config.no_watch {
+            // No-watch mode: load model once at startup, no file watching
+            // Create a temporary watcher just to load the model, then discard it
+            let temp_watcher = ModelWatcher::new(
+                &model_dir,
+                "latest.onnx",
+                obs_size,
+                mcts_policy.evaluator_ref(),
+            );
+            match temp_watcher.try_load_existing() {
+                Ok(true) => info!("Loaded existing model (no-watch mode)"),
+                Ok(false) => {
+                    info!("No existing model found, will use random policy (no-watch mode)")
+                }
+                Err(e) => warn!("Failed to load existing model: {}", e),
             }
-            Err(e) => warn!("Failed to load existing model: {}", e),
-        }
+            None
+        } else {
+            // Normal mode: create watcher for hot-reload
+            let watcher = ModelWatcher::new(
+                &model_dir,
+                "latest.onnx",
+                obs_size,
+                mcts_policy.evaluator_ref(),
+            );
+            match watcher.try_load_existing() {
+                Ok(true) => info!("Loaded existing model"),
+                Ok(false) => {
+                    info!("No existing model found, will use random policy until model available")
+                }
+                Err(e) => warn!("Failed to load existing model: {}", e),
+            }
+            Some(watcher)
+        };
 
         // Initialize replay buffer (PostgreSQL)
         let storage_config = StorageConfig {
@@ -181,12 +200,18 @@ impl Actor {
         info!(
             actor_id = %self.config.actor_id,
             max_episodes = self.config.max_episodes,
+            no_watch = self.config.no_watch,
             initial_rss_mb = format!("{:.1}", initial_rss),
             "Actor starting main loop"
         );
 
-        // Start model watcher
-        let mut model_updates = self.model_watcher.start_watching().await?;
+        // Start model watcher (only if not in no-watch mode)
+        let mut model_updates = if let Some(ref watcher) = self.model_watcher {
+            Some(watcher.start_watching().await?)
+        } else {
+            info!("Running in no-watch mode, model will not be reloaded");
+            None
+        };
 
         // Setup flush timer for periodic database commits
         let mut flush_timer = interval(self.config.flush_interval());
@@ -200,62 +225,83 @@ impl Actor {
                 break;
             }
 
-            tokio::select! {
-                // Handle model updates
-                Some(()) = model_updates.recv() => {
-                    info!("Model updated, next episode will use new model");
-                }
+            // Check episode limit first (non-blocking)
+            let current_episode_count = self.episode_count.load(Ordering::Relaxed);
+            if self.config.max_episodes > 0
+                && current_episode_count >= self.config.max_episodes as u32
+            {
+                info!(
+                    "Reached maximum episodes ({}), stopping",
+                    self.config.max_episodes
+                );
+                break;
+            }
 
-                _ = flush_timer.tick() => {
-                    // Periodic flush is handled by SQLite transactions
-                    debug!("Periodic flush tick");
-                }
+            // Handle model updates if watching is enabled
+            if let Some(ref mut updates) = model_updates {
+                tokio::select! {
+                    biased;  // Prioritize model updates and flush over episodes
 
-                _ = tokio::time::sleep(Duration::from_millis(1)) => {
-                    // Check episode limit
-                    let current_episode_count = self.episode_count.load(Ordering::Relaxed);
+                    Some(()) = updates.recv() => {
+                        info!("Model updated, next episode will use new model");
+                        continue;
+                    }
+
+                    _ = flush_timer.tick() => {
+                        debug!("Periodic flush tick");
+                        continue;
+                    }
+
+                    _ = tokio::time::sleep(Duration::from_millis(1)) => {
+                        // Run episode below
+                    }
+                }
+            } else {
+                // No-watch mode: just check flush timer non-blockingly
+                tokio::select! {
+                    biased;
+
+                    _ = flush_timer.tick() => {
+                        debug!("Periodic flush tick");
+                        continue;
+                    }
+
+                    _ = tokio::time::sleep(Duration::from_millis(1)) => {
+                        // Run episode below
+                    }
+                }
+            }
+
+            // Run an episode
+            let episode_start = Instant::now();
+            match self.run_episode().await {
+                Ok((steps, total_reward)) => {
+                    let new_count = self.episode_count.fetch_add(1, Ordering::Relaxed) + 1;
+                    let duration = episode_start.elapsed().as_secs_f64();
                     debug!(
-                        current_episodes = current_episode_count,
-                        max_episodes = self.config.max_episodes,
-                        "Checking episode limit"
+                        episode = new_count,
+                        steps,
+                        total_reward,
+                        duration,
+                        "Episode completed"
                     );
-                    if self.config.max_episodes > 0 && current_episode_count >= self.config.max_episodes as u32 {
-                        info!("Reached maximum episodes ({}), stopping", self.config.max_episodes);
-                        break;
+                    #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable
+                    if self.config.log_interval > 0 && new_count % self.config.log_interval == 0 {
+                        // Include memory diagnostics in periodic logging
+                        let rss_info = get_rss_mb()
+                            .map(|mb| format!(", RSS: {:.1} MB", mb))
+                            .unwrap_or_default();
+                        let avg_duration = duration; // Most recent episode duration
+                        info!(
+                            "Completed {} episodes (last: {:.2}s{})",
+                            new_count, avg_duration, rss_info
+                        );
                     }
-
-                    // Run an episode
-                    let episode_start = Instant::now();
-                    match self.run_episode().await {
-                        Ok((steps, total_reward)) => {
-                            let new_count = self.episode_count.fetch_add(1, Ordering::Relaxed) + 1;
-                            let duration = episode_start.elapsed().as_secs_f64();
-                            debug!(
-                                episode = new_count,
-                                steps,
-                                total_reward,
-                                duration,
-                                "Episode completed"
-                            );
-                            #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable
-                            if self.config.log_interval > 0 && new_count % self.config.log_interval == 0 {
-                                // Include memory diagnostics in periodic logging
-                                let rss_info = get_rss_mb()
-                                    .map(|mb| format!(", RSS: {:.1} MB", mb))
-                                    .unwrap_or_default();
-                                let avg_duration = duration; // Most recent episode duration
-                                info!(
-                                    "Completed {} episodes (last: {:.2}s{})",
-                                    new_count, avg_duration, rss_info
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            let count = self.episode_count.load(Ordering::Relaxed);
-                            error!("Episode {} failed: {}", count + 1, e);
-                            // Continue with next episode rather than stopping
-                        }
-                    }
+                }
+                Err(e) => {
+                    let count = self.episode_count.load(Ordering::Relaxed);
+                    error!("Episode {} failed: {}", count + 1, e);
+                    // Continue with next episode rather than stopping
                 }
             }
         }
@@ -490,6 +536,7 @@ mod tests {
             temp_threshold: 0,   // Disabled for tests
             postgres_url: std::env::var("CARTRIDGE_STORAGE_POSTGRES_URL")
                 .unwrap_or_else(|_| "postgresql://cartridge:cartridge@localhost:5432/cartridge".into()),
+            no_watch: true, // Tests don't need model watching
         }
     }
 

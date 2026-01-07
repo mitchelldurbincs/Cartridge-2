@@ -53,7 +53,9 @@ RUN mkdir -p /app/data/models
 
 # Environment variables with defaults
 ENV ACTOR_ACTOR_ID="actor-1"
-ENV ACTOR_ENV_ID="tictactoe"
+# Note: ENV_ID is intentionally NOT set here - it should come from
+# CARTRIDGE_COMMON_ENV_ID in docker-compose or config.toml to ensure
+# consistency across all services (actor, trainer, web).
 ENV ACTOR_MAX_EPISODES="-1"
 ENV ACTOR_EPISODE_TIMEOUT="30"
 ENV ACTOR_FLUSH_INTERVAL="5"

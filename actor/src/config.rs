@@ -123,6 +123,11 @@ pub struct Config {
 
     #[arg(long, default_value_t = default_postgres_url())]
     pub postgres_url: String,
+
+    /// Disable model file watching (load model once at startup).
+    /// Use this for orchestrator mode where models are pre-loaded before actors start.
+    #[arg(long, default_value_t = false)]
+    pub no_watch: bool,
 }
 
 impl Default for Config {
@@ -139,6 +144,7 @@ impl Default for Config {
             num_simulations: default_num_simulations(),
             temp_threshold: default_temp_threshold(),
             postgres_url: default_postgres_url(),
+            no_watch: false,
         }
     }
 }
@@ -202,6 +208,7 @@ mod tests {
             num_simulations: 100,
             temp_threshold: 0,
             postgres_url: "postgresql://test:test@localhost:5432/test".into(),
+            no_watch: false,
         }
     }
 
