@@ -22,7 +22,14 @@
       "Bash(wc:*)",
       "Bash(tree:*)",
       "Bash(cargo check:*)",
-      "Bash(.venv/bin/ruff check src/trainer/)"
+      "Bash(.venv/bin/ruff check src/trainer/)",
+      "Bash(.venv/bin/ruff check src/trainer/orchestrator.py)",
+      "Bash(./actor/target/release/actor:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m black:*)",
+      "Bash(python -m ruff check:*)",
+      "Bash(python:*)",
+      "Bash(cargo update:*)"
     ],
     "deny": [],
     "ask": []
