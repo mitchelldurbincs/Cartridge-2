@@ -568,7 +568,7 @@ mod tests {
         }
 
         fn decode_action(buf: &[u8]) -> Result<Self::Action, DecodeError> {
-            if !buf.len().is_multiple_of(4) {
+            if buf.len() % 4 != 0 {
                 return Err(DecodeError::InvalidLength {
                     expected: 0, // Multiple of 4
                     actual: buf.len(),

@@ -55,7 +55,7 @@ impl OnnxEvaluator {
             .map_err(|e| {
                 EvaluatorError::ModelError(format!("Failed to create session builder: {}", e))
             })?
-            .with_intra_threads(4)
+            .with_intra_threads(1)
             .map_err(|e| EvaluatorError::ModelError(format!("Failed to set intra threads: {}", e)))?
             .commit_from_file(model_path)
             .map_err(|e| EvaluatorError::ModelError(format!("Failed to load model: {}", e)))?;
