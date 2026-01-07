@@ -1,15 +1,11 @@
 # Cartridge2 Docker Compose - K8s Backend Simulation
 #
-# This compose file adds PostgreSQL and MinIO services for testing
-# Kubernetes-style deployments locally. Use with the base docker-compose.yml:
+# This overlay adds PostgreSQL and MinIO for testing Kubernetes-style deployments locally.
+# Use with the base docker-compose.yml:
 #
 #   docker compose -f docker-compose.yml -f docker-compose.k8s.yml up alphazero
+#   docker compose -f docker-compose.yml -f docker-compose.k8s.yml up web frontend
 #
-# Or use the convenience profile:
-#
-#   docker compose --profile k8s up
-#
-# Environment variables are pre-configured to use the K8s backends.
 # PostgreSQL replaces SQLite for the replay buffer.
 # MinIO replaces filesystem for model storage.
 #
@@ -19,44 +15,26 @@
 # Extension Fields - Reusable configuration blocks
 # =============================================================================
 
-# AWS/MinIO credentials (shared by all services that access S3)
 x-aws-env: &aws-env
   AWS_ACCESS_KEY_ID: aspect
   AWS_SECRET_ACCESS_KEY: password123
   AWS_REGION: us-east-1
 
-# S3 storage configuration (for services that only need model storage)
-x-s3-env: &s3-env
+x-storage-env: &storage-env
   <<: *aws-env
   CARTRIDGE_STORAGE_MODEL_BACKEND: s3
   CARTRIDGE_STORAGE_S3_BUCKET: cartridge-models
   CARTRIDGE_STORAGE_S3_ENDPOINT: http://minio:9000
-
-# Full K8s storage configuration (PostgreSQL + S3)
-x-k8s-storage-env: &k8s-storage-env
-  <<: *s3-env
   CARTRIDGE_STORAGE_REPLAY_BACKEND: postgres
   CARTRIDGE_STORAGE_POSTGRES_URL: postgresql://cartridge:cartridge@postgres:5432/cartridge
 
-# Common volumes for K8s services
-x-k8s-volumes: &k8s-volumes
-  - ./data:/app/data
-  - ./config.toml:/app/config.toml:ro
-
-# Common dependencies for services that need both postgres and minio
-x-k8s-depends: &k8s-depends
-  postgres:
-    condition: service_healthy
-  minio-setup:
-    condition: service_completed_successfully
-
 services:
   # ==========================================================================
-  # PostgreSQL - Replay Buffer Storage
+  # Infrastructure Services
   # ==========================================================================
+
   postgres:
     image: postgres:16-alpine
-    container_name: cartridge-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: cartridge
@@ -75,12 +53,8 @@ services:
     networks:
       - cartridge-net
 
-  # ==========================================================================
-  # MinIO - S3-Compatible Model Storage
-  # ==========================================================================
   minio:
     image: minio/minio:RELEASE.2024-11-07T00-52-20Z
-    container_name: cartridge-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -89,8 +63,8 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
+      - "9000:9000"
+      - "9001:9001"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -99,12 +73,8 @@ services:
     networks:
       - cartridge-net
 
-  # ==========================================================================
-  # MinIO Setup - Creates bucket on startup
-  # ==========================================================================
   minio-setup:
     image: minio/mc:RELEASE.2024-11-05T11-29-45Z
-    container_name: cartridge-minio-setup
     depends_on:
       minio:
         condition: service_healthy
@@ -113,114 +83,40 @@ services:
       mc alias set cartridge http://minio:9000 aspect password123;
       mc mb cartridge/cartridge-models --ignore-existing;
       mc anonymous set download cartridge/cartridge-models;
-      echo 'MinIO bucket created and configured';
+      echo 'MinIO bucket ready';
       "
     networks:
       - cartridge-net
 
   # ==========================================================================
-  # AlphaZero - Override for K8s backends
+  # Service Overrides for K8s Backends
   # ==========================================================================
-  alphazero-k8s:
+
+  alphazero:
     build:
-      context: .
-      dockerfile: Dockerfile.alphazero
       args:
         CARGO_FEATURES: "s3"
-    container_name: cartridge-alphazero-k8s
-    profiles:
-      - orchestrator  # Use --profile orchestrator to run this instead of separate trainer+actors
     depends_on:
-      <<: *k8s-depends
-    volumes: *k8s-volumes
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
     environment:
-      <<: *k8s-storage-env
-      CARTRIDGE_COMMON_ENV_ID: connect4
-      # Legacy env vars (override if needed)
-      ALPHAZERO_ENV_ID: ${ALPHAZERO_ENV_ID:-}
-      ALPHAZERO_ITERATIONS: ${ALPHAZERO_ITERATIONS:-}
-    networks:
-      - cartridge-net
+      <<: *storage-env
 
-  # ==========================================================================
-  # Actor - Override for K8s backends (horizontal scaling)
-  # ==========================================================================
-  actor-k8s:
+  web:
     build:
-      context: .
-      dockerfile: actor/Dockerfile
       args:
         CARGO_FEATURES: "s3"
-    # Note: No container_name to allow horizontal scaling with --scale actor-k8s=N
-    profiles:
-      - k8s
-    restart: unless-stopped
-    depends_on:
-      <<: *k8s-depends
-    volumes: *k8s-volumes
-    environment:
-      <<: *k8s-storage-env
-      CARTRIDGE_COMMON_ENV_ID: connect4
-    networks:
-      - cartridge-net
-    deploy:
-      # Enable horizontal scaling with: docker compose --profile k8s up --scale actor-k8s=4
-      replicas: 1
-
-  # ==========================================================================
-  # Trainer - Override for K8s backends
-  # ==========================================================================
-  trainer-k8s:
-    build:
-      context: trainer
-      dockerfile: Dockerfile
-    container_name: cartridge-trainer-k8s
-    profiles:
-      - k8s
-    restart: unless-stopped
-    depends_on:
-      <<: *k8s-depends
-    volumes: *k8s-volumes
-    environment:
-      <<: *k8s-storage-env
-      CARTRIDGE_COMMON_ENV_ID: connect4
-    # Continuous training: train 1000 steps, exit, Docker restarts, repeat
-    # This allows picking up fresh data from actors between training cycles
-    entrypoint: ["python", "-m", "trainer", "train", "--steps", "1000"]
-    networks:
-      - cartridge-net
-
-  # ==========================================================================
-  # Web Backend - Override for K8s backends
-  # ==========================================================================
-  web-k8s:
-    build:
-      context: .
-      dockerfile: web/Dockerfile
-      args:
-        CARGO_FEATURES: "s3"
-    container_name: cartridge-web-k8s
-    profiles:
-      - k8s
-    restart: unless-stopped
     depends_on:
       minio-setup:
         condition: service_completed_successfully
-    volumes: *k8s-volumes
     environment:
-      <<: *s3-env
-      RUST_LOG: info
-    ports:
-      - "8080:8080"
-    networks:
-      - cartridge-net
+      <<: *aws-env
+      CARTRIDGE_STORAGE_MODEL_BACKEND: s3
+      CARTRIDGE_STORAGE_S3_BUCKET: cartridge-models
+      CARTRIDGE_STORAGE_S3_ENDPOINT: http://minio:9000
 
 volumes:
   postgres_data:
-    driver: local
   minio_data:
-    driver: local
-
-networks:
-  cartridge-net:
-    driver: bridge

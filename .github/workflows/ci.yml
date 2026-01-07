@@ -176,5 +176,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build alphazero image
         run: docker build -f Dockerfile.alphazero -t cartridge-alphazero .
-      - name: Build trainer image
-        run: docker build -f trainer/Dockerfile -t cartridge-trainer ./trainer
+      - name: Build web image
+        run: docker build -f web/Dockerfile -t cartridge-web .
+      - name: Build frontend image
+        run: docker build -f web/frontend/Dockerfile -t cartridge-frontend ./web/frontend

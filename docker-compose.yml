@@ -1,15 +1,8 @@
 # Cartridge2 Docker Compose Configuration
 #
-# Configuration:
-#   All settings are loaded from config.toml (mounted to /app/config.toml).
-#   Environment variables can override config.toml values for quick customization.
-#
 # Services:
-#   - alphazero:  Synchronized AlphaZero training (RECOMMENDED)
-#   - evaluator:  Periodic model evaluation against random baseline
-#   - actor:      Standalone self-play (for continuous training)
-#   - trainer:    Standalone training (for continuous training)
-#   - web:        Backend API server
+#   - alphazero:  Synchronized AlphaZero training (actor + trainer in one container)
+#   - web:        Backend API server for playing against trained models
 #   - frontend:   Nginx serving Svelte frontend
 #
 # Shared volume: ./data (SQLite DB, ONNX models, stats.json)
@@ -18,127 +11,57 @@
 #   # Train a model (uses settings from config.toml)
 #   docker compose up alphazero
 #
-#   # Override specific settings via environment variables
+#   # Override game via environment variable
 #   CARTRIDGE_COMMON_ENV_ID=connect4 docker compose up alphazero
-#
-#   # Legacy environment variables still work for backward compatibility
-#   ALPHAZERO_ENV_ID=connect4 docker compose up alphazero
 #
 #   # Play against the trained model
 #   docker compose up web frontend
 #   # Open http://localhost in browser
 #
 #   # Run standalone evaluation
-#   docker compose run --rm evaluator
+#   docker compose run --rm alphazero python -m trainer evaluate --model /app/data/models/latest.onnx
 #
 #   # Watch training progress
 #   docker compose logs -f alphazero
+#
+# For K8s backend testing (PostgreSQL + MinIO):
+#   docker compose -f docker-compose.yml -f docker-compose.k8s.yml up alphazero
 
 services:
   # ==========================================================================
-  # AlphaZero - Synchronized Training (RECOMMENDED)
+  # AlphaZero - Synchronized Training
   # ==========================================================================
   # Each iteration: clear buffer -> generate episodes -> train -> evaluate
-  # This ensures training data comes from the current model only
+  # This ensures training data comes from the current model only.
   #
-  # Settings loaded from config.toml. Override with environment variables:
+  # All settings loaded from config.toml. Override with environment variables:
   #   CARTRIDGE_COMMON_ENV_ID, CARTRIDGE_TRAINING_ITERATIONS, etc.
-  #   Legacy ALPHAZERO_* variables also supported for backward compatibility.
   alphazero:
     build:
       context: .
       dockerfile: Dockerfile.alphazero
-    container_name: cartridge-alphazero
-    profiles:
-      - local
     volumes:
       - ./data:/app/data
       - ./config.toml:/app/config.toml:ro
     environment:
-      # Legacy env vars for backward compatibility (override config.toml)
-      - ALPHAZERO_ENV_ID=${ALPHAZERO_ENV_ID:-}
-      - ALPHAZERO_ITERATIONS=${ALPHAZERO_ITERATIONS:-}
-      - ALPHAZERO_EPISODES=${ALPHAZERO_EPISODES:-}
-      - ALPHAZERO_STEPS=${ALPHAZERO_STEPS:-}
-      - ALPHAZERO_DEVICE=${ALPHAZERO_DEVICE:-}
-      - ALPHAZERO_EVAL_INTERVAL=${ALPHAZERO_EVAL_INTERVAL:-}
-      - ALPHAZERO_EVAL_GAMES=${ALPHAZERO_EVAL_GAMES:-}
-    networks:
-      - cartridge-net
-
-  # ==========================================================================
-  # Evaluator - Standalone Model Evaluation
-  # ==========================================================================
-  # Evaluates the latest model against random baseline
-  # Can be run as a one-shot or on a schedule
-  evaluator:
-    build:
-      context: trainer
-      dockerfile: Dockerfile
-    container_name: cartridge-evaluator
-    profiles:
-      - tools
-    volumes:
-      - ./data:/app/data
-      - ./config.toml:/app/config.toml:ro
-    entrypoint: ["python", "-m", "trainer", "evaluate"]
-    command:
-      - "--model=/app/data/models/latest.onnx"
-    networks:
-      - cartridge-net
-
-  # ==========================================================================
-  # Actor - Standalone Self-Play (continuous mode)
-  # ==========================================================================
-  # Generates self-play episodes independently
-  # Use for continuous/async training setups
-  # Settings loaded from config.toml
-  actor:
-    build:
-      context: .
-      dockerfile: actor/Dockerfile
-    container_name: cartridge-actor
-    profiles:
-      - continuous
-    restart: unless-stopped
-    volumes:
-      - ./data:/app/data
-      - ./config.toml:/app/config.toml:ro
-    networks:
-      - cartridge-net
-
-  # ==========================================================================
-  # Trainer - Standalone Training (continuous mode)
-  # ==========================================================================
-  # Trains on replay buffer data independently
-  # Use for continuous/async training setups
-  # Settings loaded from config.toml
-  trainer:
-    build:
-      context: trainer
-      dockerfile: Dockerfile
-    container_name: cartridge-trainer
-    profiles:
-      - continuous
-    restart: unless-stopped
-    volumes:
-      - ./data:/app/data
-      - ./config.toml:/app/config.toml:ro
-    entrypoint: ["python", "-m", "trainer", "train"]
+      # Pass through environment overrides (empty = use config.toml defaults)
+      - CARTRIDGE_COMMON_ENV_ID=${CARTRIDGE_COMMON_ENV_ID:-}
+      - CARTRIDGE_TRAINING_ITERATIONS=${CARTRIDGE_TRAINING_ITERATIONS:-}
+      - CARTRIDGE_TRAINING_EPISODES_PER_ITERATION=${CARTRIDGE_TRAINING_EPISODES_PER_ITERATION:-}
+      - CARTRIDGE_TRAINING_STEPS_PER_ITERATION=${CARTRIDGE_TRAINING_STEPS_PER_ITERATION:-}
+      - CARTRIDGE_TRAINING_DEVICE=${CARTRIDGE_TRAINING_DEVICE:-}
+      - CARTRIDGE_EVALUATION_INTERVAL=${CARTRIDGE_EVALUATION_INTERVAL:-}
+      - CARTRIDGE_EVALUATION_GAMES=${CARTRIDGE_EVALUATION_GAMES:-}
     networks:
       - cartridge-net
 
   # ==========================================================================
   # Web Backend - API server with game logic
   # ==========================================================================
-  # Settings loaded from config.toml
   web:
     build:
       context: .
       dockerfile: web/Dockerfile
-    container_name: cartridge-web
-    profiles:
-      - local
     restart: unless-stopped
     volumes:
       - ./data:/app/data
@@ -157,9 +80,6 @@ services:
     build:
       context: web/frontend
       dockerfile: Dockerfile
-    container_name: cartridge-frontend
-    profiles:
-      - local
     restart: unless-stopped
     ports:
       - "80:8080"
@@ -171,7 +91,3 @@ services:
 networks:
   cartridge-net:
     driver: bridge
-
-volumes:
-  data:
-    driver: local
