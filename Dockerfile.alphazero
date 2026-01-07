@@ -80,7 +80,9 @@ ENV ACTOR_BINARY="/app/actor"
 ENV DATA_DIR="/app/data"
 
 # AlphaZero training defaults
-ENV ALPHAZERO_ENV_ID="tictactoe"
+# Note: ENV_ID is intentionally NOT set here - it should come from
+# CARTRIDGE_COMMON_ENV_ID in docker-compose or config.toml to ensure
+# consistency across all services (actor, trainer, web).
 ENV ALPHAZERO_ITERATIONS="100"
 ENV ALPHAZERO_EPISODES="500"
 ENV ALPHAZERO_STEPS="1000"
