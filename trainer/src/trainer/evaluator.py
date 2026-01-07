@@ -12,35 +12,28 @@ Usage (defaults assume running from trainer/ directory):
 
 import argparse
 import logging
-import random
 import sys
 from dataclasses import dataclass
-from enum import IntEnum
 from pathlib import Path
-from typing import Protocol
-
-import numpy as np
-import onnxruntime as ort
 
 from .game_config import GameConfig, get_config
+from .games import Player, create_game_state
+from .policies import OnnxPolicy, Policy, RandomPolicy
 from .storage import GameMetadata, create_replay_buffer
 
 logger = logging.getLogger(__name__)
 
 
-class Player(IntEnum):
-    """Player identifiers matching game implementations."""
-
-    FIRST = 1  # First player (X in TicTacToe, Red in Connect4)
-    SECOND = 2  # Second player (O in TicTacToe, Yellow in Connect4)
-
-
-class Cell(IntEnum):
-    """Cell states."""
-
-    EMPTY = 0
-    FIRST = 1  # First player's piece
-    SECOND = 2  # Second player's piece
+def _silence_noisy_loggers() -> None:
+    """Silence verbose third-party loggers (ONNX optimization, etc.)."""
+    noisy_loggers = [
+        "onnx_ir.passes.common.unused_removal",
+        "onnx_ir.passes.common.initializer_deduplication",
+        "onnxscript.optimizer._constant_folding",
+        "onnxscript.rewriter.rules.common._collapse_slices",
+    ]
+    for name in noisy_loggers:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def get_game_metadata_or_config(env_id: str) -> GameConfig | GameMetadata:
@@ -69,483 +62,6 @@ def get_game_metadata_or_config(env_id: str) -> GameConfig | GameMetadata:
         logger.warning(f"Failed to read database metadata: {e}, using fallback")
 
     return get_config(env_id)
-
-
-class GameState(Protocol):
-    """Protocol for game state implementations."""
-
-    @property
-    def done(self) -> bool:
-        """Return True if game is over."""
-        ...
-
-    @property
-    def winner(self) -> int | None:
-        """Return winner (1=first player, 2=second player, None=draw/ongoing)."""
-        ...
-
-    @property
-    def current_player(self) -> Player:
-        """Return current player to move."""
-        ...
-
-    def legal_moves(self) -> list[int]:
-        """Return list of legal move indices."""
-        ...
-
-    def legal_moves_mask(self) -> list[float]:
-        """Return mask where 1.0 = legal, 0.0 = illegal."""
-        ...
-
-    def make_move(self, pos: int) -> None:
-        """Make a move at the given position."""
-        ...
-
-    def to_observation(self, config: GameConfig | GameMetadata) -> np.ndarray:
-        """Convert to neural network observation format."""
-        ...
-
-    def display(self) -> str:
-        """Return a string representation for debugging."""
-        ...
-
-    def copy(self) -> "GameState":
-        """Return a copy of the state."""
-        ...
-
-
-@dataclass
-class TicTacToeState:
-    """Pure Python TicTacToe state for evaluation."""
-
-    board: list[int]  # 9 cells, 0=empty, 1=first, 2=second
-    current_player: Player
-    _done: bool = False
-    _winner: int | None = None  # None=ongoing/draw, 1=first wins, 2=second wins
-
-    @property
-    def done(self) -> bool:
-        return self._done
-
-    @property
-    def winner(self) -> int | None:
-        return self._winner
-
-    @classmethod
-    def new(cls) -> "TicTacToeState":
-        return cls(board=[0] * 9, current_player=Player.FIRST)
-
-    def copy(self) -> "TicTacToeState":
-        return TicTacToeState(
-            board=self.board.copy(),
-            current_player=self.current_player,
-            _done=self._done,
-            _winner=self._winner,
-        )
-
-    def legal_moves(self) -> list[int]:
-        """Return indices of empty cells."""
-        if self._done:
-            return []
-        return [i for i, cell in enumerate(self.board) if cell == Cell.EMPTY]
-
-    def legal_moves_mask(self) -> list[float]:
-        """Return mask where 1.0 = legal, 0.0 = illegal."""
-        if self._done:
-            return [0.0] * 9
-        return [1.0 if cell == Cell.EMPTY else 0.0 for cell in self.board]
-
-    def make_move(self, pos: int) -> None:
-        """Make a move at the given position."""
-        if self._done:
-            raise ValueError("Game is already over")
-        if self.board[pos] != Cell.EMPTY:
-            raise ValueError(f"Position {pos} is not empty")
-
-        self.board[pos] = self.current_player
-
-        # Check for winner
-        if self._check_winner(self.current_player):
-            self._done = True
-            self._winner = self.current_player
-        elif all(cell != Cell.EMPTY for cell in self.board):
-            # Draw
-            self._done = True
-            self._winner = None
-        else:
-            # Switch player
-            if self.current_player == Player.FIRST:
-                self.current_player = Player.SECOND
-            else:
-                self.current_player = Player.FIRST
-
-    def _check_winner(self, player: Player) -> bool:
-        """Check if the given player has won."""
-        b = self.board
-        p = player
-
-        # Rows
-        if b[0] == b[1] == b[2] == p:
-            return True
-        if b[3] == b[4] == b[5] == p:
-            return True
-        if b[6] == b[7] == b[8] == p:
-            return True
-
-        # Columns
-        if b[0] == b[3] == b[6] == p:
-            return True
-        if b[1] == b[4] == b[7] == p:
-            return True
-        if b[2] == b[5] == b[8] == p:
-            return True
-
-        # Diagonals
-        if b[0] == b[4] == b[8] == p:
-            return True
-        if b[2] == b[4] == b[6] == p:
-            return True
-
-        return False
-
-    def to_observation(self, config: GameConfig | GameMetadata) -> np.ndarray:
-        """Convert to neural network observation format."""
-        obs = np.zeros(config.obs_size, dtype=np.float32)
-
-        # Board view: positions 0-8 for first player, 9-17 for second
-        board_size = config.board_width * config.board_height
-        for i, cell in enumerate(self.board):
-            if cell == Cell.FIRST:
-                obs[i] = 1.0
-            elif cell == Cell.SECOND:
-                obs[i + board_size] = 1.0
-
-        # Legal moves mask starting at legal_mask_offset
-        for i, cell in enumerate(self.board):
-            if cell == Cell.EMPTY and not self._done:
-                obs[config.legal_mask_offset + i] = 1.0
-
-        # Current player: 2 floats at end
-        player_offset = config.legal_mask_offset + config.num_actions
-        if self.current_player == Player.FIRST:
-            obs[player_offset] = 1.0
-        else:
-            obs[player_offset + 1] = 1.0
-
-        return obs
-
-    def display(self) -> str:
-        """Return a string representation of the board."""
-        symbols = {Cell.EMPTY: ".", Cell.FIRST: "X", Cell.SECOND: "O"}
-        rows = []
-        for row in range(3):
-            cells = [symbols[Cell(self.board[row * 3 + col])] for col in range(3)]
-            rows.append(" ".join(cells))
-        return "\n".join(rows)
-
-
-@dataclass
-class Connect4State:
-    """Pure Python Connect4 state for evaluation."""
-
-    board: list[int]  # 42 cells (7x6), column-major: board[col * 6 + row]
-    current_player: Player
-    _done: bool = False
-    _winner: int | None = None
-
-    WIDTH = 7
-    HEIGHT = 6
-
-    @property
-    def done(self) -> bool:
-        return self._done
-
-    @property
-    def winner(self) -> int | None:
-        return self._winner
-
-    @classmethod
-    def new(cls) -> "Connect4State":
-        return cls(board=[0] * 42, current_player=Player.FIRST)
-
-    def copy(self) -> "Connect4State":
-        return Connect4State(
-            board=self.board.copy(),
-            current_player=self.current_player,
-            _done=self._done,
-            _winner=self._winner,
-        )
-
-    def _get_cell(self, col: int, row: int) -> int:
-        """Get cell value (row 0 is bottom)."""
-        return self.board[col * self.HEIGHT + row]
-
-    def _set_cell(self, col: int, row: int, value: int) -> None:
-        """Set cell value."""
-        self.board[col * self.HEIGHT + row] = value
-
-    def _column_height(self, col: int) -> int:
-        """Return the number of pieces in a column."""
-        for row in range(self.HEIGHT):
-            if self._get_cell(col, row) == Cell.EMPTY:
-                return row
-        return self.HEIGHT
-
-    def legal_moves(self) -> list[int]:
-        """Return indices of columns that aren't full."""
-        if self._done:
-            return []
-        return [
-            col for col in range(self.WIDTH) if self._column_height(col) < self.HEIGHT
-        ]
-
-    def legal_moves_mask(self) -> list[float]:
-        """Return mask where 1.0 = legal, 0.0 = illegal."""
-        if self._done:
-            return [0.0] * self.WIDTH
-        return [
-            1.0 if self._column_height(col) < self.HEIGHT else 0.0
-            for col in range(self.WIDTH)
-        ]
-
-    def make_move(self, col: int) -> None:
-        """Drop a piece in the given column."""
-        if self._done:
-            raise ValueError("Game is already over")
-        row = self._column_height(col)
-        if row >= self.HEIGHT:
-            raise ValueError(f"Column {col} is full")
-
-        self._set_cell(col, row, self.current_player)
-
-        # Check for winner
-        if self._check_winner(col, row, self.current_player):
-            self._done = True
-            self._winner = self.current_player
-        elif all(self._column_height(c) == self.HEIGHT for c in range(self.WIDTH)):
-            # Draw (board full)
-            self._done = True
-            self._winner = None
-        else:
-            # Switch player
-            if self.current_player == Player.FIRST:
-                self.current_player = Player.SECOND
-            else:
-                self.current_player = Player.FIRST
-
-    def _check_winner(self, col: int, row: int, player: Player) -> bool:
-        """Check if the last move at (col, row) creates a win."""
-        directions = [
-            (1, 0),
-            (0, 1),
-            (1, 1),
-            (1, -1),
-        ]  # horizontal, vertical, diagonals
-        for dc, dr in directions:
-            count = 1
-            # Count in positive direction
-            c, r = col + dc, row + dr
-            while (
-                0 <= c < self.WIDTH
-                and 0 <= r < self.HEIGHT
-                and self._get_cell(c, r) == player
-            ):
-                count += 1
-                c += dc
-                r += dr
-            # Count in negative direction
-            c, r = col - dc, row - dr
-            while (
-                0 <= c < self.WIDTH
-                and 0 <= r < self.HEIGHT
-                and self._get_cell(c, r) == player
-            ):
-                count += 1
-                c -= dc
-                r -= dr
-            if count >= 4:
-                return True
-        return False
-
-    def to_observation(self, config: GameConfig | GameMetadata) -> np.ndarray:
-        """Convert to neural network observation format."""
-        obs = np.zeros(config.obs_size, dtype=np.float32)
-
-        board_size = config.board_width * config.board_height
-        for i, cell in enumerate(self.board):
-            if cell == Cell.FIRST:
-                obs[i] = 1.0
-            elif cell == Cell.SECOND:
-                obs[i + board_size] = 1.0
-
-        # Legal moves mask
-        for col in range(self.WIDTH):
-            if self._column_height(col) < self.HEIGHT and not self._done:
-                obs[config.legal_mask_offset + col] = 1.0
-
-        # Current player
-        player_offset = config.legal_mask_offset + config.num_actions
-        if self.current_player == Player.FIRST:
-            obs[player_offset] = 1.0
-        else:
-            obs[player_offset + 1] = 1.0
-
-        return obs
-
-    def display(self) -> str:
-        """Return a string representation of the board."""
-        symbols = {Cell.EMPTY: ".", Cell.FIRST: "R", Cell.SECOND: "Y"}
-        rows = []
-        for row in range(self.HEIGHT - 1, -1, -1):
-            cells = [
-                symbols[Cell(self._get_cell(col, row))] for col in range(self.WIDTH)
-            ]
-            rows.append(" ".join(cells))
-        rows.append("-" * (self.WIDTH * 2 - 1))
-        rows.append(" ".join(str(i) for i in range(self.WIDTH)))
-        return "\n".join(rows)
-
-
-def create_game_state(env_id: str) -> GameState:
-    """Create a new game state for the given environment.
-
-    Args:
-        env_id: Environment ID (e.g., "tictactoe", "connect4").
-
-    Returns:
-        New game state instance.
-
-    Raises:
-        ValueError: If env_id is not supported.
-    """
-    if env_id == "tictactoe":
-        return TicTacToeState.new()
-    elif env_id == "connect4":
-        return Connect4State.new()
-    else:
-        raise ValueError(f"Unsupported game for evaluation: {env_id}")
-
-
-class Policy(Protocol):
-    """Protocol for action selection policies."""
-
-    def select_action(self, state: GameState, config: GameConfig | GameMetadata) -> int:
-        """Select an action given the current state and game config."""
-        ...
-
-    @property
-    def name(self) -> str:
-        """Return the policy name for logging."""
-        ...
-
-
-class RandomPolicy:
-    """Uniformly random policy over legal moves."""
-
-    @property
-    def name(self) -> str:
-        return "Random"
-
-    def select_action(self, state: GameState, config: GameConfig | GameMetadata) -> int:
-        legal = state.legal_moves()
-        if not legal:
-            raise ValueError("No legal moves available")
-        return random.choice(legal)
-
-
-class OnnxPolicy:
-    """Policy using an ONNX neural network model.
-
-    Uses game configuration (from database or fallback) to correctly parse
-    observations and policy outputs for different games.
-    """
-
-    def __init__(self, model_path: str, temperature: float = 0.0):
-        """
-        Args:
-            model_path: Path to ONNX model file.
-            temperature: Sampling temperature. 0 = greedy (argmax).
-        """
-        self.model_path = model_path
-        self.temperature = temperature
-
-        # Load ONNX model
-        self.session = ort.InferenceSession(
-            model_path,
-            providers=["CPUExecutionProvider"],
-        )
-
-        # Get input/output names
-        self.input_name = self.session.get_inputs()[0].name
-        self.policy_output = self.session.get_outputs()[0].name
-        self.value_output = self.session.get_outputs()[1].name
-
-    @property
-    def name(self) -> str:
-        return f"ONNX({Path(self.model_path).name})"
-
-    def select_action(self, state: GameState, config: GameConfig | GameMetadata) -> int:
-        """Select an action using the neural network policy.
-
-        Args:
-            state: Current game state.
-            config: Game configuration (from database metadata or fallback).
-
-        Returns:
-            Selected action index.
-        """
-        legal = state.legal_moves()
-        if not legal:
-            raise ValueError("No legal moves available")
-
-        # Get observation using config for correct encoding
-        obs = state.to_observation(config)
-        obs_batch = obs.reshape(1, -1)
-
-        # Run inference
-        outputs = self.session.run(
-            [self.policy_output, self.value_output],
-            {self.input_name: obs_batch},
-        )
-        policy_logits = outputs[0][0]  # Shape: (num_actions,)
-
-        # Mask illegal moves
-        legal_mask = state.legal_moves_mask()
-        masked_logits = np.where(
-            np.array(legal_mask) == 1.0,
-            policy_logits,
-            -np.inf,
-        )
-
-        if self.temperature == 0.0:
-            # Greedy selection
-            return int(np.argmax(masked_logits))
-        else:
-            # Sample with temperature
-            logits = masked_logits / self.temperature
-            logits = logits - np.max(logits)  # Numerical stability
-            probs = np.exp(logits)
-            probs = probs / np.sum(probs)
-            return int(np.random.choice(config.num_actions, p=probs))
-
-    def get_value(self, state: GameState, config: GameConfig | GameMetadata) -> float:
-        """Get the value estimate for a state.
-
-        Args:
-            state: Current game state.
-            config: Game configuration for observation encoding.
-
-        Returns:
-            Value estimate from the network.
-        """
-        obs = state.to_observation(config)
-        obs_batch = obs.reshape(1, -1)
-
-        outputs = self.session.run(
-            [self.value_output],
-            {self.input_name: obs_batch},
-        )
-        return float(outputs[0][0][0])
 
 
 @dataclass
@@ -820,6 +336,7 @@ def main() -> int:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    _silence_noisy_loggers()
 
     # Load game configuration from database (preferred) or fallback to hardcoded
     # This follows the same pattern as the Rust actor, making the evaluator self-describing
@@ -867,13 +384,13 @@ def main() -> int:
     # Interpretation
     print()
     if results.player1_win_rate > 0.7:
-        print("✓ Model is significantly better than random play!")
+        print("Model is significantly better than random play!")
     elif results.player1_win_rate > 0.5:
         print("~ Model is slightly better than random play.")
     elif results.player1_win_rate > 0.3:
-        print("✗ Model is roughly equivalent to random play.")
+        print("Model is roughly equivalent to random play.")
     else:
-        print("✗ Model is worse than random play!")
+        print("Model is worse than random play!")
 
     # Game-specific analysis
     if args.env_id == "tictactoe" and results.draw_rate > 0.8:

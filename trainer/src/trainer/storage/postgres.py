@@ -11,14 +11,31 @@ Environment variables:
 """
 
 import logging
-from typing import TYPE_CHECKING
+from contextlib import contextmanager
+from pathlib import Path
+from typing import TYPE_CHECKING, Generator
 
 from trainer.storage.base import GameMetadata, ReplayBufferBase, Transition
+
+# Path to shared SQL schema file (relative to project root)
+_SCHEMA_PATH = (
+    Path(__file__).parent.parent.parent.parent.parent.parent / "sql" / "schema.sql"
+)
 
 if TYPE_CHECKING:
     from psycopg2.extensions import connection as PgConnection
 
 logger = logging.getLogger(__name__)
+
+
+def _load_schema() -> str:
+    """Load the shared SQL schema file."""
+    if not _SCHEMA_PATH.exists():
+        raise FileNotFoundError(
+            f"Schema file not found: {_SCHEMA_PATH}. "
+            "Ensure you're running from the project root."
+        )
+    return _SCHEMA_PATH.read_text()
 
 
 class PostgresReplayBuffer(ReplayBufferBase):
@@ -81,85 +98,38 @@ class PostgresReplayBuffer(ReplayBufferBase):
         """Return a connection to the pool."""
         self._pool.putconn(conn)
 
+    @contextmanager
+    def _connection(self) -> Generator["PgConnection", None, None]:
+        """Context manager for connection pool access."""
+        conn = self._get_conn()
+        try:
+            yield conn
+        finally:
+            self._put_conn(conn)
+
     def close(self) -> None:
         """Close all connections in the pool."""
         self._pool.closeall()
 
     def _ensure_schema(self) -> None:
-        """Create tables if they don't exist."""
-        conn = self._get_conn()
-        try:
+        """Create tables if they don't exist using the shared schema file."""
+        schema_sql = _load_schema()
+        with self._connection() as conn:
             with conn.cursor() as cur:
-                # Create transitions table (PostgreSQL syntax)
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS transitions (
-                        id TEXT PRIMARY KEY,
-                        env_id TEXT NOT NULL,
-                        episode_id TEXT NOT NULL,
-                        step_number INTEGER NOT NULL,
-                        state BYTEA NOT NULL,
-                        action BYTEA NOT NULL,
-                        next_state BYTEA NOT NULL,
-                        observation BYTEA NOT NULL,
-                        next_observation BYTEA NOT NULL,
-                        reward REAL NOT NULL,
-                        done BOOLEAN NOT NULL,
-                        timestamp BIGINT NOT NULL,
-                        policy_probs BYTEA,
-                        mcts_value REAL DEFAULT 0.0,
-                        game_outcome REAL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                )
-
-                # Create indices
-                cur.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_transitions_timestamp
-                    ON transitions(timestamp)
-                    """
-                )
-                cur.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_transitions_episode
-                    ON transitions(episode_id)
-                    """
-                )
-                cur.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_transitions_env_id
-                    ON transitions(env_id)
-                    """
-                )
-
-                # Create game_metadata table
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS game_metadata (
-                        env_id TEXT PRIMARY KEY,
-                        display_name TEXT NOT NULL,
-                        board_width INTEGER NOT NULL,
-                        board_height INTEGER NOT NULL,
-                        num_actions INTEGER NOT NULL,
-                        obs_size INTEGER NOT NULL,
-                        legal_mask_offset INTEGER NOT NULL,
-                        player_count INTEGER NOT NULL,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                )
+                # Execute each statement from the shared schema file
+                for statement in schema_sql.split(";"):
+                    stmt = statement.strip()
+                    # Skip empty statements and comment-only lines
+                    if not stmt or stmt.startswith("--"):
+                        continue
+                    cur.execute(stmt)
 
                 conn.commit()
                 logger.info("PostgreSQL schema validated/created")
-        finally:
-            self._put_conn(conn)
 
     def count(self, env_id: str | None = None) -> int:
         """Get total number of transitions in the buffer."""
-        conn = self._get_conn()
-        try:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 if env_id is not None:
                     cur.execute(
@@ -168,13 +138,10 @@ class PostgresReplayBuffer(ReplayBufferBase):
                 else:
                     cur.execute("SELECT COUNT(*) FROM transitions")
                 return cur.fetchone()[0]
-        finally:
-            self._put_conn(conn)
 
     def get_metadata(self, env_id: str | None = None) -> GameMetadata | None:
         """Get game metadata from the database."""
-        conn = self._get_conn()
-        try:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 if env_id:
                     cur.execute(
@@ -204,13 +171,10 @@ class PostgresReplayBuffer(ReplayBufferBase):
                     legal_mask_offset=row[6],
                     player_count=row[7],
                 )
-        finally:
-            self._put_conn(conn)
 
     def list_metadata(self) -> list[GameMetadata]:
         """List all game metadata in the database."""
-        conn = self._get_conn()
-        try:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """SELECT env_id, display_name, board_width, board_height,
@@ -231,8 +195,6 @@ class PostgresReplayBuffer(ReplayBufferBase):
                     )
                     for row in cur.fetchall()
                 ]
-        finally:
-            self._put_conn(conn)
 
     def sample(self, batch_size: int, env_id: str | None = None) -> list[Transition]:
         """Sample random transitions for training.
@@ -241,8 +203,7 @@ class PostgresReplayBuffer(ReplayBufferBase):
         falling back to ORDER BY RANDOM() for smaller tables or when TABLESAMPLE
         doesn't return enough rows.
         """
-        conn = self._get_conn()
-        try:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 # Try TABLESAMPLE first (efficient for large tables)
                 # SYSTEM samples pages, so we oversample and limit
@@ -306,8 +267,6 @@ class PostgresReplayBuffer(ReplayBufferBase):
                     rows = cur.fetchall()
 
                 return self._rows_to_transitions(rows)
-        finally:
-            self._put_conn(conn)
 
     def _rows_to_transitions(self, rows: list) -> list[Transition]:
         """Convert database rows to Transition objects."""
@@ -334,23 +293,19 @@ class PostgresReplayBuffer(ReplayBufferBase):
 
     def clear_transitions(self) -> int:
         """Delete all transitions from the buffer."""
-        conn = self._get_conn()
-        try:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM transitions")
                 count = cur.rowcount
                 conn.commit()
                 return count
-        finally:
-            self._put_conn(conn)
 
     def cleanup(self, window_size: int) -> int:
         """Delete old transitions to maintain a sliding window.
 
         Returns the number of deleted transitions.
         """
-        conn = self._get_conn()
-        try:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -366,8 +321,6 @@ class PostgresReplayBuffer(ReplayBufferBase):
                 count = cur.rowcount
                 conn.commit()
                 return count
-        finally:
-            self._put_conn(conn)
 
     def vacuum(self) -> None:
         """Run VACUUM to reclaim storage space.
@@ -375,8 +328,7 @@ class PostgresReplayBuffer(ReplayBufferBase):
         Note: PostgreSQL VACUUM cannot run inside a transaction,
         so we need autocommit mode.
         """
-        conn = self._get_conn()
-        try:
+        with self._connection() as conn:
             old_autocommit = conn.autocommit
             conn.autocommit = True
             try:
@@ -384,8 +336,6 @@ class PostgresReplayBuffer(ReplayBufferBase):
                     cur.execute("VACUUM transitions")
             finally:
                 conn.autocommit = old_autocommit
-        finally:
-            self._put_conn(conn)
 
     def store_batch(self, transitions: list[Transition]) -> None:
         """Store multiple transitions in a batch.
@@ -393,8 +343,7 @@ class PostgresReplayBuffer(ReplayBufferBase):
         This method is provided for actors that need to write to the buffer.
         Uses executemany for efficient batch inserts.
         """
-        conn = self._get_conn()
-        try:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 cur.executemany(
                     """
@@ -429,13 +378,10 @@ class PostgresReplayBuffer(ReplayBufferBase):
                     ],
                 )
                 conn.commit()
-        finally:
-            self._put_conn(conn)
 
     def store_metadata(self, metadata: GameMetadata) -> None:
         """Store or update game metadata (upsert)."""
-        conn = self._get_conn()
-        try:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -465,5 +411,3 @@ class PostgresReplayBuffer(ReplayBufferBase):
                     ),
                 )
                 conn.commit()
-        finally:
-            self._put_conn(conn)

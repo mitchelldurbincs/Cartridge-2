@@ -76,6 +76,7 @@ def save_onnx_checkpoint(
                 "policy_logits": {0: "batch_size"},
                 "value": {0: "batch_size"},
             },
+            dynamo=False,
         )
 
         # If PyTorch emitted external data, inline it so the checkpoint is

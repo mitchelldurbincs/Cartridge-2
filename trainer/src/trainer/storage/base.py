@@ -4,11 +4,14 @@ These interfaces define the contract for storage backends, allowing
 the trainer to work with SQLite locally or PostgreSQL/S3 in K8s.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Iterator
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -185,19 +188,48 @@ class ReplayBufferBase(ABC):
                     policy_targets[i] = policy
                 else:
                     # Fallback to one-hot if shape mismatch
+                    logger.warning(
+                        "Policy shape mismatch: got %d, expected %d. "
+                        "Falling back to one-hot for transition %s (episode %s, step %d). "
+                        "This degrades training quality - check actor/trainer config.",
+                        len(policy),
+                        num_actions,
+                        t.id,
+                        t.episode_id,
+                        t.step_number,
+                    )
                     policy_targets[i] = 0.0
                     action_idx = int.from_bytes(t.action, byteorder="little")
+                    if action_idx >= num_actions:
+                        raise ValueError(
+                            f"Action index {action_idx} out of bounds for "
+                            f"{num_actions} actions in transition {t.id}"
+                        )
                     policy_targets[i, action_idx] = 1.0
             else:
                 # Fallback to one-hot action if no MCTS data
                 policy_targets[i] = 0.0
                 action_idx = int.from_bytes(t.action, byteorder="little")
+                if action_idx >= num_actions:
+                    raise ValueError(
+                        f"Action index {action_idx} out of bounds for "
+                        f"{num_actions} actions in transition {t.id}"
+                    )
                 policy_targets[i, action_idx] = 1.0
 
-            # Use game_outcome as value target
-            value_targets[i] = (
-                t.game_outcome if t.game_outcome is not None else t.mcts_value
-            )
+            # Use game_outcome as value target (required for proper AlphaZero)
+            if t.game_outcome is not None:
+                value_targets[i] = t.game_outcome
+            else:
+                logger.warning(
+                    "Missing game_outcome for transition %s (episode %s, step %d). "
+                    "Using mcts_value (%.3f) as fallback - this degrades training quality.",
+                    t.id,
+                    t.episode_id,
+                    t.step_number,
+                    t.mcts_value,
+                )
+                value_targets[i] = t.mcts_value
 
         return observations, policy_targets, value_targets
 
