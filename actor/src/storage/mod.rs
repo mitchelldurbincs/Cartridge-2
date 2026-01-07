@@ -15,7 +15,7 @@
 
 mod postgres;
 
-pub use postgres::PostgresReplayStore;
+pub use postgres::{PoolConfig, PostgresReplayStore};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -73,6 +73,8 @@ pub trait ReplayStore: Send + Sync {
 pub struct StorageConfig {
     /// PostgreSQL connection string
     pub postgres_url: String,
+    /// Connection pool configuration
+    pub pool_config: PoolConfig,
 }
 
 impl Default for StorageConfig {
@@ -81,12 +83,15 @@ impl Default for StorageConfig {
             postgres_url: std::env::var("CARTRIDGE_STORAGE_POSTGRES_URL").unwrap_or_else(|_| {
                 "postgresql://cartridge:cartridge@localhost:5432/cartridge".to_string()
             }),
+            pool_config: PoolConfig::default(),
         }
     }
 }
 
 /// Create a replay store based on configuration
 pub async fn create_replay_store(config: &StorageConfig) -> Result<Box<dyn ReplayStore>> {
-    let store = PostgresReplayStore::new(&config.postgres_url).await?;
+    let store =
+        PostgresReplayStore::with_pool_config(&config.postgres_url, config.pool_config.clone())
+            .await?;
     Ok(Box::new(store))
 }

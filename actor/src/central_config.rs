@@ -38,8 +38,12 @@ mod defaults {
     pub const TEMPERATURE: f64 = 1.0;
     pub const DIRICHLET_ALPHA: f64 = 0.3;
     pub const DIRICHLET_WEIGHT: f64 = 0.25;
+    pub const EVAL_BATCH_SIZE: usize = 32;
     pub const MODEL_BACKEND: &str = "filesystem";
     pub const POSTGRES_URL: &str = "postgresql://cartridge:cartridge@localhost:5432/cartridge";
+    pub const POOL_MAX_SIZE: usize = 16;
+    pub const POOL_CONNECT_TIMEOUT: u64 = 30;
+    pub const POOL_IDLE_TIMEOUT: u64 = 300;
 }
 
 /// Root configuration structure matching config.toml
@@ -147,11 +151,23 @@ fn d_dirichlet_alpha() -> f64 {
 fn d_dirichlet_weight() -> f64 {
     defaults::DIRICHLET_WEIGHT
 }
+fn d_eval_batch_size() -> usize {
+    defaults::EVAL_BATCH_SIZE
+}
 fn d_model_backend() -> String {
     defaults::MODEL_BACKEND.into()
 }
 fn d_postgres_url() -> Option<String> {
     Some(defaults::POSTGRES_URL.into())
+}
+fn d_pool_max_size() -> usize {
+    defaults::POOL_MAX_SIZE
+}
+fn d_pool_connect_timeout() -> u64 {
+    defaults::POOL_CONNECT_TIMEOUT
+}
+fn d_pool_idle_timeout() -> Option<u64> {
+    Some(defaults::POOL_IDLE_TIMEOUT)
 }
 
 #[derive(Debug, Deserialize)]
@@ -296,6 +312,8 @@ pub struct MctsConfig {
     pub dirichlet_alpha: f64,
     #[serde(default = "d_dirichlet_weight")]
     pub dirichlet_weight: f64,
+    #[serde(default = "d_eval_batch_size")]
+    pub eval_batch_size: usize,
 }
 
 impl Default for MctsConfig {
@@ -306,6 +324,7 @@ impl Default for MctsConfig {
             temperature: defaults::TEMPERATURE,
             dirichlet_alpha: defaults::DIRICHLET_ALPHA,
             dirichlet_weight: defaults::DIRICHLET_WEIGHT,
+            eval_batch_size: defaults::EVAL_BATCH_SIZE,
         }
     }
 }
@@ -322,6 +341,15 @@ pub struct StorageConfig {
     pub s3_bucket: Option<String>,
     #[serde(default)]
     pub s3_endpoint: Option<String>,
+    /// Maximum number of connections in the PostgreSQL pool
+    #[serde(default = "d_pool_max_size")]
+    pub pool_max_size: usize,
+    /// Timeout in seconds to wait for a connection from the pool
+    #[serde(default = "d_pool_connect_timeout")]
+    pub pool_connect_timeout: u64,
+    /// Idle timeout for connections in seconds (None = no timeout)
+    #[serde(default = "d_pool_idle_timeout")]
+    pub pool_idle_timeout: Option<u64>,
 }
 
 impl Default for StorageConfig {
@@ -331,6 +359,9 @@ impl Default for StorageConfig {
             postgres_url: Some(defaults::POSTGRES_URL.into()),
             s3_bucket: None,
             s3_endpoint: None,
+            pool_max_size: defaults::POOL_MAX_SIZE,
+            pool_connect_timeout: defaults::POOL_CONNECT_TIMEOUT,
+            pool_idle_timeout: Some(defaults::POOL_IDLE_TIMEOUT),
         }
     }
 }
@@ -399,6 +430,14 @@ macro_rules! env_override {
     // Optional string field
     ($config:expr, $section:ident . $field:ident, $key:expr, optional) => {
         if let Ok(v) = std::env::var($key) {
+            $config.$section.$field = Some(v);
+        }
+    };
+    // Optional parseable field (Option<i32>, Option<u64>, etc.)
+    ($config:expr, $section:ident . $field:ident, $key:expr, optional_parse) => {
+        if let Ok(v) =
+            std::env::var($key).and_then(|s| s.parse().map_err(|_| std::env::VarError::NotPresent))
+        {
             $config.$section.$field = Some(v);
         }
     };
@@ -544,6 +583,12 @@ fn apply_env_overrides(mut config: CentralConfig) -> CentralConfig {
         "CARTRIDGE_MCTS_DIRICHLET_WEIGHT",
         parse
     );
+    env_override!(
+        config,
+        mcts.eval_batch_size,
+        "CARTRIDGE_MCTS_EVAL_BATCH_SIZE",
+        parse
+    );
 
     // Storage
     env_override!(
@@ -568,6 +613,24 @@ fn apply_env_overrides(mut config: CentralConfig) -> CentralConfig {
         storage.s3_endpoint,
         "CARTRIDGE_STORAGE_S3_ENDPOINT",
         optional
+    );
+    env_override!(
+        config,
+        storage.pool_max_size,
+        "CARTRIDGE_STORAGE_POOL_MAX_SIZE",
+        parse
+    );
+    env_override!(
+        config,
+        storage.pool_connect_timeout,
+        "CARTRIDGE_STORAGE_POOL_CONNECT_TIMEOUT",
+        parse
+    );
+    env_override!(
+        config,
+        storage.pool_idle_timeout,
+        "CARTRIDGE_STORAGE_POOL_IDLE_TIMEOUT",
+        optional_parse
     );
 
     config

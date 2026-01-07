@@ -116,9 +116,10 @@ impl Actor {
         let obs_size = game_config.obs_size;
 
         // Create MCTS policy with training configuration
-        // num_simulations and temp_threshold are configurable via CLI/env for orchestrator control
+        // num_simulations, eval_batch_size, temp_threshold are configurable via CLI/env for orchestrator control
         let mcts_config = MctsConfig::for_training()
             .with_simulations(config.num_simulations)
+            .with_eval_batch_size(config.eval_batch_size)
             .with_temperature(1.0); // Base exploration temperature
 
         let mcts_policy = MctsPolicy::new(config.env_id.clone(), num_actions, obs_size)
@@ -126,8 +127,8 @@ impl Actor {
             .with_temp_schedule(config.temp_threshold, 0.1); // Late-game temp
 
         info!(
-            "MCTS config: {} simulations, temp_threshold={} (0=disabled)",
-            config.num_simulations, config.temp_threshold
+            "MCTS config: {} simulations, eval_batch_size={}, temp_threshold={} (0=disabled)",
+            config.num_simulations, config.eval_batch_size, config.temp_threshold
         );
 
         // Create model watcher (optional when --no-watch is set)
@@ -167,9 +168,10 @@ impl Actor {
             Some(watcher)
         };
 
-        // Initialize replay buffer (PostgreSQL)
+        // Initialize replay buffer (PostgreSQL with connection pooling)
         let storage_config = StorageConfig {
             postgres_url: config.postgres_url.clone(),
+            pool_config: config.pool_config(),
         };
 
         let replay = create_replay_store(&storage_config).await?;
@@ -282,7 +284,6 @@ impl Actor {
                         episode = new_count,
                         steps, total_reward, duration, "Episode completed"
                     );
-                    #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable
                     if self.config.log_interval > 0 && new_count % self.config.log_interval == 0 {
                         // Include memory diagnostics in periodic logging
                         let rss_info = get_rss_mb()
@@ -531,6 +532,7 @@ mod tests {
             data_dir: "./data".into(),
             num_simulations: 50, // Fewer for tests
             temp_threshold: 0,   // Disabled for tests
+            eval_batch_size: 32,
             postgres_url: std::env::var("CARTRIDGE_STORAGE_POSTGRES_URL").unwrap_or_else(|_| {
                 "postgresql://cartridge:cartridge@localhost:5432/cartridge".into()
             }),

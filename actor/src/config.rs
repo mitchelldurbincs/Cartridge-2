@@ -11,6 +11,7 @@ use std::time::Duration;
 use tracing::level_filters::LevelFilter;
 
 use crate::central_config::{load_config, CentralConfig};
+use crate::storage::PoolConfig;
 
 // Load central config once at startup
 static CENTRAL_CONFIG: Lazy<CentralConfig> = Lazy::new(load_config);
@@ -88,6 +89,13 @@ fn default_temp_threshold() -> u32 {
         .unwrap_or(0)
 }
 
+fn default_eval_batch_size() -> usize {
+    std::env::var("ACTOR_EVAL_BATCH_SIZE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(CENTRAL_CONFIG.mcts.eval_batch_size)
+}
+
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(name = "actor")]
 #[command(about = "Cartridge2 Actor - Self-play episode runner")]
@@ -122,6 +130,9 @@ pub struct Config {
     #[arg(long, default_value_t = default_temp_threshold())]
     pub temp_threshold: u32,
 
+    #[arg(long, default_value_t = default_eval_batch_size())]
+    pub eval_batch_size: usize,
+
     #[arg(long, default_value_t = default_postgres_url())]
     pub postgres_url: String,
 
@@ -144,6 +155,7 @@ impl Default for Config {
             data_dir: default_data_dir(),
             num_simulations: default_num_simulations(),
             temp_threshold: default_temp_threshold(),
+            eval_batch_size: default_eval_batch_size(),
             postgres_url: default_postgres_url(),
             no_watch: false,
         }
@@ -190,6 +202,15 @@ impl Config {
     pub fn model_path(&self) -> String {
         format!("{}/models/latest.onnx", self.data_dir)
     }
+
+    /// Get the connection pool configuration from central config.
+    pub fn pool_config(&self) -> PoolConfig {
+        PoolConfig {
+            max_size: CENTRAL_CONFIG.storage.pool_max_size,
+            connect_timeout_secs: CENTRAL_CONFIG.storage.pool_connect_timeout,
+            idle_timeout_secs: CENTRAL_CONFIG.storage.pool_idle_timeout,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -208,6 +229,7 @@ mod tests {
             data_dir: "../data".into(),
             num_simulations: 100,
             temp_threshold: 0,
+            eval_batch_size: 32,
             postgres_url: "postgresql://test:test@localhost:5432/test".into(),
             no_watch: false,
         }
