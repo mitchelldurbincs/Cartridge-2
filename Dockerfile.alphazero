@@ -32,6 +32,7 @@ WORKDIR /app
 # Copy and build actor with optional features
 COPY engine/ ./engine/
 COPY actor/ ./actor/
+COPY sql/ ./sql/
 
 WORKDIR /app/actor
 RUN if [ -z "$CARGO_FEATURES" ]; then \

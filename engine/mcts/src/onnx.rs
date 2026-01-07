@@ -244,9 +244,10 @@ impl Evaluator for OnnxEvaluator {
 
         // Create input tensor with shape (batch_size, obs_size)
         // Use tuple (shape, data) format for compatibility across ort versions
-        let input_value = Value::from_array(([batch_size, self.obs_size], flat_obs)).map_err(|e| {
-            EvaluatorError::ModelError(format!("Failed to create batch input tensor: {}", e))
-        })?;
+        let input_value =
+            Value::from_array(([batch_size, self.obs_size], flat_obs)).map_err(|e| {
+                EvaluatorError::ModelError(format!("Failed to create batch input tensor: {}", e))
+            })?;
 
         // Run inference - extract all data inside the lock scope
         let inference_start = Instant::now();
