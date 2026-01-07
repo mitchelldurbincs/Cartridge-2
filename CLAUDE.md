@@ -27,8 +27,49 @@ Cartridge2 is a simplified AlphaZero training and visualization platform. It ena
 │  - Stats API    │  │ - ONNX export │  │                 │
 └─────────────────┘  └───────────────┘  └─────────────────┘
 ```
-## Programming 
-**IMPORTANT** Make sure to run tests / linters (can find a list in `.github/workflows/ci.yml`) for the code changes you make. 
+## Programming
+**IMPORTANT** Make sure to run tests / linters for the code changes you make.
+
+### Rust (engine, actor, web)
+```bash
+# Format
+cargo fmt --check --manifest-path engine/Cargo.toml
+cargo fmt --check --manifest-path actor/Cargo.toml
+cargo fmt --check --manifest-path web/Cargo.toml
+
+# Lint
+cargo clippy --manifest-path engine/Cargo.toml --all-targets -- -D warnings
+cargo clippy --manifest-path actor/Cargo.toml --all-targets -- -D warnings
+cargo clippy --manifest-path web/Cargo.toml --all-targets -- -D warnings
+
+# Test
+cargo test --manifest-path engine/Cargo.toml
+cargo test --manifest-path actor/Cargo.toml
+cargo test --manifest-path web/Cargo.toml
+```
+
+### Python (trainer)
+```bash
+cd trainer
+
+# Lint
+python -m ruff check src/
+python -m black --check src/
+
+# Auto-fix lint issues
+python -m ruff check --fix src/
+python -m black src/
+
+# Test (requires deps: pip install -e ".[dev]")
+python -m pytest tests/ -v --tb=short
+```
+
+### Frontend (web/frontend)
+```bash
+cd web/frontend
+npm run check   # TypeScript/Svelte check
+npm run build   # Build
+``` 
 
 ## Components
 
