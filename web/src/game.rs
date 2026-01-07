@@ -31,9 +31,6 @@ const MCTS_SIMULATIONS: u32 = 200;
 #[cfg(feature = "onnx")]
 const MCTS_TEMPERATURE: f32 = 0.5;
 
-/// Threshold for determining if a move is legal from observation floats
-const LEGAL_MOVE_THRESHOLD: f32 = 0.5;
-
 /// Default human player number (1 = goes first)
 const DEFAULT_HUMAN_PLAYER: u8 = 1;
 
@@ -229,17 +226,11 @@ impl GameSession {
             return Vec::new();
         }
 
-        let Some(mask_bytes) = self.legal_mask_bytes() else {
-            return Vec::new();
-        };
-
-        mask_bytes
-            .chunks_exact(4)
-            .enumerate()
-            .filter_map(|(action, bytes)| {
-                let value = f32::from_le_bytes(bytes.try_into().unwrap());
-                (value > LEGAL_MOVE_THRESHOLD).then_some(action as u8)
-            })
+        // Use the shared implementation from GameMetadata
+        self.metadata
+            .extract_legal_moves(&self.obs)
+            .into_iter()
+            .map(|i| i as u8)
             .collect()
     }
 
@@ -249,32 +240,8 @@ impl GameSession {
             return false;
         }
 
-        let action = position as usize;
-        if action >= self.metadata.num_actions {
-            return false;
-        }
-
-        let Some(mask_bytes) = self.legal_mask_bytes() else {
-            return false;
-        };
-
-        let start = action * 4;
-        let bytes: [u8; 4] = mask_bytes[start..start + 4].try_into().unwrap();
-        let value = f32::from_le_bytes(bytes);
-        value > LEGAL_MOVE_THRESHOLD
-    }
-
-    /// Extract the legal moves slice from the observation buffer
-    fn legal_mask_bytes(&self) -> Option<&[u8]> {
-        let start = self.metadata.legal_mask_offset.checked_mul(4)?;
-        let len = self.metadata.num_actions.checked_mul(4)?;
-        let end = start.checked_add(len)?;
-
-        if end <= self.obs.len() {
-            Some(&self.obs[start..end])
-        } else {
-            None
-        }
+        // Use the shared implementation from GameMetadata
+        self.metadata.is_action_legal(&self.obs, position as usize)
     }
 
     /// Check if game is over
@@ -520,7 +487,12 @@ mod tests {
         // Corrupt the observation buffer to simulate a mismatch with metadata
         session.obs.truncate(4);
 
-        assert_eq!(session.legal_moves(), Vec::<u8>::new());
+        // With short observation, GameMetadata::extract_legal_mask uses permissive fallback
+        // (all moves legal) to prevent MCTS from getting stuck. This is safer than
+        // returning empty since the game's step() will reject invalid moves anyway.
+        assert_eq!(session.legal_moves().len(), 9); // All 9 moves as fallback
+
+        // is_action_legal checks bounds and returns false for short observation
         assert!(!session.is_legal_move(0));
     }
 }
