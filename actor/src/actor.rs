@@ -284,7 +284,9 @@ impl Actor {
                         episode = new_count,
                         steps, total_reward, duration, "Episode completed"
                     );
-                    if self.config.log_interval > 0 && new_count % self.config.log_interval == 0 {
+                    if self.config.log_interval > 0
+                        && new_count.is_multiple_of(self.config.log_interval)
+                    {
                         // Include memory diagnostics in periodic logging
                         let rss_info = get_rss_mb()
                             .map(|mb| format!(", RSS: {:.1} MB", mb))

@@ -8,12 +8,10 @@ use engine_core::{EngineContext, GameMetadata};
 use mcts::{run_mcts, MctsConfig, OnnxEvaluator};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-#[cfg(feature = "onnx")]
-use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(feature = "onnx")]
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::types::GameStateResponse;
 #[cfg(not(feature = "onnx"))]
@@ -165,43 +163,6 @@ impl GameSession {
         })
     }
 
-    /// Load an ONNX model for the bot (for future model hot-reloading)
-    #[cfg(feature = "onnx")]
-    #[allow(dead_code)]
-    pub fn load_model<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let path_ref = path.as_ref();
-        info!("Loading ONNX model from {:?}", path_ref);
-
-        let new_evaluator = OnnxEvaluator::load(path_ref, self.metadata.obs_size)
-            .map_err(|e| anyhow!("Failed to load model: {}", e))?;
-
-        let mut guard = self
-            .evaluator
-            .write()
-            .map_err(|e| anyhow!("Failed to acquire write lock: {}", e))?;
-        *guard = Some(new_evaluator);
-
-        info!("Model loaded successfully");
-        Ok(())
-    }
-
-    /// Check if a model is loaded (for future use)
-    #[cfg(feature = "onnx")]
-    #[allow(dead_code)]
-    pub fn has_model(&self) -> bool {
-        self.evaluator
-            .read()
-            .map(|guard| guard.is_some())
-            .unwrap_or(false)
-    }
-
-    /// Get the shared evaluator reference (for future model hot-reloading)
-    #[cfg(feature = "onnx")]
-    #[allow(dead_code)]
-    pub fn evaluator_ref(&self) -> Arc<RwLock<Option<OnnxEvaluator>>> {
-        Arc::clone(&self.evaluator)
-    }
-
     /// Parse state bytes into board, current_player, winner
     fn parse_state(state: &[u8], board_size: usize) -> Result<(Vec<u8>, u8, u8)> {
         let expected_len = board_size + 2; // board + current_player + winner
@@ -247,18 +208,6 @@ impl GameSession {
     /// Check if game is over
     pub fn is_game_over(&self) -> bool {
         self.winner != 0
-    }
-
-    /// Get current player
-    #[allow(dead_code)]
-    pub fn current_player(&self) -> u8 {
-        self.current_player
-    }
-
-    /// Get which player the human is (1 or 2)
-    #[allow(dead_code)]
-    pub fn human_player(&self) -> u8 {
-        self.human_player
     }
 
     /// Set which player the human is (called when game starts)
@@ -416,12 +365,6 @@ impl GameSession {
             legal_moves: self.legal_moves(),
             message,
         }
-    }
-
-    /// Get game metadata
-    #[allow(dead_code)]
-    pub fn metadata(&self) -> &GameMetadata {
-        &self.metadata
     }
 }
 
