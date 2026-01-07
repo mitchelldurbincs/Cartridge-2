@@ -143,6 +143,12 @@ dirichlet_alpha = 0.4
 # Dirichlet noise weight
 dirichlet_weight = 0.25
 
+# Batch size for neural network evaluation during MCTS
+# Leaves are collected until this batch size, then evaluated together
+# Higher values improve throughput but increase latency per batch
+# Set to 1 to disable batching (original sequential behavior)
+eval_batch_size = 32
+
 # =============================================================================
 # Storage Backend Settings
 # =============================================================================
@@ -155,6 +161,11 @@ model_backend = "filesystem"
 # Can also be set via CARTRIDGE_STORAGE_POSTGRES_URL environment variable
 # For local dev: docker compose up postgres
 postgres_url = "postgresql://cartridge:cartridge@localhost:5432/cartridge"
+
+# Connection pool settings
+pool_max_size = 16          # Maximum connections in the pool
+pool_connect_timeout = 30   # Seconds to wait for a connection
+pool_idle_timeout = 300     # Seconds before idle connection is closed
 
 # S3 bucket for model storage (only used when model_backend = "s3")
 # Can also be set via CARTRIDGE_S3_BUCKET environment variable
