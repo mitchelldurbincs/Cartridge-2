@@ -51,11 +51,9 @@ spec:
                   name: cartridge-config
                   key: ENV_ID
           volumeMounts:
-            - name: models
-              mountPath: /data/models
-              readOnly: true
             - name: data
               mountPath: /data
+              readOnly: true
           resources:
             requests:
               memory: "256Mi"
@@ -76,11 +74,9 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
       volumes:
-        - name: models
+        - name: data
           persistentVolumeClaim:
             claimName: models-shared
-        - name: data
-          emptyDir: {}
 ---
 # Frontend Deployment - Nginx serving Svelte app
 apiVersion: apps/v1

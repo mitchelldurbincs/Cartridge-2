@@ -46,11 +46,11 @@ spec:
               echo "PostgreSQL is ready!"
       containers:
         - name: actor
-          # Build with: docker build -f Dockerfile.alphazero -t cartridge-actor .
+          # Build with: docker build -f Dockerfile.alphazero -t cartridge-alphazero .
           # For K8s, push to your registry:
-          #   docker tag cartridge-actor:latest your-registry/cartridge-actor:latest
-          #   docker push your-registry/cartridge-actor:latest
-          image: cartridge-actor:latest
+          #   docker tag cartridge-alphazero:latest your-registry/cartridge-alphazero:latest
+          #   docker push your-registry/cartridge-alphazero:latest
+          image: cartridge-alphazero:latest
           imagePullPolicy: IfNotPresent
           # Override entrypoint to run actor directly (not orchestrator)
           command: ["/app/actor"]
