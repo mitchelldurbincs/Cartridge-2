@@ -206,7 +206,7 @@ impl Evaluator for OnnxEvaluator {
         let count = self.inference_count.fetch_add(1, Ordering::Relaxed) + 1;
 
         // Log stats periodically (every 10,000 inferences)
-        if count % 10_000 == 0 {
+        if count.is_multiple_of(10_000) {
             let total_us = self.total_inference_time_us.load(Ordering::Relaxed);
             let avg_us = total_us / count;
             debug!(
@@ -305,7 +305,7 @@ impl Evaluator for OnnxEvaluator {
             + batch_size_u64;
 
         // Log stats periodically (every 10,000 inferences)
-        if count % 10_000 == 0 {
+        if count.is_multiple_of(10_000) {
             let avg_us = total_us / count;
             debug!(
                 "ONNX inference stats: {} calls, avg {:.2}ms per call",

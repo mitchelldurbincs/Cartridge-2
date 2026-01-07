@@ -31,7 +31,8 @@
       "Bash(python:*)",
       "Bash(cargo update:*)",
       "Bash(cargo bench:*)",
-      "Bash(cargo clean:*)"
+      "Bash(cargo clean:*)",
+      "Bash(rustc:*)"
     ],
     "deny": [],
     "ask": []
