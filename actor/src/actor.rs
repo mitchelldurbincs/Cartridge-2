@@ -280,10 +280,7 @@ impl Actor {
                     let duration = episode_start.elapsed().as_secs_f64();
                     debug!(
                         episode = new_count,
-                        steps,
-                        total_reward,
-                        duration,
-                        "Episode completed"
+                        steps, total_reward, duration, "Episode completed"
                     );
                     #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable
                     if self.config.log_interval > 0 && new_count % self.config.log_interval == 0 {
@@ -534,8 +531,9 @@ mod tests {
             data_dir: "./data".into(),
             num_simulations: 50, // Fewer for tests
             temp_threshold: 0,   // Disabled for tests
-            postgres_url: std::env::var("CARTRIDGE_STORAGE_POSTGRES_URL")
-                .unwrap_or_else(|_| "postgresql://cartridge:cartridge@localhost:5432/cartridge".into()),
+            postgres_url: std::env::var("CARTRIDGE_STORAGE_POSTGRES_URL").unwrap_or_else(|_| {
+                "postgresql://cartridge:cartridge@localhost:5432/cartridge".into()
+            }),
             no_watch: true, // Tests don't need model watching
         }
     }

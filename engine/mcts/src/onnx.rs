@@ -158,12 +158,8 @@ impl Evaluator for OnnxEvaluator {
         let obs_f32 = self.obs_bytes_to_f32(obs)?;
 
         // Create input tensor with shape (1, obs_size)
-        let input_array =
-            ndarray::Array2::from_shape_vec((1, self.obs_size), obs_f32).map_err(|e| {
-                EvaluatorError::InvalidState(format!("Failed to create input array: {}", e))
-            })?;
-
-        let input_value = Value::from_array(input_array).map_err(|e| {
+        // Use tuple (shape, data) format for compatibility across ort versions
+        let input_value = Value::from_array(([1usize, self.obs_size], obs_f32)).map_err(|e| {
             EvaluatorError::ModelError(format!("Failed to create input tensor: {}", e))
         })?;
 
@@ -247,12 +243,8 @@ impl Evaluator for OnnxEvaluator {
         }
 
         // Create input tensor with shape (batch_size, obs_size)
-        let input_array = ndarray::Array2::from_shape_vec((batch_size, self.obs_size), flat_obs)
-            .map_err(|e| {
-                EvaluatorError::InvalidState(format!("Failed to create batch input array: {}", e))
-            })?;
-
-        let input_value = Value::from_array(input_array).map_err(|e| {
+        // Use tuple (shape, data) format for compatibility across ort versions
+        let input_value = Value::from_array(([batch_size, self.obs_size], flat_obs)).map_err(|e| {
             EvaluatorError::ModelError(format!("Failed to create batch input tensor: {}", e))
         })?;
 

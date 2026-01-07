@@ -64,7 +64,9 @@ fn default_postgres_url() -> String {
                 .storage
                 .postgres_url
                 .clone()
-                .unwrap_or_else(|| "postgresql://cartridge:cartridge@localhost:5432/cartridge".to_string())
+                .unwrap_or_else(|| {
+                    "postgresql://cartridge:cartridge@localhost:5432/cartridge".to_string()
+                })
         })
 }
 
@@ -85,7 +87,6 @@ fn default_temp_threshold() -> u32 {
         .and_then(|v| v.parse().ok())
         .unwrap_or(0)
 }
-
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(name = "actor")]

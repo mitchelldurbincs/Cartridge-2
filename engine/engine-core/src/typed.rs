@@ -567,6 +567,7 @@ mod tests {
             Ok(())
         }
 
+        #[allow(unknown_lints, clippy::manual_is_multiple_of)] // is_multiple_of is unstable
         fn decode_action(buf: &[u8]) -> Result<Self::Action, DecodeError> {
             if buf.len() % 4 != 0 {
                 return Err(DecodeError::InvalidLength {

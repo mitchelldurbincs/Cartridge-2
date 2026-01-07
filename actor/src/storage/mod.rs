@@ -78,8 +78,9 @@ pub struct StorageConfig {
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
-            postgres_url: std::env::var("CARTRIDGE_STORAGE_POSTGRES_URL")
-                .unwrap_or_else(|_| "postgresql://cartridge:cartridge@localhost:5432/cartridge".to_string()),
+            postgres_url: std::env::var("CARTRIDGE_STORAGE_POSTGRES_URL").unwrap_or_else(|_| {
+                "postgresql://cartridge:cartridge@localhost:5432/cartridge".to_string()
+            }),
         }
     }
 }
