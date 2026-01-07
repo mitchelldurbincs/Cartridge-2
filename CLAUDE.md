@@ -550,6 +550,9 @@ engine/mcts/src/
 └── search.rs       # Select, expand, backpropagate, run_search
 ```
 
+** Also, remember that if you are working on MCTS, that we have benchmarks for that. It may be a good idea to run those if you are making major changes to performance for it.**
+
+
 ### Key Types
 
 - `MctsConfig` - Search parameters (simulations, c_puct, dirichlet noise, temperature)
