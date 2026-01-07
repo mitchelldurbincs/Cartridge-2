@@ -17,15 +17,23 @@
 # ============================================
 # Stage 1: Build Rust Actor
 # ============================================
-FROM rust:1.88-bookworm AS rust-builder
+# Using Ubuntu 24.04 for glibc >= 2.38 (required by onnxruntime prebuilt binaries)
+FROM ubuntu:24.04 AS rust-builder
 
 # PostgreSQL is built-in. Optional feature: s3 (S3 model storage)
 ARG CARGO_FEATURES=""
 
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
     pkg-config \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Rust via rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
@@ -44,29 +52,39 @@ RUN if [ -z "$CARGO_FEATURES" ]; then \
 # ============================================
 # Stage 2: Python Runtime with Actor Binary
 # ============================================
-FROM python:3.11-slim-bookworm
+# Using Ubuntu 24.04 for glibc >= 2.38 (required by onnxruntime prebuilt binaries)
+FROM ubuntu:24.04
 
-# Install runtime dependencies
+# Install Python and runtime dependencies
 RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
     ca-certificates \
     libssl3 \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+# Create symlinks for python/pip commands
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 WORKDIR /app
 
 # Copy actor binary from rust builder
 COPY --from=rust-builder /app/actor/target/release/actor /app/actor
 
+# Copy SQL schema files (needed by PostgreSQL storage backend)
+COPY sql/ /usr/local/sql/
+
 # Copy trainer source and install
 COPY trainer/pyproject.toml trainer/README.md ./trainer/
 COPY trainer/src/ ./trainer/src/
 
 # Install CPU-only PyTorch (avoids ~700MB CUDA download)
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir --break-system-packages torch --index-url https://download.pytorch.org/whl/cpu
 
 # Install trainer package
-RUN pip install --no-cache-dir ./trainer
+RUN pip install --no-cache-dir --break-system-packages ./trainer
 
 # Create data directory
 RUN mkdir -p /app/data/models

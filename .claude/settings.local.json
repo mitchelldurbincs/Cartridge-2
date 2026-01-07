@@ -30,7 +30,8 @@
       "Bash(python -m ruff check:*)",
       "Bash(python:*)",
       "Bash(cargo update:*)",
-      "Bash(cargo bench:*)"
+      "Bash(cargo bench:*)",
+      "Bash(cargo clean:*)"
     ],
     "deny": [],
     "ask": []
