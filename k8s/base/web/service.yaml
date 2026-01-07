@@ -1,0 +1,37 @@
+# Web Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: cartridge2
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app.kubernetes.io/name: web
+---
+# Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/component: ui
+    app.kubernetes.io/part-of: cartridge2
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+  selector:
+    app.kubernetes.io/name: frontend

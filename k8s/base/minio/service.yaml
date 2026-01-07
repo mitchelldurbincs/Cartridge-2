@@ -1,0 +1,22 @@
+# MinIO Services
+# Provides S3 API endpoint and web console access
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: storage
+    app.kubernetes.io/part-of: cartridge2
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: 9000
+      name: api
+    - port: 9001
+      targetPort: 9001
+      name: console
+  selector:
+    app.kubernetes.io/name: minio

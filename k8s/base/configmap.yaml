@@ -1,0 +1,81 @@
+# Cartridge2 Configuration
+# Shared configuration for all components
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cartridge-config
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: cartridge
+    app.kubernetes.io/part-of: cartridge2
+data:
+  # Game environment (tictactoe, connect4)
+  ENV_ID: "connect4"
+
+  # Logging
+  LOG_LEVEL: "info"
+
+  # Training settings
+  TRAINING_ITERATIONS: "100"
+  EPISODES_PER_ITERATION: "500"
+  STEPS_PER_ITERATION: "400"
+  BATCH_SIZE: "128"
+  LEARNING_RATE: "0.001"
+  DEVICE: "cpu"
+
+  # MCTS settings
+  MCTS_START_SIMS: "50"
+  MCTS_MAX_SIMS: "400"
+  MCTS_SIM_RAMP_RATE: "20"
+  MCTS_TEMP_THRESHOLD: "15"
+
+  # Evaluation
+  EVAL_INTERVAL: "5"
+  EVAL_GAMES: "50"
+
+  # Actor settings
+  ACTOR_LOG_INTERVAL: "50"
+  ACTOR_EPISODE_TIMEOUT: "90"
+
+  # Storage - PostgreSQL
+  # Note: Actual credentials should be in a Secret, not ConfigMap
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "cartridge"
+
+  # Storage - S3/MinIO
+  S3_ENDPOINT: "http://minio:9000"
+  S3_BUCKET: "cartridge-models"
+  AWS_REGION: "us-east-1"
+---
+# PostgreSQL credentials (should use sealed-secrets or external secrets in production)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: cartridge
+    app.kubernetes.io/part-of: cartridge2
+type: Opaque
+stringData:
+  POSTGRES_USER: "cartridge"
+  POSTGRES_PASSWORD: "cartridge"
+  # Full connection string for convenience
+  POSTGRES_URL: "postgresql://cartridge:cartridge@postgres:5432/cartridge"
+---
+# MinIO/S3 credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: cartridge
+    app.kubernetes.io/part-of: cartridge2
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: "cartridge"
+  AWS_SECRET_ACCESS_KEY: "cartridge123"
+  MINIO_ROOT_USER: "cartridge"
+  MINIO_ROOT_PASSWORD: "cartridge123"

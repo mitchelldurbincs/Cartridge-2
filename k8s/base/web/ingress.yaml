@@ -1,0 +1,66 @@
+# Ingress for external access
+# Routes traffic to frontend, with /api/* going to backend
+#
+# Requires an Ingress controller (nginx-ingress, traefik, etc.)
+#
+# For local development with minikube:
+#   minikube addons enable ingress
+#   echo "$(minikube ip) cartridge.local" >> /etc/hosts
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cartridge-ingress
+  namespace: cartridge
+  labels:
+    app.kubernetes.io/name: cartridge
+    app.kubernetes.io/part-of: cartridge2
+  annotations:
+    # Nginx ingress annotations
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    # For AWS ALB Ingress Controller, use these instead:
+    # kubernetes.io/ingress.class: alb
+    # alb.ingress.kubernetes.io/scheme: internet-facing
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: cartridge.local  # Change to your domain
+      http:
+        paths:
+          # API routes go to web backend
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 8080
+          - path: /game
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 8080
+          - path: /move
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 8080
+          - path: /stats
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 8080
+          # Everything else goes to frontend
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
