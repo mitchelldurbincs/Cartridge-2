@@ -26,7 +26,9 @@ use crate::config::Config;
 fn init_tracing(level: &str) -> Result<()> {
     use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(level))
+        .add_directive("ort=warn".parse().unwrap());
 
     tracing_subscriber::registry()
         .with(fmt::layer())

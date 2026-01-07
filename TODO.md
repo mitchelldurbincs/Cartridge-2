@@ -1,0 +1,1 @@
+- [ ] Make it where you can only see the current game on the web UI - you shouldnt be able to see others since you can't play against them properly if another model is trained - right? 
