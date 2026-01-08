@@ -6,12 +6,14 @@
 //! 3. Evaluation: Get value estimate from evaluator
 //! 4. Backpropagation: Update statistics along the path
 
+use std::time::Instant;
+
 use engine_core::game_utils::info_bits;
 use engine_core::{ActionSpace, EngineContext};
 use rand::Rng;
 use rand_chacha::ChaCha20Rng;
 use thiserror::Error;
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::config::MctsConfig;
 use crate::evaluator::{Evaluator, EvaluatorError};
@@ -74,6 +76,33 @@ pub struct SearchResult {
 
     /// Number of simulations performed
     pub simulations: u32,
+
+    /// Performance statistics for this search
+    pub stats: SearchStats,
+}
+
+/// Performance statistics for an MCTS search.
+/// All times are in microseconds for precision.
+#[derive(Debug, Clone, Default)]
+pub struct SearchStats {
+    /// Total wall-clock time for the search
+    pub total_time_us: u64,
+    /// Time spent in tree selection (traversing to leaves)
+    pub selection_time_us: u64,
+    /// Time spent in neural network inference
+    pub inference_time_us: u64,
+    /// Time spent expanding nodes (running game simulations)
+    pub expansion_time_us: u64,
+    /// Time spent in backpropagation
+    pub backprop_time_us: u64,
+    /// Number of batched NN calls made
+    pub num_batches: u32,
+    /// Total observations evaluated (should equal simulations)
+    pub total_evals: u32,
+    /// Number of game step() calls during expansion
+    pub game_steps: u32,
+    /// Number of terminal nodes hit (no NN needed)
+    pub terminal_hits: u32,
 }
 
 /// MCTS search state.
@@ -116,6 +145,9 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
     /// Uses batched neural network evaluation for efficiency. Leaves are collected
     /// until `eval_batch_size` is reached, then evaluated together in a single NN call.
     pub fn run(&mut self, rng: &mut ChaCha20Rng) -> Result<SearchResult, SearchError> {
+        let search_start = Instant::now();
+        let mut stats = SearchStats::default();
+
         // First, expand the root if needed (single NN call, special case)
         if !self.tree.get(self.tree.root()).is_expanded() {
             self.expand_node(self.tree.root(), rng)?;
@@ -134,13 +166,17 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
 
         while completed_simulations < target_simulations {
             // Selection phase: collect leaves until batch is full or we've queued enough
+            let selection_start = Instant::now();
             let remaining = target_simulations - completed_simulations - pending.len() as u32;
             while pending.len() < batch_size && remaining > 0 {
                 match self.select_leaf() {
                     LeafResult::Terminal { node_id, value } => {
                         // Terminal nodes don't need NN - backprop immediately
+                        let backprop_start = Instant::now();
                         self.tree.backpropagate(node_id, value);
+                        stats.backprop_time_us += backprop_start.elapsed().as_micros() as u64;
                         completed_simulations += 1;
+                        stats.terminal_hits += 1;
                     }
                     LeafResult::NeedsEvaluation {
                         node_id,
@@ -167,15 +203,36 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
                     break;
                 }
             }
+            stats.selection_time_us += selection_start.elapsed().as_micros() as u64;
 
             // Evaluation phase: batch evaluate all pending leaves
             if !pending.is_empty() {
                 let batch_count = pending.len() as u32;
-                self.evaluate_and_expand_batch(&pending)?;
+                self.evaluate_and_expand_batch_with_stats(&pending, &mut stats)?;
                 completed_simulations += batch_count;
+                stats.total_evals += batch_count;
+                stats.num_batches += 1;
                 pending.clear();
             }
         }
+
+        // Record total time
+        stats.total_time_us = search_start.elapsed().as_micros() as u64;
+
+        // Log stats at debug level
+        debug!(
+            total_ms = stats.total_time_us as f64 / 1000.0,
+            selection_ms = stats.selection_time_us as f64 / 1000.0,
+            inference_ms = stats.inference_time_us as f64 / 1000.0,
+            expansion_ms = stats.expansion_time_us as f64 / 1000.0,
+            backprop_ms = stats.backprop_time_us as f64 / 1000.0,
+            num_batches = stats.num_batches,
+            total_evals = stats.total_evals,
+            game_steps = stats.game_steps,
+            terminal_hits = stats.terminal_hits,
+            avg_batch_size = if stats.num_batches > 0 { stats.total_evals / stats.num_batches } else { 0 },
+            "MCTS search stats"
+        );
 
         // Extract result
         let root = self.tree.get(self.tree.root());
@@ -199,6 +256,7 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
             policy,
             value: root.mean_value(),
             simulations: root.visit_count,
+            stats,
         })
     }
 
@@ -278,29 +336,29 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
     fn select_leaf(&mut self) -> LeafResult {
         let (leaf_id, _path) = self.select();
 
-        // First, check if terminal or expanded and extract needed data
-        let (is_terminal, terminal_value, is_expanded, state, obs, legal_mask) = {
+        // Check terminal/expanded status first (no cloning needed for early returns)
+        {
+            let leaf = self.tree.get(leaf_id);
+            if leaf.is_terminal {
+                return LeafResult::Terminal {
+                    node_id: leaf_id,
+                    value: leaf.terminal_value,
+                };
+            }
+            if leaf.is_expanded() {
+                return LeafResult::AlreadyExpanded;
+            }
+        }
+
+        // Only clone state/obs if we actually need them for evaluation
+        let (state, obs, legal_mask) = {
             let leaf = self.tree.get(leaf_id);
             (
-                leaf.is_terminal,
-                leaf.terminal_value,
-                leaf.is_expanded(),
                 leaf.state.clone(),
                 leaf.obs.clone(),
                 leaf.legal_moves_mask,
             )
         };
-
-        if is_terminal {
-            return LeafResult::Terminal {
-                node_id: leaf_id,
-                value: terminal_value,
-            };
-        }
-
-        if is_expanded {
-            return LeafResult::AlreadyExpanded;
-        }
 
         // Apply virtual loss to discourage selecting this node again
         // before it's been evaluated (prevents duplicate selection in batch)
@@ -393,15 +451,65 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
         Ok(eval.value)
     }
 
-    /// Expand a node using a pre-computed evaluation result.
-    /// This is used in batched evaluation mode where the NN call happens separately.
-    fn expand_node_with_eval(
+    /// Evaluate and expand a batch of pending leaves with stats tracking.
+    /// Makes a single batched NN call for all leaves, then expands and backpropagates each.
+    fn evaluate_and_expand_batch_with_stats(
+        &mut self,
+        pending: &[PendingLeaf],
+        stats: &mut SearchStats,
+    ) -> Result<(), SearchError> {
+        if pending.is_empty() {
+            return Ok(());
+        }
+
+        // Prepare batch inputs
+        let observations: Vec<&[u8]> = pending.iter().map(|p| p.obs.as_slice()).collect();
+        let legal_masks: Vec<u64> = pending.iter().map(|p| p.legal_mask).collect();
+
+        // Single batched NN call - track inference time
+        let inference_start = Instant::now();
+        let results =
+            self.evaluator
+                .evaluate_batch(&observations, &legal_masks, self.num_actions)?;
+        stats.inference_time_us += inference_start.elapsed().as_micros() as u64;
+
+        // Expand each node with its result and backpropagate
+        for (leaf, eval) in pending.iter().zip(results.iter()) {
+            // Remove virtual loss before applying real values
+            let node = self.tree.get_mut(leaf.node_id);
+            node.visit_count -= 1;
+            node.value_sum += self.config.virtual_loss;
+
+            // Expand the node with children - track expansion time and game steps
+            let expansion_start = Instant::now();
+            let steps = self.expand_node_with_eval_counted(
+                leaf.node_id,
+                &leaf.state,
+                leaf.legal_mask,
+                eval,
+            )?;
+            stats.expansion_time_us += expansion_start.elapsed().as_micros() as u64;
+            stats.game_steps += steps;
+
+            // Backpropagate the value - track backprop time
+            let backprop_start = Instant::now();
+            self.tree.backpropagate(leaf.node_id, eval.value);
+            stats.backprop_time_us += backprop_start.elapsed().as_micros() as u64;
+        }
+
+        Ok(())
+    }
+
+    /// Expand a node using a pre-computed evaluation result, counting game steps.
+    fn expand_node_with_eval_counted(
         &mut self,
         node_id: NodeId,
         parent_state: &[u8],
         legal_mask: u64,
         eval: &crate::evaluator::EvalResult,
-    ) -> Result<(), SearchError> {
+    ) -> Result<u32, SearchError> {
+        let mut step_count = 0;
+
         // Add children for each legal action
         for action in 0..self.num_actions {
             if (legal_mask >> action) & 1 == 0 {
@@ -419,6 +527,7 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
                 .ctx
                 .step(parent_state, &action_bytes)
                 .map_err(|e| SearchError::EngineError(e.to_string()))?;
+            step_count += 1;
 
             // Extract legal moves from info bits
             let child_legal_mask =
@@ -443,40 +552,7 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
             );
         }
 
-        Ok(())
-    }
-
-    /// Evaluate and expand a batch of pending leaves.
-    /// Makes a single batched NN call for all leaves, then expands and backpropagates each.
-    fn evaluate_and_expand_batch(&mut self, pending: &[PendingLeaf]) -> Result<(), SearchError> {
-        if pending.is_empty() {
-            return Ok(());
-        }
-
-        // Prepare batch inputs
-        let observations: Vec<&[u8]> = pending.iter().map(|p| p.obs.as_slice()).collect();
-        let legal_masks: Vec<u64> = pending.iter().map(|p| p.legal_mask).collect();
-
-        // Single batched NN call
-        let results =
-            self.evaluator
-                .evaluate_batch(&observations, &legal_masks, self.num_actions)?;
-
-        // Expand each node with its result and backpropagate
-        for (leaf, eval) in pending.iter().zip(results.iter()) {
-            // Remove virtual loss before applying real values
-            let node = self.tree.get_mut(leaf.node_id);
-            node.visit_count -= 1;
-            node.value_sum += self.config.virtual_loss;
-
-            // Expand the node with children
-            self.expand_node_with_eval(leaf.node_id, &leaf.state, leaf.legal_mask, eval)?;
-
-            // Backpropagate the value
-            self.tree.backpropagate(leaf.node_id, eval.value);
-        }
-
-        Ok(())
+        Ok(step_count)
     }
 
     /// Add Dirichlet noise to root node priors for exploration.

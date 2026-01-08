@@ -101,7 +101,7 @@ pub mod onnx;
 pub use config::MctsConfig;
 pub use evaluator::{EvalResult, Evaluator, EvaluatorError, UniformEvaluator};
 pub use node::{MctsNode, NodeId};
-pub use search::{run_mcts, MctsSearch, SearchError, SearchResult};
+pub use search::{run_mcts, MctsSearch, SearchError, SearchResult, SearchStats};
 pub use tree::{MctsTree, TreeStats};
 
 #[cfg(feature = "onnx")]
