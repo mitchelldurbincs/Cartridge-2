@@ -18,8 +18,9 @@ from typing import TYPE_CHECKING, Generator
 from trainer.storage.base import GameMetadata, ReplayBufferBase, Transition
 
 # Path to shared SQL schema file (relative to project root)
+# postgres.py -> storage -> trainer -> src -> trainer -> cartridge2/
 _SCHEMA_PATH = (
-    Path(__file__).parent.parent.parent.parent.parent.parent / "sql" / "schema.sql"
+    Path(__file__).parent.parent.parent.parent.parent / "sql" / "schema.sql"
 )
 
 if TYPE_CHECKING:

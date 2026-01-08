@@ -8,7 +8,7 @@ This module provides:
 
 import dataclasses
 from dataclasses import dataclass, field, fields
-from typing import Any
+from typing import Any, Callable
 
 from .backoff import DEFAULT_MAX_WAIT, DEFAULT_WAIT_INTERVAL
 
@@ -176,13 +176,23 @@ class TrainerConfig:
         "cpu", cli="--device", choices=["cpu", "cuda", "mps"], help="Device to train on"
     )
 
+    # Shutdown callback (not exposed to CLI, set programmatically)
+    # Returns True if shutdown was requested
+    shutdown_check: Callable[[], bool] | None = field(default=None, repr=False)
+
     @classmethod
-    def configure_parser(cls, parser: Any) -> None:
+    def configure_parser(
+        cls, parser: Any, overrides: dict[str, Any] | None = None
+    ) -> None:
         """Add CLI arguments to parser based on field metadata.
 
         Args:
             parser: argparse.ArgumentParser instance to configure.
+            overrides: Optional dict mapping field names to override default values.
+                       Use this to inject defaults from central config.
         """
+        overrides = overrides or {}
+
         for f in fields(cls):
             cli_flag = f.metadata.get("cli")
             if not cli_flag:
@@ -192,7 +202,10 @@ class TrainerConfig:
                 "help": f.metadata.get("help", ""),
             }
 
-            if f.default is not dataclasses.MISSING:
+            # Use override if provided, otherwise use field default
+            if f.name in overrides:
+                kwargs["default"] = overrides[f.name]
+            elif f.default is not dataclasses.MISSING:
                 kwargs["default"] = f.default
 
             action = f.metadata.get("action")

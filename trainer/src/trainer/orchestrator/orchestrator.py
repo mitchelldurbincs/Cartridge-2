@@ -136,6 +136,7 @@ class Orchestrator:
             max_wait=60.0,  # Short timeout since we know data exists
             eval_interval=0,  # Disable trainer's built-in eval, we do it ourselves
             lr_total_steps=lr_total_steps,  # Continuous LR decay across iterations
+            shutdown_check=lambda: self._shutdown_requested,  # Pass shutdown check
         )
 
         logger.info(f"Starting trainer for {num_steps} steps (start_step={start_step})")

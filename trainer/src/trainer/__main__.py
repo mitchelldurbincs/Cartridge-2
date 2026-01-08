@@ -137,18 +137,37 @@ def cmd_loop(args: argparse.Namespace) -> int:
 
 def setup_train_parser(subparsers: argparse._SubParsersAction) -> None:
     """Set up the train subcommand parser."""
+    from .central_config import get_config as get_central_config
     from .trainer import TrainerConfig
+
+    # Load central config for defaults
+    cfg = get_central_config()
 
     parser = subparsers.add_parser(
         "train",
         help="Train on replay buffer data",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    TrainerConfig.configure_parser(parser)
+    # Configure parser with central config overrides for key settings
+    TrainerConfig.configure_parser(
+        parser,
+        overrides={
+            "checkpoint_interval": cfg.training.checkpoint_interval,
+            "max_checkpoints": cfg.training.max_checkpoints,
+            "batch_size": cfg.training.batch_size,
+            "learning_rate": cfg.training.learning_rate,
+            "weight_decay": cfg.training.weight_decay,
+            "grad_clip_norm": cfg.training.grad_clip_norm,
+            "device": cfg.training.device,
+            "env_id": cfg.common.env_id,
+            "model_dir": str(cfg.models_dir),
+            "stats_path": str(cfg.stats_path),
+        },
+    )
     parser.add_argument(
         "--log-level",
         type=str,
-        default="INFO",
+        default=cfg.common.log_level.upper(),
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level",
     )
@@ -268,18 +287,37 @@ def main() -> int:
 
     else:
         # Backwards compatibility: treat as 'train' command
+        from .central_config import get_config as get_central_config
         from .trainer import TrainerConfig
+
+        # Load central config for defaults
+        cfg = get_central_config()
 
         parser = argparse.ArgumentParser(
             description="Cartridge2 AlphaZero-style Trainer",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         )
 
-        TrainerConfig.configure_parser(parser)
+        # Configure parser with central config overrides for key settings
+        TrainerConfig.configure_parser(
+            parser,
+            overrides={
+                "checkpoint_interval": cfg.training.checkpoint_interval,
+                "max_checkpoints": cfg.training.max_checkpoints,
+                "batch_size": cfg.training.batch_size,
+                "learning_rate": cfg.training.learning_rate,
+                "weight_decay": cfg.training.weight_decay,
+                "grad_clip_norm": cfg.training.grad_clip_norm,
+                "device": cfg.training.device,
+                "env_id": cfg.common.env_id,
+                "model_dir": str(cfg.models_dir),
+                "stats_path": str(cfg.stats_path),
+            },
+        )
         parser.add_argument(
             "--log-level",
             type=str,
-            default="INFO",
+            default=cfg.common.log_level.upper(),
             choices=["DEBUG", "INFO", "WARNING", "ERROR"],
             help="Logging level",
         )

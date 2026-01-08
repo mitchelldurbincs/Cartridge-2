@@ -39,8 +39,8 @@ logger = logging.getLogger(__name__)
 CONFIG_SEARCH_PATHS = [
     Path("config.toml"),  # Current directory
     Path("/app/config.toml"),  # Docker container
-    Path(__file__).parent.parent.parent.parent.parent
-    / "config.toml",  # Project root from trainer
+    Path(__file__).parent.parent.parent.parent
+    / "config.toml",  # Project root from trainer/src/trainer/
 ]
 
 

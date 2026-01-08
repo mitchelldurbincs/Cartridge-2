@@ -282,6 +282,11 @@ class Trainer:
             start_step = self.config.start_step
             step = 0
             while step < self.config.total_steps:
+                # Check for shutdown request
+                if self.config.shutdown_check and self.config.shutdown_check():
+                    logger.info("Shutdown requested, stopping training early")
+                    break
+
                 # Sample batch (filter by env_id and use correct num_actions)
                 batch = replay.sample_batch_tensors(
                     self.config.batch_size,
