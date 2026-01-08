@@ -109,6 +109,15 @@ pub fn create_test_state() -> Arc<AppState> {
     })
 }
 
+/// Creates a future that completes when a shutdown signal is received.
+/// Handles Ctrl+C on all platforms.
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to install Ctrl+C handler");
+    info!("Shutdown signal received, stopping server...");
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize tracing
@@ -203,8 +212,11 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting server on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
+    info!("Server shut down gracefully");
     Ok(())
 }
 
