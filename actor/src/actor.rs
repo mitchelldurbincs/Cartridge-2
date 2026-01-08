@@ -2,6 +2,7 @@
 
 use anyhow::{anyhow, Result};
 use engine_core::EngineContext;
+use indicatif::{ProgressBar, ProgressStyle};
 use mcts::MctsConfig;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
@@ -207,6 +208,22 @@ impl Actor {
             "Actor starting main loop"
         );
 
+        // Create progress bar for bounded episode runs (only when stderr is a TTY)
+        let progress = if self.config.max_episodes > 0
+            && std::io::IsTerminal::is_terminal(&std::io::stderr())
+        {
+            let pb = ProgressBar::new(self.config.max_episodes as u64);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} episodes ({eta})")
+                    .unwrap()
+                    .progress_chars("#>-"),
+            );
+            Some(pb)
+        } else {
+            None
+        };
+
         // Start model watcher (only if not in no-watch mode)
         let mut model_updates = if let Some(ref watcher) = self.model_watcher {
             Some(watcher.start_watching().await?)
@@ -284,6 +301,12 @@ impl Actor {
                         episode = new_count,
                         steps, total_reward, duration, "Episode completed"
                     );
+
+                    // Update progress bar
+                    if let Some(ref pb) = progress {
+                        pb.inc(1);
+                    }
+
                     if self.config.log_interval > 0
                         && new_count.is_multiple_of(self.config.log_interval)
                     {
@@ -292,10 +315,21 @@ impl Actor {
                             .map(|mb| format!(", RSS: {:.1} MB", mb))
                             .unwrap_or_default();
                         let avg_duration = duration; // Most recent episode duration
-                        info!(
-                            "Completed {} episodes (last: {:.2}s{})",
-                            new_count, avg_duration, rss_info
-                        );
+
+                        // Suspend progress bar while logging to avoid visual glitches
+                        if let Some(ref pb) = progress {
+                            pb.suspend(|| {
+                                info!(
+                                    "Completed {} episodes (last: {:.2}s{})",
+                                    new_count, avg_duration, rss_info
+                                );
+                            });
+                        } else {
+                            info!(
+                                "Completed {} episodes (last: {:.2}s{})",
+                                new_count, avg_duration, rss_info
+                            );
+                        }
                     }
                 }
                 Err(e) => {
@@ -304,6 +338,11 @@ impl Actor {
                     // Continue with next episode rather than stopping
                 }
             }
+        }
+
+        // Finish progress bar
+        if let Some(pb) = progress {
+            pb.finish_with_message("done");
         }
 
         // Report final memory usage
