@@ -10,7 +10,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Result from MCTS policy selection, including training data
 pub struct MctsPolicyResult {
@@ -197,14 +197,33 @@ impl MctsPolicy {
         .map_err(|e| anyhow!("MCTS search failed: {}", e))?;
         let mcts_elapsed_ms = mcts_start.elapsed().as_millis();
 
+        // Log detailed stats at debug level
+        let stats = &result.stats;
         debug!(
             action = result.action,
             value = result.value,
             simulations = result.simulations,
             move_number = move_number,
             mcts_ms = mcts_elapsed_ms,
+            inference_ms = stats.inference_time_us as f64 / 1000.0,
+            expansion_ms = stats.expansion_time_us as f64 / 1000.0,
+            game_steps = stats.game_steps,
+            num_batches = stats.num_batches,
             "MCTS selected action"
         );
+
+        // Warn if MCTS is taking too long (> 2 seconds indicates a problem)
+        if mcts_elapsed_ms > 2000 {
+            warn!(
+                mcts_ms = mcts_elapsed_ms,
+                inference_pct = (stats.inference_time_us as f64 / stats.total_time_us as f64 * 100.0) as u32,
+                expansion_pct = (stats.expansion_time_us as f64 / stats.total_time_us as f64 * 100.0) as u32,
+                game_steps = stats.game_steps,
+                num_batches = stats.num_batches,
+                avg_batch_size = if stats.num_batches > 0 { stats.total_evals / stats.num_batches } else { 0 },
+                "MCTS step took >2s - performance issue detected"
+            );
+        }
 
         // Convert action index to bytes (u32 little-endian)
         let action_bytes = (result.action as u32).to_le_bytes().to_vec();
