@@ -230,7 +230,11 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
             total_evals = stats.total_evals,
             game_steps = stats.game_steps,
             terminal_hits = stats.terminal_hits,
-            avg_batch_size = if stats.num_batches > 0 { stats.total_evals / stats.num_batches } else { 0 },
+            avg_batch_size = if stats.num_batches > 0 {
+                stats.total_evals / stats.num_batches
+            } else {
+                0
+            },
             "MCTS search stats"
         );
 
@@ -353,11 +357,7 @@ impl<'a, E: Evaluator> MctsSearch<'a, E> {
         // Only clone state/obs if we actually need them for evaluation
         let (state, obs, legal_mask) = {
             let leaf = self.tree.get(leaf_id);
-            (
-                leaf.state.clone(),
-                leaf.obs.clone(),
-                leaf.legal_moves_mask,
-            )
+            (leaf.state.clone(), leaf.obs.clone(), leaf.legal_moves_mask)
         };
 
         // Apply virtual loss to discourage selecting this node again
