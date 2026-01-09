@@ -9,6 +9,7 @@
 //! - GET  /game/state    - Get current game state
 //! - POST /move          - Make a move (player action + bot response)
 //! - GET  /stats         - Read training stats from data/stats.json
+//! - GET  /actor-stats   - Read actor self-play stats from data/actor_stats.json
 //! - GET  /model         - Get info about currently loaded model
 
 use axum::{
@@ -36,8 +37,8 @@ mod types;
 use engine_config::load_config;
 use game::GameSession;
 use handlers::{
-    get_game_info, get_game_state, get_model_info, get_stats, health, list_games, make_move,
-    new_game,
+    get_actor_stats, get_game_info, get_game_state, get_model_info, get_stats, health, list_games,
+    make_move, new_game,
 };
 #[cfg(feature = "onnx")]
 use model_watcher::{ModelInfo, ModelWatcher};
@@ -90,6 +91,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .route("/game/state", get(get_game_state))
         .route("/move", post(make_move))
         .route("/stats", get(get_stats))
+        .route("/actor-stats", get(get_actor_stats))
         .route("/model", get(get_model_info))
         .layer(cors)
         .with_state(state)

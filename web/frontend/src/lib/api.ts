@@ -56,6 +56,7 @@ export interface HistoryEntry {
   value_loss: number;
   policy_loss: number;
   learning_rate: number;
+  grad_norm?: number;  // Optional: only present when gradient clipping is enabled
 }
 
 export interface TrainingStats {
@@ -140,6 +141,26 @@ export async function getStats(): Promise<TrainingStats> {
 export async function getModelInfo(): Promise<ModelInfo> {
   const res = await fetch(`${API_BASE}/model`);
   if (!res.ok) throw new Error('Failed to get model info');
+  return res.json();
+}
+
+export interface ActorStats {
+  env_id: string;
+  episodes_completed: number;
+  total_steps: number;
+  player1_wins: number;
+  player2_wins: number;
+  draws: number;
+  avg_episode_length: number;
+  episodes_per_second: number;
+  runtime_seconds: number;
+  mcts_avg_inference_us: number;
+  timestamp: number;
+}
+
+export async function getActorStats(): Promise<ActorStats> {
+  const res = await fetch(`${API_BASE}/actor-stats`);
+  if (!res.ok) throw new Error('Failed to get actor stats');
   return res.json();
 }
 

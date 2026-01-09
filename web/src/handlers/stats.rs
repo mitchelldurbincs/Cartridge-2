@@ -3,7 +3,7 @@
 use axum::{extract::State, Json};
 use std::sync::Arc;
 
-use crate::types::{ModelInfoResponse, TrainingStats};
+use crate::types::{ActorStats, ModelInfoResponse, TrainingStats};
 use crate::AppState;
 
 /// Get training stats from stats.json.
@@ -52,4 +52,23 @@ pub async fn get_model_info(State(state): State<Arc<AppState>>) -> Json<ModelInf
         training_step: info.training_step,
         status,
     })
+}
+
+/// Get actor self-play stats from actor_stats.json.
+pub async fn get_actor_stats(State(state): State<Arc<AppState>>) -> Json<ActorStats> {
+    let stats_path = format!("{}/actor_stats.json", state.data_dir);
+
+    match tokio::fs::read_to_string(&stats_path).await {
+        Ok(content) => match serde_json::from_str::<ActorStats>(&content) {
+            Ok(stats) => Json(stats),
+            Err(e) => {
+                tracing::warn!("Failed to parse actor_stats.json: {}", e);
+                Json(ActorStats::default())
+            }
+        },
+        Err(_) => {
+            // Return empty stats if file doesn't exist
+            Json(ActorStats::default())
+        }
+    }
 }

@@ -37,6 +37,7 @@ use crate::config::Config;
 use crate::game_config::{get_config, GameConfig};
 use crate::mcts_policy::MctsPolicy;
 use crate::model_watcher::ModelWatcher;
+use crate::stats::ActorStats;
 use crate::storage::{create_replay_store, ReplayStore, StorageConfig, Transition};
 use std::sync::Arc;
 
@@ -159,6 +160,7 @@ pub struct Actor {
     episode_count: AtomicU32,
     shutdown_signal: AtomicBool,
     model_watcher: Option<ModelWatcher>,
+    stats: ActorStats,
 }
 
 impl Actor {
@@ -262,6 +264,10 @@ impl Actor {
             metadata.num_actions, metadata.obs_size, metadata.legal_mask_offset
         );
 
+        // Initialize stats tracking
+        let stats = ActorStats::new(&config.data_dir, &config.env_id);
+        info!("Actor stats will be written to {}", stats.stats_path());
+
         Ok(Self {
             config,
             game_config,
@@ -271,6 +277,7 @@ impl Actor {
             episode_count: AtomicU32::new(0),
             shutdown_signal: AtomicBool::new(false),
             model_watcher,
+            stats,
         })
     }
 
@@ -378,6 +385,13 @@ impl Actor {
                         steps, total_reward, duration, "Episode completed"
                     );
 
+                    // Record episode in stats tracker
+                    self.stats.record_episode(steps, total_reward);
+                    self.stats.record_mcts_stats(
+                        episode_stats.search_count,
+                        episode_stats.inference_time_us,
+                    );
+
                     // Update progress bar
                     if let Some(ref pb) = progress {
                         pb.inc(1);
@@ -410,6 +424,9 @@ impl Actor {
                             // Log MCTS performance breakdown
                             episode_stats.log_summary(new_count);
                         }
+
+                        // Write stats to file for web frontend
+                        self.stats.write_stats();
                     }
                 }
                 Err(e) => {
@@ -424,6 +441,9 @@ impl Actor {
         if let Some(pb) = progress {
             pb.finish_with_message("done");
         }
+
+        // Write final stats
+        self.stats.write_stats();
 
         // Report final memory usage
         let final_rss = get_rss_mb().unwrap_or(0.0);
