@@ -1,7 +1,7 @@
 """Training loop with ONNX export and stats tracking.
 
 This module provides the main training loop that:
-1. Loads batches from the replay buffer (SQLite or PostgreSQL)
+1. Loads batches from the PostgreSQL replay buffer
 2. Trains the AlphaZero-style network
 3. Exports ONNX checkpoints using atomic write-then-rename
 4. Writes stats.json for web visualization
