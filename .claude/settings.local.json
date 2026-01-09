@@ -32,7 +32,9 @@
       "Bash(cargo update:*)",
       "Bash(cargo bench:*)",
       "Bash(cargo clean:*)",
-      "Bash(rustc:*)"
+      "Bash(rustc:*)",
+      "Bash(npm run check:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []

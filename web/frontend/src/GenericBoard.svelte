@@ -102,9 +102,12 @@
   let dropHoleSize = $derived(Math.floor(dropCellSize * DROP_HOLE_RATIO));
   let dropPieceSize = $derived(Math.floor(dropHoleSize * DROP_PIECE_RATIO));
 
-  // Track dropping pieces for animation
+  // Track dropping pieces for animation (player and bot separately)
   let droppingPiece: { column: number; row: number; player: number } | null = $state(null);
+  let botDroppingPiece: { column: number; row: number; player: number } | null = $state(null);
   let animatingCells: Set<number> = $state(new Set());
+  // Track the last processed bot move to avoid re-triggering animation
+  let processedBotMove: number | null = $state(null);
 
   // Convert board array to 2D grid (row 0 at bottom for drop_column)
   function getDropCell(col: number, row: number): number {
@@ -132,25 +135,79 @@
     // Start drop animation
     droppingPiece = { column: col, row: landingRow, player: currentPlayer };
 
-    // Trigger the actual move after a brief delay to show animation
+    // Trigger the actual move after a brief delay to show animation start
+    // Note: droppingPiece is NOT cleared here - it will be cleared by the $effect
+    // when the board updates with the new piece, preventing the "disappearing piece" gap
     setTimeout(() => {
-      droppingPiece = null;
       onCellClick(col);
     }, DROP_ANIMATION_DELAY);
   }
 
-  // Check if a cell should show animation (for bot moves)
+  // Clear dropping piece when the board updates to include it
+  // This prevents the gap where the animation ends but the API hasn't responded yet
+  $effect(() => {
+    if (droppingPiece) {
+      const { column, row } = droppingPiece;
+      const cellValue = getDropCell(column, row);
+      // If the cell now has a piece, clear the dropping animation
+      if (cellValue !== 0) {
+        droppingPiece = null;
+      }
+    }
+  });
+
+  // Check if a cell is currently the target of a dropping animation (player or bot)
+  // Used to avoid showing both the dropping piece and the board piece simultaneously
+  function isCellBeingDropped(col: number, row: number): boolean {
+    if (droppingPiece !== null && droppingPiece.column === col && droppingPiece.row === row) {
+      return true;
+    }
+    if (botDroppingPiece !== null && botDroppingPiece.column === col && botDroppingPiece.row === row) {
+      return true;
+    }
+    return false;
+  }
+
+  // Find the row where a piece is in a column (top-most piece)
+  function findPieceRow(col: number, player: number): number {
+    for (let row = height - 1; row >= 0; row--) {
+      if (getDropCell(col, row) === player) {
+        return row;
+      }
+    }
+    return -1;
+  }
+
+  // Reset processedBotMove when a new game starts (lastBotMove becomes null)
+  $effect(() => {
+    if (lastBotMove === null) {
+      processedBotMove = null;
+    }
+  });
+
+  // Trigger drop animation for bot moves
   $effect(() => {
     if (boardType === 'drop_column' && lastBotMove !== null && lastBotMove >= 0 && lastBotMove < width) {
-      const col = lastBotMove;
-      for (let row = height - 1; row >= 0; row--) {
-        const index = row * width + col;
-        if (board[index] === 2) {
-          animatingCells.add(index);
+      // Only trigger if this is a new bot move we haven't processed yet
+      if (lastBotMove !== processedBotMove) {
+        processedBotMove = lastBotMove;
+        const col = lastBotMove;
+        const row = findPieceRow(col, 2); // Bot is player 2
+
+        if (row >= 0) {
+          // Start bot drop animation
+          botDroppingPiece = { column: col, row: row, player: 2 };
+
+          // Clear animation after it completes
           setTimeout(() => {
-            animatingCells = new Set([...animatingCells].filter(i => i !== index));
-          }, BOT_HIGHLIGHT_DURATION);
-          break;
+            botDroppingPiece = null;
+            // Also trigger the highlight effect after drop completes
+            const index = row * width + col;
+            animatingCells.add(index);
+            setTimeout(() => {
+              animatingCells = new Set([...animatingCells].filter(i => i !== index));
+            }, BOT_HIGHLIGHT_DURATION);
+          }, DROP_ANIMATION_DELAY);
         }
       }
     }
@@ -181,12 +238,20 @@
   function getDropEndY(row: number): number {
     const visualRow = height - 1 - row;
     const paddingOffset = DROP_FRAME_PADDING + DROP_GRID_PADDING;
-    return paddingOffset + visualRow * (dropCellSize + DROP_GAP) + (dropCellSize - dropHoleSize) / 2;
+    // Position at cell top + offset to center of hole + offset to center piece within hole
+    const cellTop = paddingOffset + visualRow * (dropCellSize + DROP_GAP);
+    const holeOffset = (dropCellSize - dropHoleSize) / 2;
+    const pieceOffset = (dropHoleSize - dropPieceSize) / 2;
+    return cellTop + holeOffset + pieceOffset;
   }
 
   function getDropX(col: number): number {
     const paddingOffset = DROP_FRAME_PADDING + DROP_GRID_PADDING;
-    return paddingOffset + col * (dropCellSize + DROP_GAP) + (dropCellSize - dropHoleSize) / 2;
+    // Position at cell left + offset to center of hole + offset to center piece within hole
+    const cellLeft = paddingOffset + col * (dropCellSize + DROP_GAP);
+    const holeOffset = (dropCellSize - dropHoleSize) / 2;
+    const pieceOffset = (dropHoleSize - dropPieceSize) / 2;
+    return cellLeft + holeOffset + pieceOffset;
   }
 </script>
 
@@ -230,7 +295,7 @@
 
     <!-- Main board -->
     <div class="board-frame">
-      <!-- Dropping piece animation -->
+      <!-- Dropping piece animation (player) -->
       {#if droppingPiece}
         <div
           class={`dropping-piece player${droppingPiece.player}`}
@@ -244,6 +309,20 @@
         ></div>
       {/if}
 
+      <!-- Dropping piece animation (bot) -->
+      {#if botDroppingPiece}
+        <div
+          class={`dropping-piece player${botDroppingPiece.player}`}
+          style="
+            left: {getDropX(botDroppingPiece.column)}px;
+            width: {dropPieceSize}px;
+            height: {dropPieceSize}px;
+            --drop-start: {getDropStartY()}px;
+            --drop-end: {getDropEndY(botDroppingPiece.row)}px;
+          "
+        ></div>
+      {/if}
+
       <!-- Board grid (blue frame with holes) -->
       <div class="board-grid" style="gap: {DROP_GAP}px;">
         {#each Array(height) as _, visualRow}
@@ -252,7 +331,7 @@
             {#each Array(width) as _, col}
               <div class={getDropCellClass(col, row)} style="width: {dropCellSize}px; height: {dropCellSize}px;">
                 <div class="hole" style="width: {dropHoleSize}px; height: {dropHoleSize}px;">
-                  {#if getDropCell(col, row) !== 0}
+                  {#if getDropCell(col, row) !== 0 && !isCellBeingDropped(col, row)}
                     <div
                       class="piece"
                       class:player1={getDropCell(col, row) === 1}
