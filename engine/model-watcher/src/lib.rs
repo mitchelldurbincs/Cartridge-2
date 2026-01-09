@@ -115,6 +115,8 @@ pub struct ModelWatcher {
     model_filename: String,
     /// Observation size for the model
     obs_size: usize,
+    /// Number of intra-op threads for ONNX inference (0 = auto-detect)
+    intra_threads: usize,
     /// Shared evaluator to update
     evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
     /// Last known modification time of the loaded model file.
@@ -134,17 +136,20 @@ impl ModelWatcher {
     /// * `model_dir` - Directory to watch for model files
     /// * `model_filename` - Name of the model file to watch (e.g., "latest.onnx")
     /// * `obs_size` - Observation size expected by the model
+    /// * `intra_threads` - Number of intra-op threads for ONNX (0 = auto-detect)
     /// * `evaluator` - Shared evaluator reference to update on reload
     pub fn new(
         model_dir: impl AsRef<Path>,
         model_filename: impl Into<String>,
         obs_size: usize,
+        intra_threads: usize,
         evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
     ) -> Self {
         Self {
             model_dir: model_dir.as_ref().to_path_buf(),
             model_filename: model_filename.into(),
             obs_size,
+            intra_threads,
             evaluator,
             last_mtime: Arc::new(RwLock::new(None)),
             poll_interval: DEFAULT_POLL_INTERVAL,
@@ -199,7 +204,10 @@ impl ModelWatcher {
 
     /// Load a model from the given path.
     fn load_model(&self, path: &Path) -> Result<()> {
-        info!("Loading model from {:?}", path);
+        info!(
+            "Loading model from {:?} (intra_threads={})",
+            path, self.intra_threads
+        );
 
         // Get the file modification time for polling comparison
         let file_mtime = path.metadata().and_then(|m| m.modified()).ok();
@@ -208,7 +216,7 @@ impl ModelWatcher {
         let (file_modified, training_step) = Self::extract_metadata(path);
 
         // Load the new model
-        let new_evaluator = OnnxEvaluator::load(path, self.obs_size)
+        let new_evaluator = OnnxEvaluator::load(path, self.obs_size, self.intra_threads)
             .map_err(|e| anyhow!("Failed to load ONNX model: {}", e))?;
 
         // Swap in the new model
@@ -295,6 +303,7 @@ impl ModelWatcher {
         let model_dir = self.model_dir.clone();
         let model_filename = self.model_filename.clone();
         let obs_size = self.obs_size;
+        let intra_threads = self.intra_threads;
         let evaluator = Arc::clone(&self.evaluator);
         let last_mtime = Arc::clone(&self.last_mtime);
         let poll_interval = self.poll_interval;
@@ -392,6 +401,7 @@ impl ModelWatcher {
                 let result = Self::load_model_static(
                     &model_path,
                     obs_size,
+                    intra_threads,
                     &inotify_evaluator,
                     &inotify_last_mtime,
                     &inotify_model_info,
@@ -401,6 +411,7 @@ impl ModelWatcher {
                 let result = Self::load_model_static(
                     &model_path,
                     obs_size,
+                    intra_threads,
                     &inotify_evaluator,
                     &inotify_last_mtime,
                 );
@@ -484,6 +495,7 @@ impl ModelWatcher {
                 let result = Self::load_model_static(
                     &model_path,
                     obs_size,
+                    intra_threads,
                     &poll_evaluator,
                     &poll_last_mtime,
                     &poll_model_info,
@@ -493,6 +505,7 @@ impl ModelWatcher {
                 let result = Self::load_model_static(
                     &model_path,
                     obs_size,
+                    intra_threads,
                     &poll_evaluator,
                     &poll_last_mtime,
                 );
@@ -517,6 +530,7 @@ impl ModelWatcher {
     fn load_model_static(
         path: &Path,
         obs_size: usize,
+        intra_threads: usize,
         evaluator: &Arc<RwLock<Option<OnnxEvaluator>>>,
         last_mtime: &Arc<RwLock<Option<SystemTime>>>,
         model_info: &Arc<RwLock<ModelInfo>>,
@@ -526,7 +540,7 @@ impl ModelWatcher {
 
         let (file_modified, training_step) = Self::extract_metadata(path);
 
-        let new_evaluator = OnnxEvaluator::load(path, obs_size)
+        let new_evaluator = OnnxEvaluator::load(path, obs_size, intra_threads)
             .map_err(|e| anyhow!("Failed to load ONNX model: {}", e))?;
 
         {
@@ -571,13 +585,14 @@ impl ModelWatcher {
     fn load_model_static(
         path: &Path,
         obs_size: usize,
+        intra_threads: usize,
         evaluator: &Arc<RwLock<Option<OnnxEvaluator>>>,
         last_mtime: &Arc<RwLock<Option<SystemTime>>>,
     ) -> Result<()> {
         // Get file modification time for polling comparison
         let file_mtime = path.metadata().and_then(|m| m.modified()).ok();
 
-        let new_evaluator = OnnxEvaluator::load(path, obs_size)
+        let new_evaluator = OnnxEvaluator::load(path, obs_size, intra_threads)
             .map_err(|e| anyhow!("Failed to load ONNX model: {}", e))?;
 
         {
@@ -608,7 +623,7 @@ mod tests {
     #[test]
     fn test_model_watcher_creation() {
         let evaluator = Arc::new(RwLock::new(None));
-        let watcher = ModelWatcher::new("/tmp/models", "latest.onnx", 29, evaluator);
+        let watcher = ModelWatcher::new("/tmp/models", "latest.onnx", 29, 1, evaluator);
 
         assert_eq!(
             watcher.model_path(),
@@ -620,7 +635,13 @@ mod tests {
     fn test_try_load_nonexistent() {
         let temp_dir = tempdir().unwrap();
         let evaluator = Arc::new(RwLock::new(None));
-        let watcher = ModelWatcher::new(temp_dir.path(), "nonexistent.onnx", 29, evaluator.clone());
+        let watcher = ModelWatcher::new(
+            temp_dir.path(),
+            "nonexistent.onnx",
+            29,
+            1,
+            evaluator.clone(),
+        );
 
         let result = watcher.try_load_existing();
         assert!(result.is_ok());

@@ -198,6 +198,93 @@ impl EngineContext {
     pub fn game_mut(&mut self) -> &mut dyn ErasedGame {
         self.game.as_mut()
     }
+
+    // =========================================================================
+    // Zero-copy API for hot paths
+    // =========================================================================
+
+    /// Reset the game to initial state, writing directly to caller-provided buffers.
+    ///
+    /// This is a zero-allocation alternative to `reset()` for use in hot paths
+    /// like training loops. The caller provides buffers that are cleared and filled
+    /// with the new state and observation.
+    ///
+    /// # Arguments
+    ///
+    /// * `seed` - Random seed for deterministic reset
+    /// * `hint` - Optional hint data for environment setup
+    /// * `state` - Buffer to receive the initial state (cleared first)
+    /// * `obs` - Buffer to receive the initial observation (cleared first)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut state = Vec::with_capacity(64);
+    /// let mut obs = Vec::with_capacity(512);
+    ///
+    /// ctx.reset_into(42, &[], &mut state, &mut obs)?;
+    /// // state and obs now contain initial game state - no allocations after warmup
+    /// ```
+    pub fn reset_into(
+        &mut self,
+        seed: u64,
+        hint: &[u8],
+        state: &mut Vec<u8>,
+        obs: &mut Vec<u8>,
+    ) -> Result<(), ErasedGameError> {
+        state.clear();
+        obs.clear();
+        self.game.reset(seed, hint, state, obs)
+    }
+
+    /// Perform one simulation step, writing directly to caller-provided buffers.
+    ///
+    /// This is a zero-allocation alternative to `step()` for use in hot paths
+    /// like training loops. The caller provides buffers that are cleared and filled
+    /// with the new state and observation.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Current state encoded as bytes
+    /// * `action` - Action to take encoded as bytes
+    /// * `state_out` - Buffer to receive the new state (cleared first)
+    /// * `obs_out` - Buffer to receive the new observation (cleared first)
+    ///
+    /// # Returns
+    ///
+    /// Returns `(reward, done, info)` tuple on success.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Allocate buffers once
+    /// let mut state = Vec::with_capacity(64);
+    /// let mut obs = Vec::with_capacity(512);
+    /// let mut next_state = Vec::with_capacity(64);
+    /// let mut next_obs = Vec::with_capacity(512);
+    ///
+    /// ctx.reset_into(seed, &[], &mut state, &mut obs)?;
+    ///
+    /// loop {
+    ///     let (reward, done, info) = ctx.step_into(
+    ///         &state, &action, &mut next_state, &mut next_obs
+    ///     )?;
+    ///     std::mem::swap(&mut state, &mut next_state);
+    ///     std::mem::swap(&mut obs, &mut next_obs);
+    ///     if done { break; }
+    /// }
+    /// ```
+    pub fn step_into(
+        &mut self,
+        state: &[u8],
+        action: &[u8],
+        state_out: &mut Vec<u8>,
+        obs_out: &mut Vec<u8>,
+    ) -> Result<(f32, bool, u64), ErasedGameError> {
+        state_out.clear();
+        obs_out.clear();
+        self.game.step(state, action, state_out, obs_out)
+    }
 }
 
 #[cfg(test)]
@@ -533,5 +620,177 @@ mod tests {
         let step2 = ctx.step(&step.state, &action2).unwrap();
         let final_state = u32::from_le_bytes(step2.state.try_into().unwrap());
         assert_eq!(final_state, 8);
+    }
+
+    // =========================================================================
+    // Zero-copy API tests
+    // =========================================================================
+
+    #[test]
+    fn test_reset_into_basic() {
+        let _guard = REGISTRY_TEST_MUTEX.lock().unwrap();
+        setup_registry();
+
+        let mut ctx = EngineContext::new("simple").unwrap();
+        let mut state = Vec::new();
+        let mut obs = Vec::new();
+
+        ctx.reset_into(42, &[], &mut state, &mut obs).unwrap();
+
+        assert_eq!(state.len(), 4);
+        assert_eq!(obs.len(), 4);
+
+        let state_val = u32::from_le_bytes(state.try_into().unwrap());
+        assert_eq!(state_val, 0);
+    }
+
+    #[test]
+    fn test_step_into_basic() {
+        let _guard = REGISTRY_TEST_MUTEX.lock().unwrap();
+        setup_registry();
+
+        let mut ctx = EngineContext::new("simple").unwrap();
+        let mut state = Vec::new();
+        let mut obs = Vec::new();
+
+        ctx.reset_into(42, &[], &mut state, &mut obs).unwrap();
+
+        let mut next_state = Vec::new();
+        let mut next_obs = Vec::new();
+        let action = 3u32.to_le_bytes().to_vec();
+
+        let (reward, done, info) = ctx
+            .step_into(&state, &action, &mut next_state, &mut next_obs)
+            .unwrap();
+
+        assert_eq!(reward, 1.0);
+        assert!(!done);
+        assert_eq!(info, 3);
+
+        let new_state_val = u32::from_le_bytes(next_state.try_into().unwrap());
+        assert_eq!(new_state_val, 3);
+    }
+
+    #[test]
+    fn test_zero_copy_full_episode() {
+        let _guard = REGISTRY_TEST_MUTEX.lock().unwrap();
+        setup_registry();
+
+        let mut ctx = EngineContext::new("simple").unwrap();
+
+        // Allocate buffers once with capacity
+        let mut state = Vec::with_capacity(16);
+        let mut obs = Vec::with_capacity(16);
+        let mut next_state = Vec::with_capacity(16);
+        let mut next_obs = Vec::with_capacity(16);
+
+        ctx.reset_into(42, &[], &mut state, &mut obs).unwrap();
+
+        let mut done = false;
+        let mut steps = 0;
+
+        while !done && steps < 20 {
+            let action = 2u32.to_le_bytes().to_vec();
+
+            let (_, d, _) = ctx
+                .step_into(&state, &action, &mut next_state, &mut next_obs)
+                .unwrap();
+
+            // Swap buffers - this reuses memory, no allocations
+            std::mem::swap(&mut state, &mut next_state);
+            std::mem::swap(&mut obs, &mut next_obs);
+
+            done = d;
+            steps += 1;
+        }
+
+        assert!(done);
+        assert!(steps <= 10);
+    }
+
+    #[test]
+    fn test_zero_copy_buffer_reuse() {
+        let _guard = REGISTRY_TEST_MUTEX.lock().unwrap();
+        setup_registry();
+
+        let mut ctx = EngineContext::new("simple").unwrap();
+
+        // Pre-allocate with specific capacity
+        let mut state = Vec::with_capacity(64);
+        let mut obs = Vec::with_capacity(64);
+
+        // First reset
+        ctx.reset_into(1, &[], &mut state, &mut obs).unwrap();
+        let cap_after_first = (state.capacity(), obs.capacity());
+
+        // Second reset - should reuse same allocation
+        ctx.reset_into(2, &[], &mut state, &mut obs).unwrap();
+        let cap_after_second = (state.capacity(), obs.capacity());
+
+        // Capacities should be unchanged (no reallocation)
+        assert_eq!(cap_after_first, cap_after_second);
+    }
+
+    #[test]
+    fn test_zero_copy_deterministic() {
+        let _guard = REGISTRY_TEST_MUTEX.lock().unwrap();
+        setup_registry();
+
+        // Same seed should produce same results with both APIs
+        for seed in [0u64, 42, 12345] {
+            let mut ctx1 = EngineContext::new("simple").unwrap();
+            let mut ctx2 = EngineContext::new("simple").unwrap();
+
+            // Original API
+            let result1 = ctx1.reset(seed, &[]).unwrap();
+
+            // Zero-copy API
+            let mut state2 = Vec::new();
+            let mut obs2 = Vec::new();
+            ctx2.reset_into(seed, &[], &mut state2, &mut obs2).unwrap();
+
+            assert_eq!(
+                result1.state, state2,
+                "States should match for seed {}",
+                seed
+            );
+            assert_eq!(result1.obs, obs2, "Obs should match for seed {}", seed);
+        }
+    }
+
+    #[test]
+    fn test_zero_copy_matches_original_api() {
+        let _guard = REGISTRY_TEST_MUTEX.lock().unwrap();
+        setup_registry();
+
+        let mut ctx1 = EngineContext::new("simple").unwrap();
+        let mut ctx2 = EngineContext::new("simple").unwrap();
+
+        // Reset with both APIs
+        let reset1 = ctx1.reset(42, &[]).unwrap();
+
+        let mut state2 = Vec::new();
+        let mut obs2 = Vec::new();
+        ctx2.reset_into(42, &[], &mut state2, &mut obs2).unwrap();
+
+        assert_eq!(reset1.state, state2);
+        assert_eq!(reset1.obs, obs2);
+
+        // Step with both APIs
+        let action = 5u32.to_le_bytes().to_vec();
+
+        let step1 = ctx1.step(&reset1.state, &action).unwrap();
+
+        let mut next_state2 = Vec::new();
+        let mut next_obs2 = Vec::new();
+        let (reward2, done2, info2) = ctx2
+            .step_into(&state2, &action, &mut next_state2, &mut next_obs2)
+            .unwrap();
+
+        assert_eq!(step1.state, next_state2);
+        assert_eq!(step1.obs, next_obs2);
+        assert_eq!(step1.reward, reward2);
+        assert_eq!(step1.done, done2);
+        assert_eq!(step1.info, info2);
     }
 }

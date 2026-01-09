@@ -19,9 +19,7 @@ from trainer.storage.base import GameMetadata, ReplayBufferBase, Transition
 
 # Path to shared SQL schema file (relative to project root)
 # postgres.py -> storage -> trainer -> src -> trainer -> cartridge2/
-_SCHEMA_PATH = (
-    Path(__file__).parent.parent.parent.parent.parent / "sql" / "schema.sql"
-)
+_SCHEMA_PATH = Path(__file__).parent.parent.parent.parent.parent / "sql" / "schema.sql"
 
 if TYPE_CHECKING:
     from psycopg2.extensions import connection as PgConnection

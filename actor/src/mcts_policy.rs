@@ -5,7 +5,7 @@
 
 use anyhow::{anyhow, Result};
 use engine_core::EngineContext;
-use mcts::{run_mcts, MctsConfig, OnnxEvaluator, SearchResult};
+use mcts::{run_mcts, MctsConfig, OnnxEvaluator, SearchResult, SearchStats};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::sync::{Arc, RwLock};
@@ -20,6 +20,8 @@ pub struct MctsPolicyResult {
     pub policy: Vec<f32>,
     /// Value estimate from MCTS root
     pub value: f32,
+    /// Performance statistics from the MCTS search
+    pub stats: SearchStats,
 }
 
 /// MCTS-based policy that uses neural network for evaluation
@@ -216,11 +218,17 @@ impl MctsPolicy {
         if mcts_elapsed_ms > 2000 {
             warn!(
                 mcts_ms = mcts_elapsed_ms,
-                inference_pct = (stats.inference_time_us as f64 / stats.total_time_us as f64 * 100.0) as u32,
-                expansion_pct = (stats.expansion_time_us as f64 / stats.total_time_us as f64 * 100.0) as u32,
+                inference_pct =
+                    (stats.inference_time_us as f64 / stats.total_time_us as f64 * 100.0) as u32,
+                expansion_pct =
+                    (stats.expansion_time_us as f64 / stats.total_time_us as f64 * 100.0) as u32,
                 game_steps = stats.game_steps,
                 num_batches = stats.num_batches,
-                avg_batch_size = if stats.num_batches > 0 { stats.total_evals / stats.num_batches } else { 0 },
+                avg_batch_size = if stats.num_batches > 0 {
+                    stats.total_evals / stats.num_batches
+                } else {
+                    0
+                },
                 "MCTS step took >2s - performance issue detected"
             );
         }
@@ -232,6 +240,7 @@ impl MctsPolicy {
             action: action_bytes,
             policy: result.policy,
             value: result.value,
+            stats: result.stats,
         })
     }
 
@@ -263,7 +272,8 @@ impl MctsPolicy {
         Ok(MctsPolicyResult {
             action: action_bytes,
             policy,
-            value: 0.0, // No value estimate without model
+            value: 0.0,                    // No value estimate without model
+            stats: SearchStats::default(), // No MCTS performed
         })
     }
 }
