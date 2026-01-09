@@ -160,10 +160,3 @@ pub struct ModelInfoResponse {
     /// Human-readable status message
     pub status: String,
 }
-
-/// Self-play control response.
-#[derive(Serialize)]
-pub struct SelfPlayResponse {
-    pub status: String,
-    pub message: String,
-}

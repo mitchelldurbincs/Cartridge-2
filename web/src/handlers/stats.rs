@@ -3,7 +3,7 @@
 use axum::{extract::State, Json};
 use std::sync::Arc;
 
-use crate::types::{ModelInfoResponse, SelfPlayRequest, SelfPlayResponse, TrainingStats};
+use crate::types::{ModelInfoResponse, TrainingStats};
 use crate::AppState;
 
 /// Get training stats from stats.json.
@@ -51,20 +51,5 @@ pub async fn get_model_info(State(state): State<Arc<AppState>>) -> Json<ModelInf
         loaded_at: info.loaded_at,
         training_step: info.training_step,
         status,
-    })
-}
-
-/// Control self-play actor (placeholder).
-pub async fn selfplay(Json(req): Json<SelfPlayRequest>) -> Json<SelfPlayResponse> {
-    // Placeholder - actual implementation would control the actor process
-    let message = match req.action.as_str() {
-        "start" => "Self-play start requested (not implemented yet)",
-        "stop" => "Self-play stop requested (not implemented yet)",
-        _ => "Unknown action",
-    };
-
-    Json(SelfPlayResponse {
-        status: "placeholder".to_string(),
-        message: message.to_string(),
     })
 }

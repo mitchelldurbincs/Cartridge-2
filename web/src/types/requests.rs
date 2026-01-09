@@ -23,10 +23,3 @@ pub struct MoveRequest {
     /// Position or column to play (game-specific: 0-8 for TicTacToe, 0-6 for Connect4)
     pub position: u8,
 }
-
-/// Request to control self-play.
-#[derive(Deserialize)]
-pub struct SelfPlayRequest {
-    /// Action: "start" or "stop"
-    pub action: String,
-}
