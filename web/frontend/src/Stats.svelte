@@ -9,12 +9,47 @@
   let error: string | null = $state(null);
   let pollInterval: number | undefined;
 
+  // Training speed tracking
+  let prevStats: { step: number; timestamp: number } | null = $state(null);
+  let stepsPerSecond: number | null = $state(null);
+  let etaSeconds: number | null = $state(null);
+
+  // Smoothed speed (exponential moving average)
+  const SPEED_SMOOTHING = 0.3; // Lower = smoother, higher = more responsive
+
   async function fetchData() {
     try {
       const [statsResult, modelResult] = await Promise.all([
         getStats(),
         getModelInfo()
       ]);
+
+      // Calculate training speed from delta
+      if (prevStats && statsResult.step > prevStats.step && statsResult.timestamp > prevStats.timestamp) {
+        const stepDelta = statsResult.step - prevStats.step;
+        const timeDelta = statsResult.timestamp - prevStats.timestamp;
+        if (timeDelta > 0) {
+          const instantSpeed = stepDelta / timeDelta;
+          // Apply exponential smoothing
+          if (stepsPerSecond === null) {
+            stepsPerSecond = instantSpeed;
+          } else {
+            stepsPerSecond = SPEED_SMOOTHING * instantSpeed + (1 - SPEED_SMOOTHING) * stepsPerSecond;
+          }
+
+          // Calculate ETA
+          if (stepsPerSecond > 0 && statsResult.total_steps > 0) {
+            const remainingSteps = statsResult.total_steps - statsResult.step;
+            etaSeconds = remainingSteps / stepsPerSecond;
+          }
+        }
+      }
+
+      // Store current stats for next comparison
+      if (statsResult.step > 0) {
+        prevStats = { step: statsResult.step, timestamp: statsResult.timestamp };
+      }
+
       stats = statsResult;
       modelInfo = modelResult;
       error = null;
@@ -56,6 +91,37 @@
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return `${Math.floor(diff / 86400)}d ago`;
+  }
+
+  function formatSpeed(speed: number | null): string {
+    if (speed === null || speed <= 0) return '-';
+    if (speed >= 100) return `${Math.round(speed)} steps/s`;
+    if (speed >= 10) return `${speed.toFixed(1)} steps/s`;
+    if (speed >= 1) return `${speed.toFixed(2)} steps/s`;
+    return `${speed.toFixed(3)} steps/s`;
+  }
+
+  function formatEta(seconds: number | null): string {
+    if (seconds === null || seconds <= 0) return '-';
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    if (seconds < 3600) {
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.round(seconds % 60);
+      return `${mins}m ${secs}s`;
+    }
+    if (seconds < 86400) {
+      const hours = Math.floor(seconds / 3600);
+      const mins = Math.round((seconds % 3600) / 60);
+      return `${hours}h ${mins}m`;
+    }
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.round((seconds % 86400) / 3600);
+    return `${days}d ${hours}h`;
+  }
+
+  function getProgressPercent(step: number, total: number): number {
+    if (total <= 0) return 0;
+    return Math.min(100, (step / total) * 100);
   }
 
   function getWinRateColor(winRate: number | null | undefined): string {
@@ -102,10 +168,30 @@
   {#if error}
     <p class="error">{error}</p>
   {:else if stats && stats.step > 0}
+    <!-- Progress Bar -->
+    {#if stats.total_steps > 0}
+      <div class="progress-container">
+        <div class="progress-bar">
+          <div
+            class="progress-fill"
+            style="width: {getProgressPercent(stats.step, stats.total_steps)}%"
+          ></div>
+        </div>
+        <div class="progress-text">
+          <span>{stats.step.toLocaleString()} / {stats.total_steps.toLocaleString()} steps</span>
+          <span>{getProgressPercent(stats.step, stats.total_steps).toFixed(1)}%</span>
+        </div>
+      </div>
+    {/if}
+
     <div class="stat-grid">
       <div class="stat">
-        <span class="label">Step</span>
-        <span class="value">{stats.step} / {stats.total_steps || '-'}</span>
+        <span class="label">Speed</span>
+        <span class="value speed-value">{formatSpeed(stepsPerSecond)}</span>
+      </div>
+      <div class="stat">
+        <span class="label">ETA</span>
+        <span class="value eta-value">{formatEta(etaSeconds)}</span>
       </div>
       <div class="stat">
         <span class="label">Total Loss</span>
@@ -120,14 +206,14 @@
         <span class="value">{formatNumber(stats.value_loss)}</span>
       </div>
       <div class="stat">
+        <span class="label">Learning Rate</span>
+        <span class="value">{formatNumber(stats.learning_rate)}</span>
+      </div>
+      <div class="stat">
         <span class="label">Replay Buffer</span>
         <span class="value">{stats.replay_buffer_size.toLocaleString()}</span>
       </div>
       <div class="stat">
-        <span class="label">Learning Rate</span>
-        <span class="value">{formatNumber(stats.learning_rate)}</span>
-      </div>
-      <div class="stat full-width">
         <span class="label">Last Update</span>
         <span class="value">{formatTimestamp(stats.timestamp)}</span>
       </div>
@@ -245,6 +331,41 @@
     margin: 1.5rem 0;
   }
 
+  /* Progress bar styles */
+  .progress-container {
+    margin-bottom: 1rem;
+  }
+
+  .progress-bar {
+    height: 8px;
+    background: #3a3a5a;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00d9ff, #00ff88);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+
+  .progress-text {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: #888;
+    margin-top: 0.25rem;
+  }
+
+  .speed-value {
+    color: #00d9ff;
+  }
+
+  .eta-value {
+    color: #00ff88;
+  }
+
   .model-status {
     display: flex;
     align-items: center;
@@ -297,10 +418,6 @@
     background: #3a3a5a;
     padding: 0.75rem;
     border-radius: 8px;
-  }
-
-  .stat.full-width {
-    grid-column: span 2;
   }
 
   .label {
