@@ -7,7 +7,6 @@ the trainer to work with SQLite locally or PostgreSQL/S3 in K8s.
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Iterator
 
 import numpy as np
 
@@ -232,35 +231,6 @@ class ReplayBufferBase(ABC):
                 value_targets[i] = t.mcts_value
 
         return observations, policy_targets, value_targets
-
-    def iter_batches(
-        self,
-        batch_size: int,
-        num_actions: int,
-        max_batches: int | None = None,
-        env_id: str | None = None,
-    ) -> Iterator[tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """Iterate through random batches.
-
-        Args:
-            batch_size: Number of transitions per batch.
-            num_actions: Number of actions for the game.
-            max_batches: Maximum number of batches to yield.
-            env_id: Optional environment ID to filter by.
-        """
-        batches_yielded = 0
-        while True:
-            if max_batches is not None and batches_yielded >= max_batches:
-                break
-
-            batch = self.sample_batch_tensors(
-                batch_size, num_actions=num_actions, env_id=env_id
-            )
-            if batch is None:
-                break
-
-            yield batch
-            batches_yielded += 1
 
 
 @dataclass
