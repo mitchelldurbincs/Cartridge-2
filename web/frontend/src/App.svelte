@@ -124,7 +124,10 @@
             onCellClick={handleCellClick}
           />
 
-          <div class="status" class:winner={gameState.winner === 1} class:loser={gameState.winner === 2}>
+          <div class="status"
+               class:player1-wins={gameState.winner === 1}
+               class:player2-wins={gameState.winner === 2}
+               class:drop-column={gameInfo?.board_type === 'drop_column'}>
             {gameState.message}
           </div>
 
@@ -224,14 +227,26 @@
     background: #2a2a4a;
   }
 
-  .status.winner {
-    background: #1a4a1a;
-    color: #4f4;
+  /* Grid games (TicTacToe, Othello): Player 1 = Cyan, Player 2 = Red */
+  .status.player1-wins {
+    background: #1a3a4a;
+    color: #00d9ff;
   }
 
-  .status.loser {
+  .status.player2-wins {
     background: #4a1a1a;
-    color: #f44;
+    color: #ff6b6b;
+  }
+
+  /* Drop column games (Connect 4): Player 1 = Red, Player 2 = Yellow */
+  .status.drop-column.player1-wins {
+    background: #4a1a1a;
+    color: #ff6b6b;
+  }
+
+  .status.drop-column.player2-wins {
+    background: #4a3a1a;
+    color: #ffe066;
   }
 
   .error {
