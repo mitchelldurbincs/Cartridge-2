@@ -27,6 +27,8 @@ pub async fn get_stats(State(state): State<Arc<AppState>>) -> Json<TrainingStats
 
 /// Get info about the currently loaded model.
 pub async fn get_model_info(State(state): State<Arc<AppState>>) -> Json<ModelInfoResponse> {
+    // model_info uses std::sync::RwLock (shared with model_watcher crate).
+    // This is safe because the lock is held briefly and not across await points.
     let info = state
         .model_info
         .read()

@@ -18,8 +18,13 @@ use axum::{
 };
 #[cfg(feature = "onnx")]
 use mcts::OnnxEvaluator;
-use std::sync::{Arc, RwLock};
-use tokio::sync::Mutex;
+use std::sync::Arc;
+// Note: We use std::sync::RwLock (aliased as StdRwLock) for `evaluator` and `model_info`
+// because they are shared with the model_watcher crate which requires std::sync::RwLock.
+// These locks are only held briefly (no await points while held) so blocking is minimal.
+// `current_game` uses tokio::sync::RwLock since it's owned entirely by AppState.
+use std::sync::RwLock as StdRwLock;
+use tokio::sync::{Mutex, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
@@ -56,16 +61,18 @@ pub struct ModelInfo {
 
 /// Shared application state
 pub struct AppState {
-    /// Current game session
+    /// Current game session (tokio async Mutex - held across awaits in handlers)
     pub session: Mutex<GameSession>,
-    /// Current game ID (for creating new sessions)
+    /// Current game ID (tokio async RwLock - owned by AppState)
     pub current_game: RwLock<String>,
     /// Data directory for stats.json
     pub data_dir: String,
-    /// Shared evaluator for MCTS (hot-reloaded)
-    pub evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
-    /// Model info (updated on reload)
-    pub model_info: Arc<RwLock<ModelInfo>>,
+    /// Shared evaluator for MCTS (std RwLock - shared with model_watcher crate)
+    /// Only read briefly in sync code, never held across await points.
+    pub evaluator: Arc<StdRwLock<Option<OnnxEvaluator>>>,
+    /// Model info (std RwLock - shared with model_watcher crate)
+    /// Only read briefly, never held across await points.
+    pub model_info: Arc<StdRwLock<ModelInfo>>,
 }
 
 /// Create the application router with the given state.
@@ -95,8 +102,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 #[cfg(test)]
 pub fn create_test_state() -> Arc<AppState> {
     engine_games::register_all_games();
-    let evaluator: Arc<RwLock<Option<OnnxEvaluator>>> = Arc::new(RwLock::new(None));
-    let model_info = Arc::new(RwLock::new(ModelInfo::default()));
+    let evaluator: Arc<StdRwLock<Option<OnnxEvaluator>>> = Arc::new(StdRwLock::new(None));
+    let model_info = Arc::new(StdRwLock::new(ModelInfo::default()));
     let session = GameSession::with_evaluator("tictactoe", Arc::clone(&evaluator))
         .expect("Failed to create game session");
 
@@ -143,7 +150,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Set up shared evaluator for model hot-reloading
-    let evaluator: Arc<RwLock<Option<OnnxEvaluator>>> = Arc::new(RwLock::new(None));
+    // Uses std::sync::RwLock because it's shared with model_watcher crate
+    let evaluator: Arc<StdRwLock<Option<OnnxEvaluator>>> = Arc::new(StdRwLock::new(None));
 
     #[cfg(feature = "onnx")]
     let model_info = {
@@ -192,7 +200,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     #[cfg(not(feature = "onnx"))]
-    let model_info = Arc::new(RwLock::new(ModelInfo::default()));
+    let model_info = Arc::new(StdRwLock::new(ModelInfo::default()));
 
     // Create initial game session with shared evaluator
     let session = GameSession::with_evaluator(&default_game, Arc::clone(&evaluator))?;
