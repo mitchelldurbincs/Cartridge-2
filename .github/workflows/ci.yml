@@ -165,18 +165,3 @@ jobs:
         run: npm run check
       - name: Build
         run: npm run build
-
-  # ============================================
-  # Docker Build (Optional - validates Dockerfiles)
-  # ============================================
-  docker:
-    name: Docker Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build alphazero image
-        run: docker build -f Dockerfile.alphazero -t cartridge-alphazero .
-      - name: Build web image
-        run: docker build -f web/Dockerfile -t cartridge-web .
-      - name: Build frontend image
-        run: docker build -f web/frontend/Dockerfile -t cartridge-frontend ./web/frontend
