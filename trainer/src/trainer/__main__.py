@@ -21,17 +21,7 @@ import argparse
 import logging
 import sys
 
-
-def _silence_noisy_loggers() -> None:
-    """Silence verbose third-party loggers (ONNX optimization, etc.)."""
-    noisy_loggers = [
-        "onnx_ir.passes.common.unused_removal",
-        "onnx_ir.passes.common.initializer_deduplication",
-        "onnxscript.optimizer._constant_folding",
-        "onnxscript.rewriter.rules.common._collapse_slices",
-    ]
-    for name in noisy_loggers:
-        logging.getLogger(name).setLevel(logging.WARNING)
+from .logging_utils import silence_noisy_loggers
 
 
 def cmd_train(args: argparse.Namespace) -> int:
@@ -281,7 +271,7 @@ def main() -> int:
             format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
-        _silence_noisy_loggers()
+        silence_noisy_loggers()
 
         return args.func(args)
 
@@ -329,7 +319,7 @@ def main() -> int:
             format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
-        _silence_noisy_loggers()
+        silence_noisy_loggers()
 
         return cmd_train(args)
 
