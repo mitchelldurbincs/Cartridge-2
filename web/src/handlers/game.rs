@@ -57,18 +57,12 @@ pub async fn new_game(
 
     // Determine which game to use
     let game_id = if let Some(ref game) = req.game {
-        // Update current game if specified
-        if let Ok(mut current) = state.current_game.write() {
-            *current = game.clone();
-        }
+        // Update current game if specified (async RwLock)
+        *state.current_game.write().await = game.clone();
         game.clone()
     } else {
-        // Use current game
-        state
-            .current_game
-            .read()
-            .map(|g| g.clone())
-            .unwrap_or_else(|_| "tictactoe".to_string())
+        // Use current game (async RwLock)
+        state.current_game.read().await.clone()
     };
 
     // Reset the game with shared evaluator (for hot-reloading)

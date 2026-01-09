@@ -4,13 +4,12 @@
 //! Endpoints:
 //! - GET  /health        - Health check
 //! - GET  /games         - List available games
-//! - GET  /game-info/:id  - Get metadata for a specific game
+//! - GET  /game-info/:id - Get metadata for a specific game
+//! - POST /game/new      - Start a new game
+//! - GET  /game/state    - Get current game state
 //! - POST /move          - Make a move (player action + bot response)
 //! - GET  /stats         - Read training stats from data/stats.json
 //! - GET  /model         - Get info about currently loaded model
-//! - POST /selfplay      - Start/stop self-play actor (placeholder)
-//! - POST /game/new      - Start a new game
-//! - GET  /game/state    - Get current game state
 
 use axum::{
     routing::{get, post},
@@ -18,8 +17,13 @@ use axum::{
 };
 #[cfg(feature = "onnx")]
 use mcts::OnnxEvaluator;
-use std::sync::{Arc, RwLock};
-use tokio::sync::Mutex;
+use std::sync::Arc;
+// Note: We use std::sync::RwLock (aliased as StdRwLock) for `evaluator` and `model_info`
+// because they are shared with the model_watcher crate which requires std::sync::RwLock.
+// These locks are only held briefly (no await points while held) so blocking is minimal.
+// `current_game` uses tokio::sync::RwLock since it's owned entirely by AppState.
+use std::sync::RwLock as StdRwLock;
+use tokio::sync::{Mutex, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
@@ -34,7 +38,7 @@ use central_config::load_config;
 use game::GameSession;
 use handlers::{
     get_game_info, get_game_state, get_model_info, get_stats, health, list_games, make_move,
-    new_game, selfplay,
+    new_game,
 };
 #[cfg(feature = "onnx")]
 use model_watcher::{ModelInfo, ModelWatcher};
@@ -56,16 +60,18 @@ pub struct ModelInfo {
 
 /// Shared application state
 pub struct AppState {
-    /// Current game session
+    /// Current game session (tokio async Mutex - held across awaits in handlers)
     pub session: Mutex<GameSession>,
-    /// Current game ID (for creating new sessions)
+    /// Current game ID (tokio async RwLock - owned by AppState)
     pub current_game: RwLock<String>,
     /// Data directory for stats.json
     pub data_dir: String,
-    /// Shared evaluator for MCTS (hot-reloaded)
-    pub evaluator: Arc<RwLock<Option<OnnxEvaluator>>>,
-    /// Model info (updated on reload)
-    pub model_info: Arc<RwLock<ModelInfo>>,
+    /// Shared evaluator for MCTS (std RwLock - shared with model_watcher crate)
+    /// Only read briefly in sync code, never held across await points.
+    pub evaluator: Arc<StdRwLock<Option<OnnxEvaluator>>>,
+    /// Model info (std RwLock - shared with model_watcher crate)
+    /// Only read briefly, never held across await points.
+    pub model_info: Arc<StdRwLock<ModelInfo>>,
 }
 
 /// Create the application router with the given state.
@@ -81,12 +87,11 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .route("/health", get(health))
         .route("/games", get(list_games))
         .route("/game-info/:id", get(get_game_info))
+        .route("/game/new", post(new_game))
+        .route("/game/state", get(get_game_state))
         .route("/move", post(make_move))
         .route("/stats", get(get_stats))
         .route("/model", get(get_model_info))
-        .route("/selfplay", post(selfplay))
-        .route("/game/new", post(new_game))
-        .route("/game/state", get(get_game_state))
         .layer(cors)
         .with_state(state)
 }
@@ -95,8 +100,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 #[cfg(test)]
 pub fn create_test_state() -> Arc<AppState> {
     engine_games::register_all_games();
-    let evaluator: Arc<RwLock<Option<OnnxEvaluator>>> = Arc::new(RwLock::new(None));
-    let model_info = Arc::new(RwLock::new(ModelInfo::default()));
+    let evaluator: Arc<StdRwLock<Option<OnnxEvaluator>>> = Arc::new(StdRwLock::new(None));
+    let model_info = Arc::new(StdRwLock::new(ModelInfo::default()));
     let session = GameSession::with_evaluator("tictactoe", Arc::clone(&evaluator))
         .expect("Failed to create game session");
 
@@ -143,16 +148,25 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Set up shared evaluator for model hot-reloading
-    let evaluator: Arc<RwLock<Option<OnnxEvaluator>>> = Arc::new(RwLock::new(None));
+    // Uses std::sync::RwLock because it's shared with model_watcher crate
+    let evaluator: Arc<StdRwLock<Option<OnnxEvaluator>>> = Arc::new(StdRwLock::new(None));
 
     #[cfg(feature = "onnx")]
     let model_info = {
         use engine_core::EngineContext;
         use tracing::warn;
         let model_dir = format!("{}/models", data_dir);
+        // Get obs_size from the configured game, falling back to tictactoe if not found
         let obs_size = EngineContext::new(&default_game)
+            .or_else(|| {
+                warn!(
+                    "Game '{}' not found, falling back to tictactoe for obs_size",
+                    default_game
+                );
+                EngineContext::new("tictactoe")
+            })
             .map(|ctx| ctx.metadata().obs_size)
-            .unwrap_or(29); // Fallback to TicTacToe's obs_size if game not found
+            .expect("At least tictactoe should be registered");
         info!(
             "Model watcher using obs_size={} from game '{}'",
             obs_size, default_game
@@ -198,7 +212,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     #[cfg(not(feature = "onnx"))]
-    let model_info = Arc::new(RwLock::new(ModelInfo::default()));
+    let model_info = Arc::new(StdRwLock::new(ModelInfo::default()));
 
     // Create initial game session with shared evaluator
     let session = GameSession::with_evaluator(&default_game, Arc::clone(&evaluator))?;

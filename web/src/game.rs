@@ -8,6 +8,9 @@ use engine_core::{EngineContext, GameMetadata};
 use mcts::{run_mcts, MctsConfig, OnnxEvaluator};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+// Note: Uses std::sync::RwLock (not tokio) because this is shared with model_watcher
+// crate which requires std::sync::RwLock. The lock is only held briefly during
+// synchronous bot_move() calls, never across await points.
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(feature = "onnx")]
