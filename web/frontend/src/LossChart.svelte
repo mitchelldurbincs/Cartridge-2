@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { HistoryEntry } from './lib/api';
-  import { LARGE_NUMBER_THRESHOLD } from './lib/constants';
+  import { CHART_COLORS, formatStep, formatLoss, buildChartData } from './lib/chart';
 
   interface Props {
     history: HistoryEntry[];
@@ -8,105 +8,23 @@
 
   let { history }: Props = $props();
 
-  // Chart dimensions
+  // Chart dimensions (fixed for small chart)
   const width = 400;
   const height = 200;
   const padding = { top: 20, right: 20, bottom: 40, left: 50 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
-  // Colors matching the dark theme
-  const colors = {
-    total: '#00d9ff',   // Cyan - primary brand color
-    policy: '#ff6b6b', // Red
-    value: '#4ecdc4',  // Teal
-  };
-
-  // Compute scales and paths
-  function getChartData(data: HistoryEntry[]) {
-    if (data.length === 0) {
-      return { xTicks: [], yTicks: [], paths: { total: '', policy: '', value: '' }, yMax: 1 };
-    }
-
-    const sorted = [...data].sort((a, b) => a.step - b.step);
-
-    // Get data ranges
-    const steps = sorted.map(d => d.step);
-    const minStep = Math.min(...steps);
-    const maxStep = Math.max(...steps);
-
-    const allLosses = sorted.flatMap(d => [d.total_loss, d.policy_loss, d.value_loss]);
-    const maxLoss = Math.max(...allLosses);
-    const minLoss = Math.min(...allLosses);
-
-    // Add some padding to y-axis
-    const yMax = maxLoss === 0 ? 1 : maxLoss * 1.1;
-    const yMin = Math.max(0, minLoss * 0.9);
-    const yRange = yMax - yMin || 1;
-
-    // Scale functions
-    const xScale = (step: number) => {
-      if (maxStep === minStep) return chartWidth / 2;
-      return ((step - minStep) / (maxStep - minStep)) * chartWidth;
-    };
-
-    const yScale = (loss: number) => {
-      return chartHeight - ((loss - yMin) / yRange) * chartHeight;
-    };
-
-    // Generate paths
-    const makePath = (key: 'total_loss' | 'policy_loss' | 'value_loss') => {
-      return sorted.map((d, i) => {
-        const x = xScale(d.step);
-        const y = yScale(d[key]);
-        return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-      }).join(' ');
-    };
-
-    // Generate tick values
-    const xTicks = generateTicks(minStep, maxStep, 5).map(v => ({
-      value: v,
-      x: xScale(v)
-    }));
-
-    const yTicks = generateTicks(yMin, yMax, 5).map(v => ({
-      value: v,
-      y: yScale(v)
-    }));
-
-    return {
-      xTicks,
-      yTicks,
-      paths: {
-        total: makePath('total_loss'),
-        policy: makePath('policy_loss'),
-        value: makePath('value_loss'),
-      },
-      yMax,
-    };
-  }
-
-  // Generate nice tick values
-  function generateTicks(min: number, max: number, count: number): number[] {
-    if (min === max) return [min];
-    const step = (max - min) / (count - 1);
-    return Array.from({ length: count }, (_, i) => min + step * i);
-  }
-
-  // Format tick labels
-  function formatStep(value: number): string {
-    if (value >= LARGE_NUMBER_THRESHOLD) return `${(value / LARGE_NUMBER_THRESHOLD).toFixed(1)}k`;
-    return Math.round(value).toString();
-  }
-
-  function formatLoss(value: number): string {
-    if (value < 0.01) return value.toExponential(1);
-    if (value < 1) return value.toFixed(3);
-    return value.toFixed(2);
-  }
-
-  // Reactive chart data
-  let chartData = $derived(getChartData(history));
+  // Reactive chart data using shared builder
+  let chartData = $derived(
+    buildChartData({
+      data: history,
+      chartWidth,
+      chartHeight,
+      xTickCount: 5,
+      yTickCount: 5,
+    })
+  );
 </script>
 
 <div class="loss-chart">
@@ -131,9 +49,9 @@
         {/each}
 
         <!-- Loss lines -->
-        <path d={chartData.paths.total} fill="none" stroke={colors.total} stroke-width="2" />
-        <path d={chartData.paths.policy} fill="none" stroke={colors.policy} stroke-width="1.5" stroke-opacity="0.8" />
-        <path d={chartData.paths.value} fill="none" stroke={colors.value} stroke-width="1.5" stroke-opacity="0.8" />
+        <path d={chartData.paths.total} fill="none" stroke={CHART_COLORS.total} stroke-width="2" />
+        <path d={chartData.paths.policy} fill="none" stroke={CHART_COLORS.policy} stroke-width="1.5" stroke-opacity="0.8" />
+        <path d={chartData.paths.value} fill="none" stroke={CHART_COLORS.value} stroke-width="1.5" stroke-opacity="0.8" />
 
         <!-- X-axis -->
         <line x1="0" y1={chartHeight} x2={chartWidth} y2={chartHeight} stroke="#666" />
@@ -187,15 +105,15 @@
     <!-- Legend -->
     <div class="legend">
       <div class="legend-item">
-        <span class="legend-line" style="background: {colors.total}"></span>
+        <span class="legend-line" style="background: {CHART_COLORS.total}"></span>
         <span>Total</span>
       </div>
       <div class="legend-item">
-        <span class="legend-line" style="background: {colors.policy}"></span>
+        <span class="legend-line" style="background: {CHART_COLORS.policy}"></span>
         <span>Policy</span>
       </div>
       <div class="legend-item">
-        <span class="legend-line" style="background: {colors.value}"></span>
+        <span class="legend-line" style="background: {CHART_COLORS.value}"></span>
         <span>Value</span>
       </div>
     </div>

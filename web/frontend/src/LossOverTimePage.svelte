@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { getStats, type HistoryEntry } from './lib/api';
-  import { STATS_POLL_INTERVAL_MS, LARGE_NUMBER_THRESHOLD } from './lib/constants';
+  import { STATS_POLL_INTERVAL_MS } from './lib/constants';
+  import {
+    CHART_COLORS,
+    formatStep,
+    formatLoss,
+    buildChartData,
+  } from './lib/chart';
 
   let history: HistoryEntry[] = $state([]);
   let error: string | null = $state(null);
@@ -27,13 +33,6 @@
   // Full-screen chart dimensions
   const padding = { top: 40, right: 60, bottom: 60, left: 80 };
 
-  const colors = {
-    total: '#00d9ff',
-    policy: '#ff6b6b',
-    value: '#4ecdc4',
-    avg100: '#ffd700',  // Gold color for avg100
-  };
-
   async function fetchData() {
     try {
       const stats = await getStats();
@@ -54,128 +53,6 @@
   onDestroy(() => {
     if (pollInterval) clearInterval(pollInterval);
   });
-
-  function computeRollingAverage(data: HistoryEntry[], window: number = 100): { step: number; avg: number }[] {
-    if (data.length === 0) return [];
-    const sorted = [...data].sort((a, b) => a.step - b.step);
-    const result: { step: number; avg: number }[] = [];
-
-    for (let i = 0; i < sorted.length; i++) {
-      const start = Math.max(0, i - window + 1);
-      const windowData = sorted.slice(start, i + 1);
-      const avg = windowData.reduce((sum, d) => sum + d.total_loss, 0) / windowData.length;
-      result.push({ step: sorted[i].step, avg });
-    }
-    return result;
-  }
-
-  function getChartData(data: HistoryEntry[], chartWidth: number, chartHeight: number, includeAvg100: boolean) {
-    if (data.length === 0) {
-      return { xTicks: [], yTicks: [], paths: { total: '', policy: '', value: '', avg100: '' }, points: { total: [], policy: [], value: [] } };
-    }
-
-    const sorted = [...data].sort((a, b) => a.step - b.step);
-
-    // Compute rolling average if needed
-    const avg100Data = includeAvg100 ? computeRollingAverage(sorted) : [];
-
-    const steps = sorted.map(d => d.step);
-    const minStep = Math.min(...steps);
-    const maxStep = Math.max(...steps);
-
-    // Include avg100 values in loss range calculation
-    const allLosses = sorted.flatMap(d => [d.total_loss, d.policy_loss, d.value_loss]);
-    if (includeAvg100 && avg100Data.length > 0) {
-      allLosses.push(...avg100Data.map(d => d.avg));
-    }
-    const maxLoss = Math.max(...allLosses);
-    const minLoss = Math.min(...allLosses);
-
-    const yMax = maxLoss === 0 ? 1 : maxLoss * 1.1;
-    const yMin = Math.max(0, minLoss * 0.9);
-    const yRange = yMax - yMin || 1;
-
-    const xScale = (step: number) => {
-      if (maxStep === minStep) return chartWidth / 2;
-      return ((step - minStep) / (maxStep - minStep)) * chartWidth;
-    };
-
-    const yScale = (loss: number) => {
-      return chartHeight - ((loss - yMin) / yRange) * chartHeight;
-    };
-
-    const makePath = (key: 'total_loss' | 'policy_loss' | 'value_loss') => {
-      return sorted.map((d, i) => {
-        const x = xScale(d.step);
-        const y = yScale(d[key]);
-        return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-      }).join(' ');
-    };
-
-    const makeAvg100Path = () => {
-      if (!includeAvg100 || avg100Data.length === 0) return '';
-      return avg100Data.map((d, i) => {
-        const x = xScale(d.step);
-        const y = yScale(d.avg);
-        return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-      }).join(' ');
-    };
-
-    const makePoints = (key: 'total_loss' | 'policy_loss' | 'value_loss') => {
-      return sorted.map(d => ({
-        x: xScale(d.step),
-        y: yScale(d[key]),
-        step: d.step,
-        value: d[key],
-      }));
-    };
-
-    const xTicks = generateTicks(minStep, maxStep, 10).map(v => ({
-      value: v,
-      x: xScale(v)
-    }));
-
-    const yTicks = generateTicks(yMin, yMax, 8).map(v => ({
-      value: v,
-      y: yScale(v)
-    }));
-
-    return {
-      xTicks,
-      yTicks,
-      paths: {
-        total: makePath('total_loss'),
-        policy: makePath('policy_loss'),
-        value: makePath('value_loss'),
-        avg100: makeAvg100Path(),
-      },
-      points: {
-        total: makePoints('total_loss'),
-        policy: makePoints('policy_loss'),
-        value: makePoints('value_loss'),
-      },
-    };
-  }
-
-  function generateTicks(min: number, max: number, count: number): number[] {
-    if (min === max) return [min];
-    const step = (max - min) / (count - 1);
-    return Array.from({ length: count }, (_, i) => min + step * i);
-  }
-
-  function formatStep(value: number): string {
-    const million = LARGE_NUMBER_THRESHOLD * LARGE_NUMBER_THRESHOLD;
-    if (value >= million) return `${(value / million).toFixed(1)}M`;
-    if (value >= LARGE_NUMBER_THRESHOLD) return `${(value / LARGE_NUMBER_THRESHOLD).toFixed(1)}k`;
-    return Math.round(value).toString();
-  }
-
-  function formatLoss(value: number): string {
-    if (value < 0.001) return value.toExponential(2);
-    if (value < 0.01) return value.toFixed(4);
-    if (value < 1) return value.toFixed(3);
-    return value.toFixed(2);
-  }
 
   // Reactive dimensions based on window size
   let innerWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1200);
@@ -209,7 +86,7 @@
     }
 
     // Find the nearest data point by x position
-    if (chartData.points.total.length > 0) {
+    if (chartData.points && chartData.points.total.length > 0) {
       let nearestIdx = 0;
       let minDist = Math.abs(chartData.points.total[0].x - x);
 
@@ -237,6 +114,7 @@
   let height = $derived(Math.min(innerHeight - 160, 800));
   let chartWidth = $derived(width - padding.left - padding.right);
   let chartHeight = $derived(height - padding.top - padding.bottom);
+
   // Filter by step range (not data point count) to ensure Svelte 5 properly tracks selectedRange
   let filteredHistory = $derived.by(() => {
     const range = selectedRange;
@@ -246,12 +124,22 @@
     const minStepThreshold = maxStep - stepRange;
     return history.filter(h => h.step >= minStepThreshold);
   });
+
+  // Use shared builder with additional options
   let chartData = $derived.by(() => {
-    return getChartData(filteredHistory, chartWidth, chartHeight, showAvg100);
+    return buildChartData({
+      data: filteredHistory,
+      chartWidth,
+      chartHeight,
+      xTickCount: 10,
+      yTickCount: 8,
+      includePoints: true,
+      includeAvg100: showAvg100,
+    });
   });
 
   // Get hover data for the current index (must be after chartData)
-  let hoverData = $derived(hoverIndex !== null && chartData.points.total[hoverIndex] ? {
+  let hoverData = $derived(hoverIndex !== null && chartData.points && chartData.points.total[hoverIndex] ? {
     step: chartData.points.total[hoverIndex].step,
     total: chartData.points.total[hoverIndex].value,
     policy: chartData.points.policy[hoverIndex]?.value,
@@ -321,25 +209,25 @@
           {/each}
 
           <!-- Loss lines -->
-          <path d={chartData.paths.total} fill="none" stroke={colors.total} stroke-width="3" />
-          <path d={chartData.paths.policy} fill="none" stroke={colors.policy} stroke-width="2" stroke-opacity="0.9" />
-          <path d={chartData.paths.value} fill="none" stroke={colors.value} stroke-width="2" stroke-opacity="0.9" />
+          <path d={chartData.paths.total} fill="none" stroke={CHART_COLORS.total} stroke-width="3" />
+          <path d={chartData.paths.policy} fill="none" stroke={CHART_COLORS.policy} stroke-width="2" stroke-opacity="0.9" />
+          <path d={chartData.paths.value} fill="none" stroke={CHART_COLORS.value} stroke-width="2" stroke-opacity="0.9" />
 
           <!-- Avg100 line (dashed, rendered on top) -->
           {#if showAvg100 && chartData.paths.avg100}
-            <path d={chartData.paths.avg100} fill="none" stroke={colors.avg100} stroke-width="2.5" stroke-dasharray="8,4" />
+            <path d={chartData.paths.avg100} fill="none" stroke={CHART_COLORS.avg100} stroke-width="2.5" stroke-dasharray="8,4" />
           {/if}
 
           <!-- Data points (show when not too many) -->
-          {#if filteredHistory.length <= 50}
+          {#if filteredHistory.length <= 50 && chartData.points}
             {#each chartData.points.total as point}
-              <circle cx={point.x} cy={point.y} r="4" fill={colors.total} />
+              <circle cx={point.x} cy={point.y} r="4" fill={CHART_COLORS.total} />
             {/each}
             {#each chartData.points.policy as point}
-              <circle cx={point.x} cy={point.y} r="3" fill={colors.policy} />
+              <circle cx={point.x} cy={point.y} r="3" fill={CHART_COLORS.policy} />
             {/each}
             {#each chartData.points.value as point}
-              <circle cx={point.x} cy={point.y} r="3" fill={colors.value} />
+              <circle cx={point.x} cy={point.y} r="3" fill={CHART_COLORS.value} />
             {/each}
           {/if}
 
@@ -391,7 +279,7 @@
           </text>
 
           <!-- Hover crosshair and highlights -->
-          {#if hoverData}
+          {#if hoverData && chartData.points}
             <!-- Vertical crosshair line -->
             <line
               x1={hoverData.x}
@@ -409,7 +297,7 @@
               cx={hoverData.x}
               cy={chartData.points.total[hoverIndex!].y}
               r="6"
-              fill={colors.total}
+              fill={CHART_COLORS.total}
               stroke="#fff"
               stroke-width="2"
             />
@@ -417,7 +305,7 @@
               cx={hoverData.x}
               cy={chartData.points.policy[hoverIndex!].y}
               r="5"
-              fill={colors.policy}
+              fill={CHART_COLORS.policy}
               stroke="#fff"
               stroke-width="2"
             />
@@ -425,7 +313,7 @@
               cx={hoverData.x}
               cy={chartData.points.value[hoverIndex!].y}
               r="5"
-              fill={colors.value}
+              fill={CHART_COLORS.value}
               stroke="#fff"
               stroke-width="2"
             />
@@ -456,13 +344,13 @@
             <text x="10" y="20" fill="#aaa" font-size="12">
               Step: <tspan fill="#fff" font-weight="bold">{formatStep(hoverData.step)}</tspan>
             </text>
-            <text x="10" y="40" fill={colors.total} font-size="12">
+            <text x="10" y="40" fill={CHART_COLORS.total} font-size="12">
               Total: <tspan font-weight="bold">{formatLoss(hoverData.total)}</tspan>
             </text>
-            <text x="10" y="58" fill={colors.policy} font-size="12">
+            <text x="10" y="58" fill={CHART_COLORS.policy} font-size="12">
               Policy: <tspan font-weight="bold">{formatLoss(hoverData.policy)}</tspan>
             </text>
-            <text x="10" y="76" fill={colors.value} font-size="12">
+            <text x="10" y="76" fill={CHART_COLORS.value} font-size="12">
               Value: <tspan font-weight="bold">{formatLoss(hoverData.value)}</tspan>
             </text>
           </g>
@@ -472,20 +360,20 @@
       <!-- Legend -->
       <div class="legend">
         <div class="legend-item">
-          <span class="legend-line" style="background: {colors.total}"></span>
+          <span class="legend-line" style="background: {CHART_COLORS.total}"></span>
           <span>Total Loss</span>
         </div>
         <div class="legend-item">
-          <span class="legend-line" style="background: {colors.policy}"></span>
+          <span class="legend-line" style="background: {CHART_COLORS.policy}"></span>
           <span>Policy Loss</span>
         </div>
         <div class="legend-item">
-          <span class="legend-line" style="background: {colors.value}"></span>
+          <span class="legend-line" style="background: {CHART_COLORS.value}"></span>
           <span>Value Loss</span>
         </div>
         {#if showAvg100}
           <div class="legend-item">
-            <span class="legend-line dashed" style="background: {colors.avg100}"></span>
+            <span class="legend-line dashed" style="background: {CHART_COLORS.avg100}"></span>
             <span>Avg100</span>
           </div>
         {/if}
@@ -500,15 +388,15 @@
           </div>
           <div class="stat">
             <span class="stat-label">Total Loss</span>
-            <span class="stat-value" style="color: {colors.total}">{formatLoss(latest.total_loss)}</span>
+            <span class="stat-value" style="color: {CHART_COLORS.total}">{formatLoss(latest.total_loss)}</span>
           </div>
           <div class="stat">
             <span class="stat-label">Policy Loss</span>
-            <span class="stat-value" style="color: {colors.policy}">{formatLoss(latest.policy_loss)}</span>
+            <span class="stat-value" style="color: {CHART_COLORS.policy}">{formatLoss(latest.policy_loss)}</span>
           </div>
           <div class="stat">
             <span class="stat-label">Value Loss</span>
-            <span class="stat-value" style="color: {colors.value}">{formatLoss(latest.value_loss)}</span>
+            <span class="stat-value" style="color: {CHART_COLORS.value}">{formatLoss(latest.value_loss)}</span>
           </div>
           <div class="stat">
             <span class="stat-label">Data Points</span>

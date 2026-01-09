@@ -1,5 +1,16 @@
 # Chart Abstraction Plan
 
+**Status: IMPLEMENTED**
+
+Implementation completed with:
+- `src/lib/chart.ts` - 246 lines of shared utilities
+- `src/LossChart.svelte` - Reduced from 278 to 196 lines (-82 lines)
+- `src/LossOverTimePage.svelte` - Reduced from 701 to 589 lines (-112 lines)
+
+All frontend checks pass (`npm run check` and `npm run build`).
+
+---
+
 ## Problem Statement
 
 `LossChart.svelte` and `LossOverTimePage.svelte` contain nearly identical implementations of charting logic. This violates DRY and makes maintenance error-prone (e.g., fixing a bug in one place but not the other).
@@ -437,27 +448,28 @@ export const LARGE_NUMBER_THRESHOLD = 1000;
 
 ## File Changes Summary
 
-| File | Action |
-|------|--------|
-| `src/lib/chart.ts` | **CREATE** - ~180 lines of shared utilities |
-| `src/lib/constants.ts` | No change (already has LARGE_NUMBER_THRESHOLD) |
-| `src/LossChart.svelte` | **MODIFY** - Remove ~80 lines, import from chart.ts |
-| `src/LossOverTimePage.svelte` | **MODIFY** - Remove ~100 lines, import from chart.ts |
+| File | Action | Status |
+|------|--------|--------|
+| `src/lib/chart.ts` | **CREATE** - 246 lines of shared utilities | Done |
+| `src/lib/constants.ts` | No change (already has LARGE_NUMBER_THRESHOLD) | N/A |
+| `src/LossChart.svelte` | **MODIFY** - Remove 82 lines, import from chart.ts | Done |
+| `src/LossOverTimePage.svelte` | **MODIFY** - Remove 112 lines, import from chart.ts | Done |
 
-### Lines of Code Impact
+### Lines of Code Impact (Actual)
 
 | Metric | Before | After | Delta |
 |--------|--------|-------|-------|
-| LossChart.svelte | 278 | ~200 | -78 |
-| LossOverTimePage.svelte | 701 | ~580 | -121 |
-| chart.ts (new) | 0 | ~180 | +180 |
-| **Net change** | 979 | ~960 | **-19** |
+| LossChart.svelte | 278 | 196 | -82 |
+| LossOverTimePage.svelte | 701 | 589 | -112 |
+| chart.ts (new) | 0 | 246 | +246 |
+| **Net change** | 979 | 1031 | **+52** |
 
-The net line reduction is small, but the benefit is:
+The net line count increased slightly due to comprehensive type definitions and documentation in `chart.ts`, but the benefit is:
 - Single source of truth for chart math
 - Easier testing of pure functions
 - Consistent formatting across both charts
 - Bug fixes apply to both charts automatically
+- Better TypeScript types (`XTick`, `YTick`, `ChartPoint`, etc.)
 
 ---
 
@@ -476,8 +488,8 @@ After refactoring, verify:
 - [ ] Responsive sizing works on window resize
 - [ ] Expand link in small chart navigates to full page
 - [ ] Back link in full page returns to game
-- [ ] No TypeScript errors: `npm run check`
-- [ ] Build succeeds: `npm run build`
+- [x] No TypeScript errors: `npm run check`
+- [x] Build succeeds: `npm run build`
 
 ---
 
