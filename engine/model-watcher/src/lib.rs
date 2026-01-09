@@ -635,8 +635,13 @@ mod tests {
     fn test_try_load_nonexistent() {
         let temp_dir = tempdir().unwrap();
         let evaluator = Arc::new(RwLock::new(None));
-        let watcher =
-            ModelWatcher::new(temp_dir.path(), "nonexistent.onnx", 29, 1, evaluator.clone());
+        let watcher = ModelWatcher::new(
+            temp_dir.path(),
+            "nonexistent.onnx",
+            29,
+            1,
+            evaluator.clone(),
+        );
 
         let result = watcher.try_load_existing();
         assert!(result.is_ok());

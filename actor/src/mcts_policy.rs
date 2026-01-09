@@ -218,11 +218,17 @@ impl MctsPolicy {
         if mcts_elapsed_ms > 2000 {
             warn!(
                 mcts_ms = mcts_elapsed_ms,
-                inference_pct = (stats.inference_time_us as f64 / stats.total_time_us as f64 * 100.0) as u32,
-                expansion_pct = (stats.expansion_time_us as f64 / stats.total_time_us as f64 * 100.0) as u32,
+                inference_pct =
+                    (stats.inference_time_us as f64 / stats.total_time_us as f64 * 100.0) as u32,
+                expansion_pct =
+                    (stats.expansion_time_us as f64 / stats.total_time_us as f64 * 100.0) as u32,
                 game_steps = stats.game_steps,
                 num_batches = stats.num_batches,
-                avg_batch_size = if stats.num_batches > 0 { stats.total_evals / stats.num_batches } else { 0 },
+                avg_batch_size = if stats.num_batches > 0 {
+                    stats.total_evals / stats.num_batches
+                } else {
+                    0
+                },
                 "MCTS step took >2s - performance issue detected"
             );
         }
@@ -266,7 +272,7 @@ impl MctsPolicy {
         Ok(MctsPolicyResult {
             action: action_bytes,
             policy,
-            value: 0.0, // No value estimate without model
+            value: 0.0,                    // No value estimate without model
             stats: SearchStats::default(), // No MCTS performed
         })
     }
