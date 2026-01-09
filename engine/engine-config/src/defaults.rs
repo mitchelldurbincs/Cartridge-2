@@ -10,9 +10,8 @@ use serde::Deserialize;
 const DEFAULTS_TOML: &str = include_str!("../../../config.defaults.toml");
 
 /// Parsed defaults structure (parsed once at first use)
-static DEFAULTS: Lazy<DefaultsConfig> = Lazy::new(|| {
-    toml::from_str(DEFAULTS_TOML).expect("config.defaults.toml should be valid TOML")
-});
+static DEFAULTS: Lazy<DefaultsConfig> =
+    Lazy::new(|| toml::from_str(DEFAULTS_TOML).expect("config.defaults.toml should be valid TOML"));
 
 // ============================================================================
 // Internal structs for parsing config.defaults.toml
