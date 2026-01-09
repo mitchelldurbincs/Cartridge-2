@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::level_filters::LevelFilter;
 
-use crate::central_config::{load_config, CentralConfig};
 use crate::storage::PoolConfig;
+use engine_config::{load_config, CentralConfig};
 
 // Load central config once at startup
 static CENTRAL_CONFIG: Lazy<CentralConfig> = Lazy::new(load_config);
