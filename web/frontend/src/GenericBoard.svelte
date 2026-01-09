@@ -1,6 +1,50 @@
 <script lang="ts">
   import type { GameInfo } from './lib/api';
 
+  // ============================================================================
+  // Layout Constants
+  // ============================================================================
+
+  /** Maximum container size for grid boards like TicTacToe/Othello (pixels) */
+  const GRID_MAX_SIZE = 400;
+
+  /** Divisor for calculating font size from cell size in grid boards */
+  const GRID_FONT_DIVISOR = 32;
+
+  /** Maximum container size for drop-column boards like Connect 4 (pixels) */
+  const DROP_MAX_SIZE = 420;
+
+  /** Gap between cells in drop-column board (pixels) */
+  const DROP_GAP = 4;
+
+  /** Outer frame padding in drop-column board (pixels) */
+  const DROP_FRAME_PADDING = 12;
+
+  /** Inner grid padding in drop-column board (pixels) */
+  const DROP_GRID_PADDING = 8;
+
+  /** Ratio of hole diameter to cell size in drop-column board */
+  const DROP_HOLE_RATIO = 0.8;
+
+  /** Ratio of piece diameter to hole size in drop-column board */
+  const DROP_PIECE_RATIO = 0.92;
+
+  /** Height of the column indicator/hover zone (pixels) */
+  const DROP_INDICATOR_HEIGHT = 50;
+
+  /** Offset above board where dropping piece animation starts (pixels) */
+  const DROP_START_OFFSET = 20;
+
+  /** Duration of player's drop animation before triggering move (ms) */
+  const DROP_ANIMATION_DELAY = 400;
+
+  /** Duration of bot move highlight animation (ms) */
+  const BOT_HIGHLIGHT_DURATION = 500;
+
+  // ============================================================================
+  // Component Props
+  // ============================================================================
+
   interface Props {
     board: number[];
     legalMoves: number[];
@@ -31,11 +75,9 @@
   // Grid Board (TicTacToe, Othello style)
   // ============================================================================
 
-  // Calculate cell size based on board dimensions (max container size 400px)
-  const MAX_BOARD_SIZE = 400;
-  let gridCellSize = $derived(Math.floor(Math.min(MAX_BOARD_SIZE / width, MAX_BOARD_SIZE / height)));
+  let gridCellSize = $derived(Math.floor(Math.min(GRID_MAX_SIZE / width, GRID_MAX_SIZE / height)));
   let gridStyle = $derived(`grid-template-columns: repeat(${width}, ${gridCellSize}px)`);
-  let gridFontSize = $derived(Math.max(1, Math.floor(gridCellSize / 32)));
+  let gridFontSize = $derived(Math.max(1, Math.floor(gridCellSize / GRID_FONT_DIVISOR)));
 
   function getGridCellSymbol(value: number): string {
     if (value === 0) return '';
@@ -56,14 +98,9 @@
   // Drop Column Board (Connect 4 style)
   // ============================================================================
 
-  // Calculate sizes based on board dimensions
-  const DROP_MAX_SIZE = 420;
   let dropCellSize = $derived(Math.floor(Math.min(DROP_MAX_SIZE / width, DROP_MAX_SIZE / height)));
-  let dropHoleSize = $derived(Math.floor(dropCellSize * 0.8));
-  let dropPieceSize = $derived(Math.floor(dropHoleSize * 0.92));
-  const GAP = 4;
-  const BOARD_FRAME_PADDING = 12;
-  const BOARD_GRID_PADDING = 8;
+  let dropHoleSize = $derived(Math.floor(dropCellSize * DROP_HOLE_RATIO));
+  let dropPieceSize = $derived(Math.floor(dropHoleSize * DROP_PIECE_RATIO));
 
   // Track dropping pieces for animation
   let droppingPiece: { column: number; row: number; player: number } | null = $state(null);
@@ -99,7 +136,7 @@
     setTimeout(() => {
       droppingPiece = null;
       onCellClick(col);
-    }, 400);
+    }, DROP_ANIMATION_DELAY);
   }
 
   // Check if a cell should show animation (for bot moves)
@@ -112,7 +149,7 @@
           animatingCells.add(index);
           setTimeout(() => {
             animatingCells = new Set([...animatingCells].filter(i => i !== index));
-          }, 500);
+          }, BOT_HIGHLIGHT_DURATION);
           break;
         }
       }
@@ -138,18 +175,18 @@
 
   // Calculate the Y position for the dropping animation
   function getDropStartY(): number {
-    return -dropCellSize - 20;
+    return -dropCellSize - DROP_START_OFFSET;
   }
 
   function getDropEndY(row: number): number {
     const visualRow = height - 1 - row;
-    const paddingOffset = BOARD_FRAME_PADDING + BOARD_GRID_PADDING;
-    return paddingOffset + visualRow * (dropCellSize + GAP) + (dropCellSize - dropHoleSize) / 2;
+    const paddingOffset = DROP_FRAME_PADDING + DROP_GRID_PADDING;
+    return paddingOffset + visualRow * (dropCellSize + DROP_GAP) + (dropCellSize - dropHoleSize) / 2;
   }
 
   function getDropX(col: number): number {
-    const paddingOffset = BOARD_FRAME_PADDING + BOARD_GRID_PADDING;
-    return paddingOffset + col * (dropCellSize + GAP) + (dropCellSize - dropHoleSize) / 2;
+    const paddingOffset = DROP_FRAME_PADDING + DROP_GRID_PADDING;
+    return paddingOffset + col * (dropCellSize + DROP_GAP) + (dropCellSize - dropHoleSize) / 2;
   }
 </script>
 
@@ -171,12 +208,12 @@
   <!-- Drop-column style board (Connect 4) -->
   <div class="drop-container">
     <!-- Hover indicators for columns -->
-    <div class="column-indicators" style="padding-left: {BOARD_FRAME_PADDING + BOARD_GRID_PADDING}px; padding-right: {BOARD_FRAME_PADDING + BOARD_GRID_PADDING}px;">
+    <div class="column-indicators" style="padding-left: {DROP_FRAME_PADDING + DROP_GRID_PADDING}px; padding-right: {DROP_FRAME_PADDING + DROP_GRID_PADDING}px;">
       {#each Array(width) as _, col}
         <button
           class="column-indicator"
           class:clickable={isColumnClickable(col)}
-          style="width: {dropCellSize}px; height: 50px;"
+          style="width: {dropCellSize}px; height: {DROP_INDICATOR_HEIGHT}px;"
           onclick={() => handleColumnClick(col)}
           disabled={!isColumnClickable(col)}
           aria-label={`Drop piece in column ${col + 1}`}
@@ -208,10 +245,10 @@
       {/if}
 
       <!-- Board grid (blue frame with holes) -->
-      <div class="board-grid" style="gap: {GAP}px;">
+      <div class="board-grid" style="gap: {DROP_GAP}px;">
         {#each Array(height) as _, visualRow}
           {@const row = height - 1 - visualRow}
-          <div class="board-row" style="gap: {GAP}px;">
+          <div class="board-row" style="gap: {DROP_GAP}px;">
             {#each Array(width) as _, col}
               <div class={getDropCellClass(col, row)} style="width: {dropCellSize}px; height: {dropCellSize}px;">
                 <div class="hole" style="width: {dropHoleSize}px; height: {dropHoleSize}px;">
