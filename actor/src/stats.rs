@@ -10,7 +10,6 @@
 use serde::Serialize;
 use std::fs;
 use std::io::Write;
-use std::path::Path;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Instant;
 use tracing::{debug, warn};
@@ -200,6 +199,7 @@ impl ActorStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use tempfile::tempdir;
 
     #[test]
