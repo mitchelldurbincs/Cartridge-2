@@ -43,6 +43,9 @@ class Orchestrator:
         self.config = config
         self._shutdown_requested = False
 
+        # Initialize shared replay buffer connection (reused across iterations)
+        self._replay_buffer = create_replay_buffer()
+
         # Initialize components
         self.stats_manager = StatsManager(config)
         self.eval_runner = EvalRunner(config)
@@ -95,22 +98,14 @@ class Orchestrator:
 
         Returns the number of deleted transitions.
         """
-        replay = create_replay_buffer()
-        try:
-            deleted = replay.clear_transitions()
-            replay.vacuum()
-            logger.info(f"Cleared {deleted} transitions from replay buffer (vacuumed)")
-            return deleted
-        finally:
-            replay.close()
+        deleted = self._replay_buffer.clear_transitions()
+        self._replay_buffer.vacuum()
+        logger.info(f"Cleared {deleted} transitions from replay buffer (vacuumed)")
+        return deleted
 
     def _get_transition_count(self) -> int:
         """Get the current number of transitions in the replay buffer."""
-        replay = create_replay_buffer()
-        try:
-            return replay.count(env_id=self.config.env_id)
-        finally:
-            replay.close()
+        return self._replay_buffer.count(env_id=self.config.env_id)
 
     def _run_trainer(self, num_steps: int, start_step: int) -> tuple[bool, float]:
         """Run the trainer for a specified number of steps.
@@ -387,3 +382,6 @@ class Orchestrator:
                 logger.info(
                     f"Final evaluation: {final.eval_win_rate:.1%} win rate vs random"
                 )
+
+        # Clean up shared resources
+        self._replay_buffer.close()

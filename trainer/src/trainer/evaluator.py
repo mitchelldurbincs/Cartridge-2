@@ -18,22 +18,11 @@ from pathlib import Path
 
 from .game_config import GameConfig, get_config
 from .games import Player, create_game_state
+from .logging_utils import silence_noisy_loggers
 from .policies import OnnxPolicy, Policy, RandomPolicy
 from .storage import GameMetadata, create_replay_buffer
 
 logger = logging.getLogger(__name__)
-
-
-def _silence_noisy_loggers() -> None:
-    """Silence verbose third-party loggers (ONNX optimization, etc.)."""
-    noisy_loggers = [
-        "onnx_ir.passes.common.unused_removal",
-        "onnx_ir.passes.common.initializer_deduplication",
-        "onnxscript.optimizer._constant_folding",
-        "onnxscript.rewriter.rules.common._collapse_slices",
-    ]
-    for name in noisy_loggers:
-        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def get_game_metadata_or_config(env_id: str) -> GameConfig | GameMetadata:
@@ -336,7 +325,7 @@ def main() -> int:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    _silence_noisy_loggers()
+    silence_noisy_loggers()
 
     # Load game configuration from database (preferred) or fallback to hardcoded
     # This follows the same pattern as the Rust actor, making the evaluator self-describing
