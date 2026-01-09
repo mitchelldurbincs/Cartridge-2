@@ -34,6 +34,23 @@ pub struct OnnxEvaluator {
     inference_count: AtomicU64,
     /// Total inference time in microseconds (for diagnostics)
     total_inference_time_us: AtomicU64,
+    /// Total time spent preparing inputs (obs conversion) in microseconds
+    total_prep_time_us: AtomicU64,
+    /// Total time spent in post-processing (softmax etc) in microseconds
+    total_post_time_us: AtomicU64,
+}
+
+/// Diagnostic stats from the ONNX evaluator.
+#[derive(Debug, Clone, Default)]
+pub struct OnnxStats {
+    /// Number of inference calls made
+    pub inference_count: u64,
+    /// Total inference time in microseconds
+    pub total_inference_us: u64,
+    /// Total input preparation time in microseconds
+    pub total_prep_us: u64,
+    /// Total post-processing time in microseconds
+    pub total_post_us: u64,
 }
 
 impl std::fmt::Debug for OnnxEvaluator {
@@ -45,17 +62,36 @@ impl std::fmt::Debug for OnnxEvaluator {
 }
 
 impl OnnxEvaluator {
+    /// Resolve the intra_threads setting:
+    /// - 0 = auto-detect (use all available CPU cores)
+    /// - n > 0 = use exactly n threads
+    fn resolve_intra_threads(intra_threads: usize) -> usize {
+        if intra_threads == 0 {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+        } else {
+            intra_threads
+        }
+    }
+
     /// Load an ONNX model from the given path.
     ///
     /// # Arguments
     /// * `model_path` - Path to the .onnx model file
     /// * `obs_size` - Size of the observation vector (e.g., 29 for TicTacToe)
-    pub fn load<P: AsRef<Path>>(model_path: P, obs_size: usize) -> Result<Self, EvaluatorError> {
+    /// * `intra_threads` - Number of intra-op threads (0 = auto-detect, uses all CPU cores)
+    pub fn load<P: AsRef<Path>>(
+        model_path: P,
+        obs_size: usize,
+        intra_threads: usize,
+    ) -> Result<Self, EvaluatorError> {
+        let threads = Self::resolve_intra_threads(intra_threads);
         let session = Session::builder()
             .map_err(|e| {
                 EvaluatorError::ModelError(format!("Failed to create session builder: {}", e))
             })?
-            .with_intra_threads(1)
+            .with_intra_threads(threads)
             .map_err(|e| EvaluatorError::ModelError(format!("Failed to set intra threads: {}", e)))?
             .commit_from_file(model_path)
             .map_err(|e| EvaluatorError::ModelError(format!("Failed to load model: {}", e)))?;
@@ -65,6 +101,8 @@ impl OnnxEvaluator {
             obs_size,
             inference_count: AtomicU64::new(0),
             total_inference_time_us: AtomicU64::new(0),
+            total_prep_time_us: AtomicU64::new(0),
+            total_post_time_us: AtomicU64::new(0),
         })
     }
 
@@ -73,12 +111,18 @@ impl OnnxEvaluator {
     /// # Arguments
     /// * `model_data` - Raw ONNX model bytes
     /// * `obs_size` - Size of the observation vector
-    pub fn load_from_memory(model_data: &[u8], obs_size: usize) -> Result<Self, EvaluatorError> {
+    /// * `intra_threads` - Number of intra-op threads (0 = auto-detect, uses all CPU cores)
+    pub fn load_from_memory(
+        model_data: &[u8],
+        obs_size: usize,
+        intra_threads: usize,
+    ) -> Result<Self, EvaluatorError> {
+        let threads = Self::resolve_intra_threads(intra_threads);
         let session = Session::builder()
             .map_err(|e| {
                 EvaluatorError::ModelError(format!("Failed to create session builder: {}", e))
             })?
-            .with_intra_threads(1)
+            .with_intra_threads(threads)
             .map_err(|e| EvaluatorError::ModelError(format!("Failed to set intra threads: {}", e)))?
             .commit_from_memory(model_data)
             .map_err(|e| {
@@ -90,7 +134,42 @@ impl OnnxEvaluator {
             obs_size,
             inference_count: AtomicU64::new(0),
             total_inference_time_us: AtomicU64::new(0),
+            total_prep_time_us: AtomicU64::new(0),
+            total_post_time_us: AtomicU64::new(0),
         })
+    }
+
+    /// Get diagnostic stats from this evaluator.
+    pub fn get_stats(&self) -> OnnxStats {
+        OnnxStats {
+            inference_count: self.inference_count.load(Ordering::Relaxed),
+            total_inference_us: self.total_inference_time_us.load(Ordering::Relaxed),
+            total_prep_us: self.total_prep_time_us.load(Ordering::Relaxed),
+            total_post_us: self.total_post_time_us.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Log a summary of the evaluator's performance stats.
+    pub fn log_stats(&self) {
+        let stats = self.get_stats();
+        if stats.inference_count == 0 {
+            return;
+        }
+
+        let avg_inference_us = stats.total_inference_us / stats.inference_count;
+        let avg_prep_us = stats.total_prep_us / stats.inference_count;
+        let avg_post_us = stats.total_post_us / stats.inference_count;
+        let total_us = stats.total_inference_us + stats.total_prep_us + stats.total_post_us;
+        let inference_pct = (stats.total_inference_us as f64 / total_us as f64) * 100.0;
+
+        debug!(
+            inference_count = stats.inference_count,
+            avg_inference_us = avg_inference_us,
+            avg_prep_us = avg_prep_us,
+            avg_post_us = avg_post_us,
+            inference_pct = format!("{:.1}%", inference_pct),
+            "ONNX evaluator stats"
+        );
     }
 
     /// Convert observation bytes to f32 vector.
@@ -154,6 +233,9 @@ impl Evaluator for OnnxEvaluator {
         legal_moves_mask: u64,
         num_actions: usize,
     ) -> Result<EvalResult, EvaluatorError> {
+        // Track prep time: converting bytes and creating tensor
+        let prep_start = Instant::now();
+
         // Convert observation bytes to f32 vector
         let obs_f32 = self.obs_bytes_to_f32(obs)?;
 
@@ -162,6 +244,8 @@ impl Evaluator for OnnxEvaluator {
         let input_value = Value::from_array(([1usize, self.obs_size], obs_f32)).map_err(|e| {
             EvaluatorError::ModelError(format!("Failed to create input tensor: {}", e))
         })?;
+
+        let prep_time_us = prep_start.elapsed().as_micros() as u64;
 
         // Run inference - extract all data inside the lock scope
         let inference_start = Instant::now();
@@ -201,23 +285,25 @@ impl Evaluator for OnnxEvaluator {
 
         // Track inference timing for diagnostics
         let inference_time_us = inference_start.elapsed().as_micros() as u64;
+
+        // Track post-processing time: softmax
+        let post_start = Instant::now();
+        let policy = Self::masked_softmax(&policy_logits, legal_moves_mask, num_actions);
+        let post_time_us = post_start.elapsed().as_micros() as u64;
+
+        // Update all timing stats
+        self.total_prep_time_us
+            .fetch_add(prep_time_us, Ordering::Relaxed);
         self.total_inference_time_us
             .fetch_add(inference_time_us, Ordering::Relaxed);
+        self.total_post_time_us
+            .fetch_add(post_time_us, Ordering::Relaxed);
         let count = self.inference_count.fetch_add(1, Ordering::Relaxed) + 1;
 
         // Log stats periodically (every 10,000 inferences)
         if count.is_multiple_of(10_000) {
-            let total_us = self.total_inference_time_us.load(Ordering::Relaxed);
-            let avg_us = total_us / count;
-            debug!(
-                "ONNX inference stats: {} calls, avg {:.2}ms per call",
-                count,
-                avg_us as f64 / 1000.0
-            );
+            self.log_stats();
         }
-
-        // Apply masked softmax to get policy probabilities
-        let policy = Self::masked_softmax(&policy_logits, legal_moves_mask, num_actions);
 
         Ok(EvalResult { policy, value })
     }
@@ -234,6 +320,9 @@ impl Evaluator for OnnxEvaluator {
 
         let batch_size = observations.len();
 
+        // Track prep time: converting bytes and creating tensor
+        let prep_start = Instant::now();
+
         // Convert all observations to f32 and flatten
         let mut flat_obs = Vec::with_capacity(batch_size * self.obs_size);
         for obs in observations {
@@ -247,6 +336,8 @@ impl Evaluator for OnnxEvaluator {
             Value::from_array(([batch_size, self.obs_size], flat_obs)).map_err(|e| {
                 EvaluatorError::ModelError(format!("Failed to create batch input tensor: {}", e))
             })?;
+
+        let prep_time_us = prep_start.elapsed().as_micros() as u64;
 
         // Run inference - extract all data inside the lock scope
         let inference_start = Instant::now();
@@ -291,28 +382,11 @@ impl Evaluator for OnnxEvaluator {
             (policy_flat, values, action_size)
         };
 
-        // Track inference timing for diagnostics (per-sample accounting)
+        // Track inference timing for diagnostics
         let inference_time_us = inference_start.elapsed().as_micros() as u64;
-        let batch_size_u64 = batch_size as u64;
 
-        let total_us = self
-            .total_inference_time_us
-            .fetch_add(inference_time_us * batch_size_u64, Ordering::Relaxed)
-            + inference_time_us * batch_size_u64;
-        let count = self
-            .inference_count
-            .fetch_add(batch_size_u64, Ordering::Relaxed)
-            + batch_size_u64;
-
-        // Log stats periodically (every 10,000 inferences)
-        if count.is_multiple_of(10_000) {
-            let avg_us = total_us / count;
-            debug!(
-                "ONNX inference stats: {} calls, avg {:.2}ms per call",
-                count,
-                avg_us as f64 / 1000.0
-            );
-        }
+        // Track post-processing time: softmax for each item
+        let post_start = Instant::now();
 
         // Build results for each batch item
         let mut results = Vec::with_capacity(batch_size);
@@ -326,6 +400,26 @@ impl Evaluator for OnnxEvaluator {
             let value = values.get(i).cloned().unwrap_or(0.0);
 
             results.push(EvalResult { policy, value });
+        }
+
+        let post_time_us = post_start.elapsed().as_micros() as u64;
+
+        // Update all timing stats (per-sample accounting for batch)
+        let batch_size_u64 = batch_size as u64;
+        self.total_prep_time_us
+            .fetch_add(prep_time_us * batch_size_u64, Ordering::Relaxed);
+        self.total_inference_time_us
+            .fetch_add(inference_time_us * batch_size_u64, Ordering::Relaxed);
+        self.total_post_time_us
+            .fetch_add(post_time_us * batch_size_u64, Ordering::Relaxed);
+        let count = self
+            .inference_count
+            .fetch_add(batch_size_u64, Ordering::Relaxed)
+            + batch_size_u64;
+
+        // Log stats periodically (every 10,000 inferences)
+        if count.is_multiple_of(10_000) {
+            self.log_stats();
         }
 
         Ok(results)
@@ -347,8 +441,17 @@ impl SharedOnnxEvaluator {
     }
 
     /// Load a shared ONNX model from the given path.
-    pub fn load<P: AsRef<Path>>(model_path: P, obs_size: usize) -> Result<Self, EvaluatorError> {
-        let evaluator = OnnxEvaluator::load(model_path, obs_size)?;
+    ///
+    /// # Arguments
+    /// * `model_path` - Path to the .onnx model file
+    /// * `obs_size` - Size of the observation vector
+    /// * `intra_threads` - Number of intra-op threads (0 = auto-detect)
+    pub fn load<P: AsRef<Path>>(
+        model_path: P,
+        obs_size: usize,
+        intra_threads: usize,
+    ) -> Result<Self, EvaluatorError> {
+        let evaluator = OnnxEvaluator::load(model_path, obs_size, intra_threads)?;
         Ok(Self::new(evaluator))
     }
 }

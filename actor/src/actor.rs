@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use engine_core::EngineContext;
 use indicatif::{ProgressBar, ProgressStyle};
-use mcts::MctsConfig;
+use mcts::{MctsConfig, SearchStats};
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Mutex, MutexGuard,
@@ -46,6 +46,80 @@ struct EpisodeContext {
     start_time: Instant,
     timeout: Duration,
     max_steps: u32,
+}
+
+/// Aggregated MCTS stats for an episode.
+#[derive(Debug, Default)]
+struct EpisodeStats {
+    /// Number of MCTS searches performed
+    pub search_count: u32,
+    /// Total wall-clock time across all searches (microseconds)
+    pub total_time_us: u64,
+    /// Total time spent in tree selection (microseconds)
+    pub selection_time_us: u64,
+    /// Total time spent in neural network inference (microseconds)
+    pub inference_time_us: u64,
+    /// Total time spent expanding nodes (microseconds)
+    pub expansion_time_us: u64,
+    /// Total time spent in backpropagation (microseconds)
+    pub backprop_time_us: u64,
+    /// Total number of NN batch calls
+    pub num_batches: u32,
+    /// Total number of NN evaluations
+    pub total_evals: u32,
+    /// Total game step() calls during expansion
+    pub game_steps: u32,
+    /// Total terminal nodes hit
+    pub terminal_hits: u32,
+}
+
+impl EpisodeStats {
+    /// Add stats from a single MCTS search.
+    fn add(&mut self, stats: &SearchStats) {
+        self.search_count += 1;
+        self.total_time_us += stats.total_time_us;
+        self.selection_time_us += stats.selection_time_us;
+        self.inference_time_us += stats.inference_time_us;
+        self.expansion_time_us += stats.expansion_time_us;
+        self.backprop_time_us += stats.backprop_time_us;
+        self.num_batches += stats.num_batches;
+        self.total_evals += stats.total_evals;
+        self.game_steps += stats.game_steps;
+        self.terminal_hits += stats.terminal_hits;
+    }
+
+    /// Log a summary of the episode stats.
+    fn log_summary(&self, episode_num: u32) {
+        if self.search_count == 0 || self.total_time_us == 0 {
+            return;
+        }
+
+        let total_ms = self.total_time_us as f64 / 1000.0;
+        let inference_pct = (self.inference_time_us as f64 / self.total_time_us as f64) * 100.0;
+        let expansion_pct = (self.expansion_time_us as f64 / self.total_time_us as f64) * 100.0;
+        let selection_pct = (self.selection_time_us as f64 / self.total_time_us as f64) * 100.0;
+        let backprop_pct = (self.backprop_time_us as f64 / self.total_time_us as f64) * 100.0;
+        let avg_batch_size = if self.num_batches > 0 {
+            self.total_evals as f64 / self.num_batches as f64
+        } else {
+            0.0
+        };
+
+        info!(
+            episode = episode_num,
+            searches = self.search_count,
+            total_ms = format!("{:.1}", total_ms),
+            inference_pct = format!("{:.1}%", inference_pct),
+            expansion_pct = format!("{:.1}%", expansion_pct),
+            selection_pct = format!("{:.1}%", selection_pct),
+            backprop_pct = format!("{:.1}%", backprop_pct),
+            nn_batches = self.num_batches,
+            avg_batch_size = format!("{:.1}", avg_batch_size),
+            game_steps = self.game_steps,
+            terminal_hits = self.terminal_hits,
+            "MCTS episode stats"
+        );
+    }
 }
 
 impl EpisodeContext {
@@ -141,6 +215,7 @@ impl Actor {
                 &model_dir,
                 "latest.onnx",
                 obs_size,
+                config.onnx_intra_threads,
                 mcts_policy.evaluator_ref(),
             );
             match temp_watcher.try_load_existing() {
@@ -157,6 +232,7 @@ impl Actor {
                 &model_dir,
                 "latest.onnx",
                 obs_size,
+                config.onnx_intra_threads,
                 mcts_policy.evaluator_ref(),
             );
             match watcher.try_load_existing() {
@@ -294,7 +370,7 @@ impl Actor {
             // Run an episode
             let episode_start = Instant::now();
             match self.run_episode().await {
-                Ok((steps, total_reward)) => {
+                Ok((steps, total_reward, episode_stats)) => {
                     let new_count = self.episode_count.fetch_add(1, Ordering::Relaxed) + 1;
                     let duration = episode_start.elapsed().as_secs_f64();
                     debug!(
@@ -323,12 +399,16 @@ impl Actor {
                                     "Completed {} episodes (last: {:.2}s{})",
                                     new_count, avg_duration, rss_info
                                 );
+                                // Log MCTS performance breakdown
+                                episode_stats.log_summary(new_count);
                             });
                         } else {
                             info!(
                                 "Completed {} episodes (last: {:.2}s{})",
                                 new_count, avg_duration, rss_info
                             );
+                            // Log MCTS performance breakdown
+                            episode_stats.log_summary(new_count);
                         }
                     }
                 }
@@ -440,7 +520,7 @@ impl Actor {
         Ok(())
     }
 
-    async fn run_episode(&self) -> Result<(u32, f32)> {
+    async fn run_episode(&self) -> Result<(u32, f32, EpisodeStats)> {
         let episode_count = self.episode_count.load(Ordering::Relaxed);
 
         // Get max_horizon and reset the game
@@ -477,6 +557,7 @@ impl Actor {
         let mut steps_taken = 0u32;
         let mut total_reward = 0.0f32;
         let mut transitions: Vec<Transition> = Vec::with_capacity(12);
+        let mut episode_stats = EpisodeStats::default();
 
         loop {
             self.check_episode_limits(&ctx, steps_taken)?;
@@ -491,6 +572,9 @@ impl Actor {
                     step_number,
                 )?
             };
+
+            // Accumulate MCTS performance stats
+            episode_stats.add(&policy_result.stats);
 
             // Take step in environment
             let step_result = {
@@ -545,7 +629,7 @@ impl Actor {
             step_number += 1;
         }
 
-        Ok((steps_taken, total_reward))
+        Ok((steps_taken, total_reward, episode_stats))
     }
 
     /// Get current episode count (for testing)
@@ -574,6 +658,7 @@ mod tests {
             num_simulations: 50, // Fewer for tests
             temp_threshold: 0,   // Disabled for tests
             eval_batch_size: 32,
+            onnx_intra_threads: 1,
             postgres_url: std::env::var("CARTRIDGE_STORAGE_POSTGRES_URL").unwrap_or_else(|_| {
                 "postgresql://cartridge:cartridge@localhost:5432/cartridge".into()
             }),
@@ -601,7 +686,7 @@ mod tests {
         let result = actor.run_episode().await;
         assert!(result.is_ok());
 
-        let (steps, reward) = result.unwrap();
+        let (steps, reward, _stats) = result.unwrap();
         assert!(steps > 0, "Episode should have at least one step");
         // TicTacToe gives reward at end of game
         // Steps and reward are validated by assertions above

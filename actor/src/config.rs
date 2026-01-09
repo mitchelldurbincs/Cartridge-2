@@ -96,6 +96,13 @@ fn default_eval_batch_size() -> usize {
         .unwrap_or(CENTRAL_CONFIG.mcts.eval_batch_size)
 }
 
+fn default_onnx_intra_threads() -> usize {
+    std::env::var("ACTOR_ONNX_INTRA_THREADS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(CENTRAL_CONFIG.mcts.onnx_intra_threads)
+}
+
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(name = "actor")]
 #[command(about = "Cartridge2 Actor - Self-play episode runner")]
@@ -133,6 +140,9 @@ pub struct Config {
     #[arg(long, default_value_t = default_eval_batch_size())]
     pub eval_batch_size: usize,
 
+    #[arg(long, default_value_t = default_onnx_intra_threads())]
+    pub onnx_intra_threads: usize,
+
     #[arg(long, default_value_t = default_postgres_url())]
     pub postgres_url: String,
 
@@ -156,6 +166,7 @@ impl Default for Config {
             num_simulations: default_num_simulations(),
             temp_threshold: default_temp_threshold(),
             eval_batch_size: default_eval_batch_size(),
+            onnx_intra_threads: default_onnx_intra_threads(),
             postgres_url: default_postgres_url(),
             no_watch: false,
         }
@@ -230,6 +241,7 @@ mod tests {
             num_simulations: 100,
             temp_threshold: 0,
             eval_batch_size: 32,
+            onnx_intra_threads: 1,
             postgres_url: "postgresql://test:test@localhost:5432/test".into(),
             no_watch: false,
         }

@@ -355,7 +355,8 @@ class Orchestrator:
         # Count only iterations completed in this session
         new_completed = total_in_history - (self.config.start_iteration - 1)
 
-        logger.info(f"\n{'='*60}")
+        logger.info("")
+        logger.info("=" * 60)
         logger.info("TRAINING COMPLETE")
         logger.info(f"{'='*60}")
         if self.config.start_iteration > 1:

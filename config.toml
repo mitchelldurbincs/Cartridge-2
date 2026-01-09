@@ -92,7 +92,7 @@ actor_id = "actor-1"
 max_episodes = -1
 
 # Timeout per episode in seconds (Connect4 games can take 30+ moves)
-episode_timeout_secs = 90
+episode_timeout_secs = 180
 
 # Interval to flush data to database in seconds
 flush_interval_secs = 5
@@ -118,7 +118,7 @@ port = 8080
 # Formula: start_sims + (iteration-1) * sim_ramp_rate, capped at max_sims
 # This speeds up early training when the network is still weak
 start_sims = 50       # Simulations for first iteration
-max_sims = 400        # Maximum simulations (reached after ramping)
+max_sims = 200        # Maximum simulations (reached after ramping)
 sim_ramp_rate = 20    # Simulations to add per iteration
 # With these settings: iter 1=50, iter 10=230, iter 18+=400
 
@@ -147,7 +147,14 @@ dirichlet_weight = 0.25
 # Leaves are collected until this batch size, then evaluated together
 # Higher values improve throughput but increase latency per batch
 # Set to 1 to disable batching (original sequential behavior)
-eval_batch_size = 32
+eval_batch_size = 64
+
+# Number of intra-op threads for ONNX inference
+# 1 = single-threaded (best for small models/batches, multiple parallel actors)
+# 0 = auto-detect (uses all available CPU cores)
+# >1 = use exactly this many threads per inference
+# For MCTS with multiple actors, 1 is usually best to avoid thread contention
+onnx_intra_threads = 1
 
 # =============================================================================
 # Storage Backend Settings
