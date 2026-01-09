@@ -7,7 +7,7 @@
 //!
 //! Stats are written to a JSON file for the web frontend to display.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -42,7 +42,7 @@ pub struct ActorStats {
 }
 
 /// Serializable stats for JSON output.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ActorStatsSnapshot {
     pub env_id: String,
     pub episodes_completed: u32,
