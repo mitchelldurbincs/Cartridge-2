@@ -1,8 +1,13 @@
-"""Centralized configuration loading from config.toml.
+"""Centralized configuration loading from config.defaults.toml and config.toml.
 
-This module provides a single source of truth for all configuration values.
-Configuration is loaded from config.toml at the project root, with support
-for environment variable overrides.
+This module loads default configuration values from config.defaults.toml, which is
+the single source of truth for defaults shared between Rust and Python components.
+User configuration from config.toml is then overlaid on top of these defaults.
+
+Configuration Priority (highest to lowest):
+    1. Environment variables (CARTRIDGE_<SECTION>_<KEY>)
+    2. User configuration (config.toml)
+    3. Default configuration (config.defaults.toml)
 
 Environment Variable Override Pattern:
     CARTRIDGE_<SECTION>_<KEY>=value
@@ -35,12 +40,21 @@ else:
 
 logger = logging.getLogger(__name__)
 
+# Project root (where config.defaults.toml lives)
+_PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
+
 # Default config file locations (searched in order)
 CONFIG_SEARCH_PATHS = [
     Path("config.toml"),  # Current directory
     Path("/app/config.toml"),  # Docker container
-    Path(__file__).parent.parent.parent.parent
-    / "config.toml",  # Project root from trainer/src/trainer/
+    _PROJECT_ROOT / "config.toml",  # Project root
+]
+
+# Defaults file locations (searched in order)
+DEFAULTS_SEARCH_PATHS = [
+    Path("config.defaults.toml"),  # Current directory
+    Path("/app/config.defaults.toml"),  # Docker container
+    _PROJECT_ROOT / "config.defaults.toml",  # Project root
 ]
 
 
@@ -118,6 +132,20 @@ class MctsConfig:
     sim_ramp_rate: int = 20  # Simulations to add per iteration
     # Batch size for neural network evaluation during MCTS (1 = disabled)
     eval_batch_size: int = 1
+    onnx_intra_threads: int = 1
+
+
+@dataclass
+class StorageConfig:
+    """Storage backend settings."""
+
+    model_backend: str = "filesystem"
+    postgres_url: str = "postgresql://cartridge:cartridge@localhost:5432/cartridge"
+    s3_bucket: str | None = None
+    s3_endpoint: str | None = None
+    pool_max_size: int = 16
+    pool_connect_timeout: int = 30
+    pool_idle_timeout: int = 300
 
 
 @dataclass
@@ -130,6 +158,7 @@ class Config:
     actor: ActorConfig = field(default_factory=ActorConfig)
     web: WebConfig = field(default_factory=WebConfig)
     mcts: MctsConfig = field(default_factory=MctsConfig)
+    storage: StorageConfig = field(default_factory=StorageConfig)
 
     # Convenience properties for commonly accessed paths
     @property
@@ -157,6 +186,14 @@ class Config:
         return self.data_dir / "eval_stats.json"
 
 
+def _find_defaults_file() -> Path | None:
+    """Find the config.defaults.toml file in standard locations."""
+    for path in DEFAULTS_SEARCH_PATHS:
+        if path.exists():
+            return path
+    return None
+
+
 def _find_config_file() -> Path | None:
     """Find the config.toml file in standard locations."""
     # Check environment variable first
@@ -173,6 +210,17 @@ def _find_config_file() -> Path | None:
             return path
 
     return None
+
+
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Deep merge overlay dict into base dict."""
+    result = base.copy()
+    for key, value in overlay.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
 
 
 def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
@@ -270,6 +318,7 @@ def _dict_to_config(data: dict[str, Any]) -> Config:
         actor=ActorConfig(**data.get("actor", {})),
         web=WebConfig(**data.get("web", {})),
         mcts=MctsConfig(**data.get("mcts", {})),
+        storage=StorageConfig(**data.get("storage", {})),
     )
 
 
@@ -279,6 +328,11 @@ _cached_config: Config | None = None
 
 def get_config(reload: bool = False) -> Config:
     """Get the configuration, loading from file if needed.
+
+    Configuration is loaded with the following priority (highest to lowest):
+        1. Environment variables (CARTRIDGE_<SECTION>_<KEY>)
+        2. User configuration (config.toml)
+        3. Default configuration (config.defaults.toml)
 
     Args:
         reload: Force reload from file even if cached.
@@ -291,17 +345,25 @@ def get_config(reload: bool = False) -> Config:
     if _cached_config is not None and not reload:
         return _cached_config
 
-    config_path = _find_config_file()
-
-    if config_path is not None:
-        logger.info(f"Loading configuration from {config_path}")
-        with open(config_path, "rb") as f:
+    # Step 1: Load defaults from config.defaults.toml
+    defaults_path = _find_defaults_file()
+    if defaults_path is not None:
+        logger.debug(f"Loading defaults from {defaults_path}")
+        with open(defaults_path, "rb") as f:
             data = tomllib.load(f)
     else:
-        logger.warning("No config.toml found, using defaults")
+        logger.warning("No config.defaults.toml found, using hardcoded defaults")
         data = {}
 
-    # Apply environment variable overrides
+    # Step 2: Overlay user configuration from config.toml
+    config_path = _find_config_file()
+    if config_path is not None:
+        logger.info(f"Loading user configuration from {config_path}")
+        with open(config_path, "rb") as f:
+            user_data = tomllib.load(f)
+        data = _deep_merge(data, user_data)
+
+    # Step 3: Apply environment variable overrides
     data = _apply_env_overrides(data)
 
     _cached_config = _dict_to_config(data)
