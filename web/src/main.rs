@@ -158,9 +158,17 @@ async fn main() -> anyhow::Result<()> {
         use engine_core::EngineContext;
         use tracing::warn;
         let model_dir = format!("{}/models", data_dir);
+        // Get obs_size from the configured game, falling back to tictactoe if not found
         let obs_size = EngineContext::new(&default_game)
+            .or_else(|| {
+                warn!(
+                    "Game '{}' not found, falling back to tictactoe for obs_size",
+                    default_game
+                );
+                EngineContext::new("tictactoe")
+            })
             .map(|ctx| ctx.metadata().obs_size)
-            .unwrap_or(29); // Fallback to TicTacToe's obs_size if game not found
+            .expect("At least tictactoe should be registered");
         info!(
             "Model watcher using obs_size={} from game '{}'",
             obs_size, default_game
