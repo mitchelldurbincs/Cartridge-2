@@ -7,113 +7,134 @@ use serde::Deserialize;
 
 // ============================================================================
 // Serde default functions (required for #[serde(default = "...")])
-// These are thin wrappers around constants
+// These call the accessor functions from defaults module
 // ============================================================================
 
 fn d_data_dir() -> String {
-    defaults::DATA_DIR.into()
+    defaults::data_dir().into()
 }
 fn d_env_id() -> String {
-    defaults::ENV_ID.into()
+    defaults::env_id().into()
 }
 fn d_log_level() -> String {
-    defaults::LOG_LEVEL.into()
+    defaults::log_level().into()
 }
 fn d_iterations() -> i32 {
-    defaults::ITERATIONS
+    defaults::iterations()
 }
 fn d_start_iteration() -> i32 {
-    defaults::START_ITERATION
+    defaults::start_iteration()
 }
 fn d_episodes() -> i32 {
-    defaults::EPISODES_PER_ITERATION
+    defaults::episodes_per_iteration()
 }
 fn d_steps() -> i32 {
-    defaults::STEPS_PER_ITERATION
+    defaults::steps_per_iteration()
 }
 fn d_batch_size() -> i32 {
-    defaults::BATCH_SIZE
+    defaults::batch_size()
 }
 fn d_lr() -> f64 {
-    defaults::LEARNING_RATE
+    defaults::learning_rate()
 }
 fn d_weight_decay() -> f64 {
-    defaults::WEIGHT_DECAY
+    defaults::weight_decay()
 }
 fn d_grad_clip() -> f64 {
-    defaults::GRAD_CLIP_NORM
+    defaults::grad_clip_norm()
 }
 fn d_device() -> String {
-    defaults::DEVICE.into()
+    defaults::device().into()
 }
 fn d_ckpt_interval() -> i32 {
-    defaults::CHECKPOINT_INTERVAL
+    defaults::checkpoint_interval()
 }
 fn d_max_ckpts() -> i32 {
-    defaults::MAX_CHECKPOINTS
+    defaults::max_checkpoints()
+}
+fn d_num_actors() -> i32 {
+    defaults::num_actors()
 }
 fn d_eval_interval() -> i32 {
-    defaults::EVAL_INTERVAL
+    defaults::eval_interval()
 }
 fn d_eval_games() -> i32 {
-    defaults::EVAL_GAMES
+    defaults::eval_games()
+}
+fn d_win_threshold() -> f64 {
+    defaults::win_threshold()
+}
+fn d_eval_vs_random() -> bool {
+    defaults::eval_vs_random()
 }
 fn d_actor_id() -> String {
-    defaults::ACTOR_ID.into()
+    defaults::actor_id().into()
 }
 fn d_max_episodes() -> i32 {
-    defaults::MAX_EPISODES
+    defaults::max_episodes()
 }
 fn d_episode_timeout() -> u64 {
-    defaults::EPISODE_TIMEOUT_SECS
+    defaults::episode_timeout_secs()
 }
 fn d_flush_interval() -> u64 {
-    defaults::FLUSH_INTERVAL_SECS
+    defaults::flush_interval_secs()
 }
 fn d_log_interval() -> u32 {
-    defaults::LOG_INTERVAL
+    defaults::log_interval()
 }
 fn d_host() -> String {
-    defaults::HOST.into()
+    defaults::host().into()
 }
 fn d_port() -> u16 {
-    defaults::PORT
+    defaults::port()
 }
 fn d_num_sims() -> u32 {
-    defaults::NUM_SIMULATIONS
+    defaults::num_simulations()
 }
 fn d_c_puct() -> f64 {
-    defaults::C_PUCT
+    defaults::c_puct()
 }
 fn d_temperature() -> f64 {
-    defaults::TEMPERATURE
+    defaults::temperature()
+}
+fn d_temp_threshold() -> u32 {
+    defaults::temp_threshold()
 }
 fn d_dirichlet_alpha() -> f64 {
-    defaults::DIRICHLET_ALPHA
+    defaults::dirichlet_alpha()
 }
 fn d_dirichlet_weight() -> f64 {
-    defaults::DIRICHLET_WEIGHT
+    defaults::dirichlet_weight()
 }
 fn d_eval_batch_size() -> usize {
-    defaults::EVAL_BATCH_SIZE
+    defaults::eval_batch_size()
 }
 fn d_onnx_intra_threads() -> usize {
-    defaults::ONNX_INTRA_THREADS
+    defaults::onnx_intra_threads()
+}
+fn d_start_sims() -> u32 {
+    defaults::start_sims()
+}
+fn d_max_sims() -> u32 {
+    defaults::max_sims()
+}
+fn d_sim_ramp_rate() -> u32 {
+    defaults::sim_ramp_rate()
 }
 fn d_model_backend() -> String {
-    defaults::MODEL_BACKEND.into()
+    defaults::model_backend().into()
 }
 fn d_postgres_url() -> Option<String> {
-    Some(defaults::POSTGRES_URL.into())
+    Some(defaults::postgres_url().into())
 }
 fn d_pool_max_size() -> usize {
-    defaults::POOL_MAX_SIZE
+    defaults::pool_max_size()
 }
 fn d_pool_connect_timeout() -> u64 {
-    defaults::POOL_CONNECT_TIMEOUT
+    defaults::pool_connect_timeout()
 }
 fn d_pool_idle_timeout() -> Option<u64> {
-    Some(defaults::POOL_IDLE_TIMEOUT)
+    Some(defaults::pool_idle_timeout())
 }
 
 // ============================================================================
@@ -154,9 +175,9 @@ pub struct CommonConfig {
 impl Default for CommonConfig {
     fn default() -> Self {
         Self {
-            data_dir: defaults::DATA_DIR.into(),
-            env_id: defaults::ENV_ID.into(),
-            log_level: defaults::LOG_LEVEL.into(),
+            data_dir: defaults::data_dir().into(),
+            env_id: defaults::env_id().into(),
+            log_level: defaults::log_level().into(),
         }
     }
 }
@@ -187,22 +208,25 @@ pub struct TrainingConfig {
     pub checkpoint_interval: i32,
     #[serde(default = "d_max_ckpts")]
     pub max_checkpoints: i32,
+    #[serde(default = "d_num_actors")]
+    pub num_actors: i32,
 }
 
 impl Default for TrainingConfig {
     fn default() -> Self {
         Self {
-            iterations: defaults::ITERATIONS,
-            start_iteration: defaults::START_ITERATION,
-            episodes_per_iteration: defaults::EPISODES_PER_ITERATION,
-            steps_per_iteration: defaults::STEPS_PER_ITERATION,
-            batch_size: defaults::BATCH_SIZE,
-            learning_rate: defaults::LEARNING_RATE,
-            weight_decay: defaults::WEIGHT_DECAY,
-            grad_clip_norm: defaults::GRAD_CLIP_NORM,
-            device: defaults::DEVICE.into(),
-            checkpoint_interval: defaults::CHECKPOINT_INTERVAL,
-            max_checkpoints: defaults::MAX_CHECKPOINTS,
+            iterations: defaults::iterations(),
+            start_iteration: defaults::start_iteration(),
+            episodes_per_iteration: defaults::episodes_per_iteration(),
+            steps_per_iteration: defaults::steps_per_iteration(),
+            batch_size: defaults::batch_size(),
+            learning_rate: defaults::learning_rate(),
+            weight_decay: defaults::weight_decay(),
+            grad_clip_norm: defaults::grad_clip_norm(),
+            device: defaults::device().into(),
+            checkpoint_interval: defaults::checkpoint_interval(),
+            max_checkpoints: defaults::max_checkpoints(),
+            num_actors: defaults::num_actors(),
         }
     }
 }
@@ -215,13 +239,19 @@ pub struct EvaluationConfig {
     pub interval: i32,
     #[serde(default = "d_eval_games")]
     pub games: i32,
+    #[serde(default = "d_win_threshold")]
+    pub win_threshold: f64,
+    #[serde(default = "d_eval_vs_random")]
+    pub eval_vs_random: bool,
 }
 
 impl Default for EvaluationConfig {
     fn default() -> Self {
         Self {
-            interval: defaults::EVAL_INTERVAL,
-            games: defaults::EVAL_GAMES,
+            interval: defaults::eval_interval(),
+            games: defaults::eval_games(),
+            win_threshold: defaults::win_threshold(),
+            eval_vs_random: defaults::eval_vs_random(),
         }
     }
 }
@@ -245,11 +275,11 @@ pub struct ActorConfig {
 impl Default for ActorConfig {
     fn default() -> Self {
         Self {
-            actor_id: defaults::ACTOR_ID.into(),
-            max_episodes: defaults::MAX_EPISODES,
-            episode_timeout_secs: defaults::EPISODE_TIMEOUT_SECS,
-            flush_interval_secs: defaults::FLUSH_INTERVAL_SECS,
-            log_interval: defaults::LOG_INTERVAL,
+            actor_id: defaults::actor_id().into(),
+            max_episodes: defaults::max_episodes(),
+            episode_timeout_secs: defaults::episode_timeout_secs(),
+            flush_interval_secs: defaults::flush_interval_secs(),
+            log_interval: defaults::log_interval(),
         }
     }
 }
@@ -267,8 +297,8 @@ pub struct WebConfig {
 impl Default for WebConfig {
     fn default() -> Self {
         Self {
-            host: defaults::HOST.into(),
-            port: defaults::PORT,
+            host: defaults::host().into(),
+            port: defaults::port(),
         }
     }
 }
@@ -283,6 +313,8 @@ pub struct MctsConfig {
     pub c_puct: f64,
     #[serde(default = "d_temperature")]
     pub temperature: f64,
+    #[serde(default = "d_temp_threshold")]
+    pub temp_threshold: u32,
     #[serde(default = "d_dirichlet_alpha")]
     pub dirichlet_alpha: f64,
     #[serde(default = "d_dirichlet_weight")]
@@ -291,18 +323,28 @@ pub struct MctsConfig {
     pub eval_batch_size: usize,
     #[serde(default = "d_onnx_intra_threads")]
     pub onnx_intra_threads: usize,
+    #[serde(default = "d_start_sims")]
+    pub start_sims: u32,
+    #[serde(default = "d_max_sims")]
+    pub max_sims: u32,
+    #[serde(default = "d_sim_ramp_rate")]
+    pub sim_ramp_rate: u32,
 }
 
 impl Default for MctsConfig {
     fn default() -> Self {
         Self {
-            num_simulations: defaults::NUM_SIMULATIONS,
-            c_puct: defaults::C_PUCT,
-            temperature: defaults::TEMPERATURE,
-            dirichlet_alpha: defaults::DIRICHLET_ALPHA,
-            dirichlet_weight: defaults::DIRICHLET_WEIGHT,
-            eval_batch_size: defaults::EVAL_BATCH_SIZE,
-            onnx_intra_threads: defaults::ONNX_INTRA_THREADS,
+            num_simulations: defaults::num_simulations(),
+            c_puct: defaults::c_puct(),
+            temperature: defaults::temperature(),
+            temp_threshold: defaults::temp_threshold(),
+            dirichlet_alpha: defaults::dirichlet_alpha(),
+            dirichlet_weight: defaults::dirichlet_weight(),
+            eval_batch_size: defaults::eval_batch_size(),
+            onnx_intra_threads: defaults::onnx_intra_threads(),
+            start_sims: defaults::start_sims(),
+            max_sims: defaults::max_sims(),
+            sim_ramp_rate: defaults::sim_ramp_rate(),
         }
     }
 }
@@ -333,13 +375,13 @@ pub struct StorageConfig {
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
-            model_backend: defaults::MODEL_BACKEND.into(),
-            postgres_url: Some(defaults::POSTGRES_URL.into()),
+            model_backend: defaults::model_backend().into(),
+            postgres_url: Some(defaults::postgres_url().into()),
             s3_bucket: None,
             s3_endpoint: None,
-            pool_max_size: defaults::POOL_MAX_SIZE,
-            pool_connect_timeout: defaults::POOL_CONNECT_TIMEOUT,
-            pool_idle_timeout: Some(defaults::POOL_IDLE_TIMEOUT),
+            pool_max_size: defaults::pool_max_size(),
+            pool_connect_timeout: defaults::pool_connect_timeout(),
+            pool_idle_timeout: Some(defaults::pool_idle_timeout()),
         }
     }
 }

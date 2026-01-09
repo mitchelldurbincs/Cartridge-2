@@ -1,0 +1,65 @@
+# Cartridge2 Default Configuration Values
+#
+# This file is the SINGLE SOURCE OF TRUTH for all default configuration values.
+# Both Rust (engine-config) and Python (trainer) load defaults from this file.
+#
+# DO NOT edit default values in code - edit them here instead.
+#
+# For user configuration, copy values to config.toml and modify there.
+
+[common]
+data_dir = "./data"
+env_id = "tictactoe"
+log_level = "info"
+
+[training]
+iterations = 100
+start_iteration = 1
+episodes_per_iteration = 500
+steps_per_iteration = 1000
+batch_size = 64
+learning_rate = 0.001
+weight_decay = 0.0001
+grad_clip_norm = 1.0
+device = "cpu"
+checkpoint_interval = 100
+max_checkpoints = 10
+num_actors = 1  # Number of parallel actor processes for self-play
+
+[evaluation]
+interval = 1
+games = 50
+win_threshold = 0.55      # Win rate needed to become new best model
+eval_vs_random = true     # Also evaluate against random baseline
+
+[actor]
+actor_id = "actor-1"
+max_episodes = -1         # -1 for unlimited
+episode_timeout_secs = 30
+flush_interval_secs = 5
+log_interval = 50
+
+[web]
+host = "0.0.0.0"
+port = 8080
+
+[mcts]
+num_simulations = 800
+c_puct = 1.4
+temperature = 1.0
+temp_threshold = 0        # Move number after which to reduce temperature (0 = disabled)
+dirichlet_alpha = 0.3
+dirichlet_weight = 0.25
+eval_batch_size = 32
+onnx_intra_threads = 1
+# Simulation ramping: start_sims + (iteration-1) * sim_ramp_rate, capped at max_sims
+start_sims = 50           # Simulations for first iteration
+max_sims = 400            # Maximum simulations
+sim_ramp_rate = 20        # Simulations to add per iteration
+
+[storage]
+model_backend = "filesystem"
+postgres_url = "postgresql://cartridge:cartridge@localhost:5432/cartridge"
+pool_max_size = 16
+pool_connect_timeout = 30
+pool_idle_timeout = 300

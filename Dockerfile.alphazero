@@ -38,6 +38,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 WORKDIR /app
 
 # Copy and build actor with optional features
+COPY config.defaults.toml ./
 COPY engine/ ./engine/
 COPY actor/ ./actor/
 COPY sql/ ./sql/
@@ -75,6 +76,9 @@ COPY --from=rust-builder /app/actor/target/release/actor /app/actor
 
 # Copy SQL schema files (needed by PostgreSQL storage backend)
 COPY sql/ /usr/local/sql/
+
+# Copy config defaults (used by Python trainer)
+COPY config.defaults.toml ./
 
 # Copy trainer source and install
 COPY trainer/pyproject.toml trainer/README.md ./trainer/

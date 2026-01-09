@@ -28,6 +28,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 WORKDIR /app
 
 # Copy the workspace (engine + web)
+COPY config.defaults.toml ./
 COPY engine/ ./engine/
 COPY web/ ./web/
 
