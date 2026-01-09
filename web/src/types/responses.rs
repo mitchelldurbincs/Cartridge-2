@@ -160,3 +160,41 @@ pub struct ModelInfoResponse {
     /// Human-readable status message
     pub status: String,
 }
+
+/// Actor self-play statistics (from actor_stats.json).
+#[derive(Serialize, Deserialize, Default)]
+pub struct ActorStats {
+    /// Environment being used for self-play
+    #[serde(default)]
+    pub env_id: String,
+    /// Number of episodes completed
+    #[serde(default)]
+    pub episodes_completed: u32,
+    /// Total game steps across all episodes
+    #[serde(default)]
+    pub total_steps: u64,
+    /// Episodes that ended in player 1 win
+    #[serde(default)]
+    pub player1_wins: u32,
+    /// Episodes that ended in player 2 win
+    #[serde(default)]
+    pub player2_wins: u32,
+    /// Episodes that ended in draw
+    #[serde(default)]
+    pub draws: u32,
+    /// Average episode length
+    #[serde(default)]
+    pub avg_episode_length: f64,
+    /// Episodes completed per second
+    #[serde(default)]
+    pub episodes_per_second: f64,
+    /// Total runtime in seconds
+    #[serde(default)]
+    pub runtime_seconds: f64,
+    /// Average MCTS inference time in microseconds
+    #[serde(default)]
+    pub mcts_avg_inference_us: f64,
+    /// When these stats were last updated (Unix timestamp)
+    #[serde(default)]
+    pub timestamp: u64,
+}

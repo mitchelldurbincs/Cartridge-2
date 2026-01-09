@@ -17,6 +17,7 @@ mod config;
 mod game_config;
 mod mcts_policy;
 mod model_watcher;
+mod stats;
 mod storage;
 
 use crate::actor::Actor;

@@ -360,15 +360,17 @@ class Trainer:
 
                 # Save stats (uses bounded append)
                 if step % self.config.stats_interval == 0:
-                    self.stats.append_history(
-                        {
-                            "step": global_step,
-                            "total_loss": metrics["loss/total"],
-                            "value_loss": metrics["loss/value"],
-                            "policy_loss": metrics["loss/policy"],
-                            "learning_rate": self.optimizer.param_groups[0]["lr"],
-                        }
-                    )
+                    history_entry = {
+                        "step": global_step,
+                        "total_loss": metrics["loss/total"],
+                        "value_loss": metrics["loss/value"],
+                        "policy_loss": metrics["loss/policy"],
+                        "learning_rate": self.optimizer.param_groups[0]["lr"],
+                    }
+                    # Include gradient norm if available (when grad clipping is enabled)
+                    if "grad_norm" in metrics:
+                        history_entry["grad_norm"] = metrics["grad_norm"]
+                    self.stats.append_history(history_entry)
                     self._write_stats()
 
                 if (
