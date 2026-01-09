@@ -105,4 +105,4 @@ pub use search::{run_mcts, MctsSearch, SearchError, SearchResult, SearchStats};
 pub use tree::{MctsTree, TreeStats};
 
 #[cfg(feature = "onnx")]
-pub use onnx::{OnnxEvaluator, SharedOnnxEvaluator};
+pub use onnx::{OnnxEvaluator, OnnxStats, SharedOnnxEvaluator};

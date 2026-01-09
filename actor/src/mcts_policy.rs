@@ -5,7 +5,7 @@
 
 use anyhow::{anyhow, Result};
 use engine_core::EngineContext;
-use mcts::{run_mcts, MctsConfig, OnnxEvaluator, SearchResult};
+use mcts::{run_mcts, MctsConfig, OnnxEvaluator, SearchResult, SearchStats};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::sync::{Arc, RwLock};
@@ -20,6 +20,8 @@ pub struct MctsPolicyResult {
     pub policy: Vec<f32>,
     /// Value estimate from MCTS root
     pub value: f32,
+    /// Performance statistics from the MCTS search
+    pub stats: SearchStats,
 }
 
 /// MCTS-based policy that uses neural network for evaluation
@@ -232,6 +234,7 @@ impl MctsPolicy {
             action: action_bytes,
             policy: result.policy,
             value: result.value,
+            stats: result.stats,
         })
     }
 
@@ -264,6 +267,7 @@ impl MctsPolicy {
             action: action_bytes,
             policy,
             value: 0.0, // No value estimate without model
+            stats: SearchStats::default(), // No MCTS performed
         })
     }
 }
