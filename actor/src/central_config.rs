@@ -39,6 +39,7 @@ mod defaults {
     pub const DIRICHLET_ALPHA: f64 = 0.3;
     pub const DIRICHLET_WEIGHT: f64 = 0.25;
     pub const EVAL_BATCH_SIZE: usize = 32;
+    pub const ONNX_INTRA_THREADS: usize = 1;
     pub const MODEL_BACKEND: &str = "filesystem";
     pub const POSTGRES_URL: &str = "postgresql://cartridge:cartridge@localhost:5432/cartridge";
     pub const POOL_MAX_SIZE: usize = 16;
@@ -153,6 +154,9 @@ fn d_dirichlet_weight() -> f64 {
 }
 fn d_eval_batch_size() -> usize {
     defaults::EVAL_BATCH_SIZE
+}
+fn d_onnx_intra_threads() -> usize {
+    defaults::ONNX_INTRA_THREADS
 }
 fn d_model_backend() -> String {
     defaults::MODEL_BACKEND.into()
@@ -314,6 +318,8 @@ pub struct MctsConfig {
     pub dirichlet_weight: f64,
     #[serde(default = "d_eval_batch_size")]
     pub eval_batch_size: usize,
+    #[serde(default = "d_onnx_intra_threads")]
+    pub onnx_intra_threads: usize,
 }
 
 impl Default for MctsConfig {
@@ -325,6 +331,7 @@ impl Default for MctsConfig {
             dirichlet_alpha: defaults::DIRICHLET_ALPHA,
             dirichlet_weight: defaults::DIRICHLET_WEIGHT,
             eval_batch_size: defaults::EVAL_BATCH_SIZE,
+            onnx_intra_threads: defaults::ONNX_INTRA_THREADS,
         }
     }
 }
@@ -587,6 +594,12 @@ fn apply_env_overrides(mut config: CentralConfig) -> CentralConfig {
         config,
         mcts.eval_batch_size,
         "CARTRIDGE_MCTS_EVAL_BATCH_SIZE",
+        parse
+    );
+    env_override!(
+        config,
+        mcts.onnx_intra_threads,
+        "CARTRIDGE_MCTS_ONNX_INTRA_THREADS",
         parse
     );
 

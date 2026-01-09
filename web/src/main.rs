@@ -173,8 +173,14 @@ async fn main() -> anyhow::Result<()> {
         );
 
         // Create model watcher
-        let model_watcher =
-            ModelWatcher::new(&model_dir, "latest.onnx", obs_size, Arc::clone(&evaluator));
+        // Use 1 intra-op thread since web server does single-threaded inference for play
+        let model_watcher = ModelWatcher::new(
+            &model_dir,
+            "latest.onnx",
+            obs_size,
+            1,
+            Arc::clone(&evaluator),
+        );
 
         // Try to load existing model
         match model_watcher.try_load_existing() {
