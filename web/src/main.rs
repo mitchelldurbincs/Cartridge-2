@@ -27,14 +27,13 @@ use tokio::sync::{Mutex, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
-mod central_config;
 mod game;
 mod handlers;
 #[cfg(feature = "onnx")]
 mod model_watcher;
 mod types;
 
-use central_config::load_config;
+use engine_config::load_config;
 use game::GameSession;
 use handlers::{
     get_game_info, get_game_state, get_model_info, get_stats, health, list_games, make_move,

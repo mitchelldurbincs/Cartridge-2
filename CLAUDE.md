@@ -78,11 +78,12 @@ npm run build   # Build
 
 Pure game logic library. No network I/O. Library-only design (no gRPC).
 
-- `engine-core/` - Game trait, erased adapter, registry, EngineContext API, GameMetadata (64 tests)
-- `games-tictactoe/` - TicTacToe implementation (27 tests)
-- `games-connect4/` - Connect 4 implementation (21 tests)
-- `mcts/` - Monte Carlo Tree Search implementation (22 tests)
-- `model-watcher/` - Shared model hot-reload utilities
+- `engine-core/` - Game trait, erased adapter, registry, EngineContext API, GameMetadata (70 tests)
+- `engine-config/` - Centralized configuration loading from config.toml (13 tests)
+- `games-tictactoe/` - TicTacToe implementation (26 tests)
+- `games-connect4/` - Connect 4 implementation (20 tests)
+- `mcts/` - Monte Carlo Tree Search implementation (25 tests)
+- `model-watcher/` - Shared model hot-reload utilities (2 tests)
 
 ### Actor (Rust Binary) - `actor/`
 **Status: COMPLETE (36 tests)**
@@ -145,8 +146,7 @@ cartridge2/
 │   └── src/
 │       ├── main.rs         # Entry point
 │       ├── actor.rs        # Episode runner using EngineContext
-│       ├── config.rs       # CLI configuration
-│       ├── central_config.rs # Central config.toml loading
+│       ├── config.rs       # CLI configuration (uses engine-config)
 │       ├── game_config.rs  # Game-specific config derived from metadata
 │       ├── mcts_policy.rs  # MCTS policy implementation
 │       ├── model_watcher.rs # ONNX model hot-reload via file watching
@@ -161,6 +161,14 @@ cartridge2/
 │   │       ├── metadata.rs # GameMetadata for game configuration
 │   │       ├── registry.rs # Static game registration
 │   │       └── typed.rs    # Game trait definition
+│   ├── engine-config/     # Centralized configuration (shared by actor/web)
+│   │   ├── src/
+│   │   │   ├── lib.rs      # Public API exports
+│   │   │   ├── defaults.rs # Default configuration values
+│   │   │   ├── structs.rs  # Config struct definitions
+│   │   │   ├── loader.rs   # Loading logic + env overrides
+│   │   │   └── tests.rs    # Unit tests
+│   │   └── SCHEMA.md       # Configuration schema documentation
 │   ├── games-tictactoe/   # TicTacToe implementation
 │   ├── games-connect4/    # Connect 4 implementation
 │   ├── mcts/              # Monte Carlo Tree Search
@@ -175,9 +183,8 @@ cartridge2/
 ├── web/                    # Web server + frontend
 │   ├── Cargo.toml         # Axum server
 │   ├── src/
-│   │   ├── main.rs        # HTTP endpoints
+│   │   ├── main.rs        # HTTP endpoints (uses engine-config)
 │   │   ├── game.rs        # Game session management
-│   │   ├── central_config.rs # Central config.toml loading
 │   │   └── model_watcher.rs # Model hot-reload for web
 │   ├── frontend/          # Svelte frontend
 │   │   ├── package.json
