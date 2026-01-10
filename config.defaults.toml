@@ -38,10 +38,14 @@ max_episodes = -1         # -1 for unlimited
 episode_timeout_secs = 30
 flush_interval_secs = 5
 log_interval = 50
+health_port = 8081        # Port for health check HTTP server
 
 [web]
 host = "0.0.0.0"
 port = 8080
+# CORS allowed origins (empty = allow all origins with warning for development)
+# Production: set to ["https://your-domain.com"]
+allowed_origins = []
 
 [mcts]
 num_simulations = 800
