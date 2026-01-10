@@ -13,6 +13,7 @@
 //! - GET  /model         - Get info about currently loaded model
 
 use axum::{
+    http::{header, HeaderValue, Method},
     routing::{get, post},
     Router,
 };
@@ -25,8 +26,8 @@ use std::sync::Arc;
 // `current_game` uses tokio::sync::RwLock since it's owned entirely by AppState.
 use std::sync::RwLock as StdRwLock;
 use tokio::sync::{Mutex, RwLock};
-use tower_http::cors::{Any, CorsLayer};
-use tracing::info;
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use tracing::{info, warn};
 
 mod game;
 mod handlers;
@@ -74,14 +75,65 @@ pub struct AppState {
     pub model_info: Arc<StdRwLock<ModelInfo>>,
 }
 
-/// Create the application router with the given state.
+/// Configure CORS based on allowed origins.
+///
+/// If `allowed_origins` is empty, allows all origins (development mode) with a warning.
+/// Otherwise, restricts to the specified origins (production mode).
+fn configure_cors(allowed_origins: &[String]) -> CorsLayer {
+    if allowed_origins.is_empty() {
+        // Development mode: allow all origins with a warning
+        warn!(
+            "CORS: No allowed_origins configured. Allowing all origins. \
+             This is insecure for production!"
+        );
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+            .allow_headers([header::CONTENT_TYPE, header::ACCEPT])
+    } else {
+        // Production mode: restrict to configured origins
+        let origins: Vec<HeaderValue> = allowed_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+
+        info!("CORS: Allowing origins: {:?}", allowed_origins);
+
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::list(origins))
+            .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+            .allow_headers([header::CONTENT_TYPE, header::ACCEPT])
+            .allow_credentials(true)
+    }
+}
+
+/// Create the application router with the given state and allowed origins.
 /// This is separated out for testing purposes.
+pub fn create_app_with_cors(state: Arc<AppState>, allowed_origins: &[String]) -> Router {
+    let cors = configure_cors(allowed_origins);
+
+    Router::new()
+        .route("/health", get(health))
+        .route("/games", get(list_games))
+        .route("/game-info/:id", get(get_game_info))
+        .route("/game/new", post(new_game))
+        .route("/game/state", get(get_game_state))
+        .route("/move", post(make_move))
+        .route("/stats", get(get_stats))
+        .route("/actor-stats", get(get_actor_stats))
+        .route("/model", get(get_model_info))
+        .layer(cors)
+        .with_state(state)
+}
+
+/// Create the application router with the given state.
+/// Uses permissive CORS for backwards compatibility in testing.
 pub fn create_app(state: Arc<AppState>) -> Router {
-    // CORS layer for development
+    // For backwards compatibility, use empty allowed_origins (development mode)
     let cors = CorsLayer::new()
         .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([header::CONTENT_TYPE, header::ACCEPT]);
 
     Router::new()
         .route("/health", get(health))
@@ -226,8 +278,8 @@ async fn main() -> anyhow::Result<()> {
         model_info,
     });
 
-    // Build router
-    let app = create_app(state);
+    // Build router with CORS configuration
+    let app = create_app_with_cors(state, &config.web.allowed_origins);
 
     let addr = format!("{}:{}", config.web.host, config.web.port);
     info!("Starting server on {}", addr);
@@ -632,5 +684,117 @@ mod tests {
 
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert!(body.contains("Game not found"));
+    }
+
+    // ========================================================================
+    // CORS Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_cors_allows_configured_origin() {
+        let state = create_test_state();
+        let allowed = vec!["https://allowed.example.com".to_string()];
+        let app = create_app_with_cors(state, &allowed);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .header("Origin", "https://allowed.example.com")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .unwrap(),
+            "https://allowed.example.com"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cors_rejects_unknown_origin_in_production() {
+        let state = create_test_state();
+        let allowed = vec!["https://allowed.example.com".to_string()];
+        let app = create_app_with_cors(state, &allowed);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .header("Origin", "https://evil.example.com")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Response should succeed but without CORS header for disallowed origin
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response
+            .headers()
+            .get("access-control-allow-origin")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cors_allows_any_origin_in_development_mode() {
+        let state = create_test_state();
+        // Empty allowed_origins = development mode
+        let allowed: Vec<String> = vec![];
+        let app = create_app_with_cors(state, &allowed);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .header("Origin", "https://any-origin.example.com")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        // In development mode, any origin should be allowed
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .unwrap(),
+            "*"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cors_preflight_request() {
+        let state = create_test_state();
+        let allowed = vec!["https://allowed.example.com".to_string()];
+        let app = create_app_with_cors(state, &allowed);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/move")
+                    .header("Origin", "https://allowed.example.com")
+                    .header("Access-Control-Request-Method", "POST")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Preflight should succeed
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response
+            .headers()
+            .get("access-control-allow-methods")
+            .is_some());
     }
 }

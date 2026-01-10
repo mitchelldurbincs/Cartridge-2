@@ -66,12 +66,15 @@ struct ActorDefaults {
     episode_timeout_secs: u64,
     flush_interval_secs: u64,
     log_interval: u32,
+    health_port: u16,
 }
 
 #[derive(Debug, Deserialize)]
 struct WebDefaults {
     host: String,
     port: u16,
+    #[serde(default)]
+    allowed_origins: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,6 +184,9 @@ pub fn flush_interval_secs() -> u64 {
 pub fn log_interval() -> u32 {
     DEFAULTS.actor.log_interval
 }
+pub fn health_port() -> u16 {
+    DEFAULTS.actor.health_port
+}
 
 // Web
 pub fn host() -> &'static str {
@@ -188,6 +194,9 @@ pub fn host() -> &'static str {
 }
 pub fn port() -> u16 {
     DEFAULTS.web.port
+}
+pub fn allowed_origins() -> &'static [String] {
+    &DEFAULTS.web.allowed_origins
 }
 
 // MCTS

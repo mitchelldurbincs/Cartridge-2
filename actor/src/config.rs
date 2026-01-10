@@ -103,6 +103,14 @@ fn default_onnx_intra_threads() -> usize {
         .unwrap_or(CENTRAL_CONFIG.mcts.onnx_intra_threads)
 }
 
+fn default_health_port() -> u16 {
+    std::env::var("ACTOR_HEALTH_PORT")
+        .or_else(|_| std::env::var("HEALTH_PORT"))
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(CENTRAL_CONFIG.actor.health_port)
+}
+
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(name = "actor")]
 #[command(about = "Cartridge2 Actor - Self-play episode runner")]
@@ -150,6 +158,10 @@ pub struct Config {
     /// Use this for orchestrator mode where models are pre-loaded before actors start.
     #[arg(long, default_value_t = false)]
     pub no_watch: bool,
+
+    /// Port for health check HTTP server (Kubernetes liveness/readiness probes).
+    #[arg(long, default_value_t = default_health_port())]
+    pub health_port: u16,
 }
 
 impl Default for Config {
@@ -169,6 +181,7 @@ impl Default for Config {
             onnx_intra_threads: default_onnx_intra_threads(),
             postgres_url: default_postgres_url(),
             no_watch: false,
+            health_port: default_health_port(),
         }
     }
 }
@@ -244,6 +257,7 @@ mod tests {
             onnx_intra_threads: 1,
             postgres_url: "postgresql://test:test@localhost:5432/test".into(),
             no_watch: false,
+            health_port: 8081,
         }
     }
 

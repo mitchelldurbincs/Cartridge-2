@@ -82,11 +82,17 @@ fn d_flush_interval() -> u64 {
 fn d_log_interval() -> u32 {
     defaults::log_interval()
 }
+fn d_health_port() -> u16 {
+    defaults::health_port()
+}
 fn d_host() -> String {
     defaults::host().into()
 }
 fn d_port() -> u16 {
     defaults::port()
+}
+fn d_allowed_origins() -> Vec<String> {
+    defaults::allowed_origins().to_vec()
 }
 fn d_num_sims() -> u32 {
     defaults::num_simulations()
@@ -270,6 +276,8 @@ pub struct ActorConfig {
     pub flush_interval_secs: u64,
     #[serde(default = "d_log_interval")]
     pub log_interval: u32,
+    #[serde(default = "d_health_port")]
+    pub health_port: u16,
 }
 
 impl Default for ActorConfig {
@@ -280,6 +288,7 @@ impl Default for ActorConfig {
             episode_timeout_secs: defaults::episode_timeout_secs(),
             flush_interval_secs: defaults::flush_interval_secs(),
             log_interval: defaults::log_interval(),
+            health_port: defaults::health_port(),
         }
     }
 }
@@ -292,6 +301,10 @@ pub struct WebConfig {
     pub host: String,
     #[serde(default = "d_port")]
     pub port: u16,
+    /// CORS allowed origins. Empty = allow all origins (development mode with warning).
+    /// Set to specific domains in production (e.g., ["https://your-domain.com"]).
+    #[serde(default = "d_allowed_origins")]
+    pub allowed_origins: Vec<String>,
 }
 
 impl Default for WebConfig {
@@ -299,6 +312,7 @@ impl Default for WebConfig {
         Self {
             host: defaults::host().into(),
             port: defaults::port(),
+            allowed_origins: defaults::allowed_origins().to_vec(),
         }
     }
 }
