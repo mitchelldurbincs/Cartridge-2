@@ -157,6 +157,21 @@ eval_batch_size = 64
 onnx_intra_threads = 1
 
 # =============================================================================
+# Logging Settings (Structured Logging for Cloud)
+# =============================================================================
+[logging]
+# Log output format: "text" for human-readable, "json" for structured JSON
+# Use "json" for Google Cloud Logging / cloud deployments
+format = "text"
+
+# Include timestamps in log output
+# Set to false if your cloud logging system adds timestamps automatically
+include_timestamps = true
+
+# Include module target in log output (e.g., "actor::mcts_policy")
+include_target = true
+
+# =============================================================================
 # Storage Backend Settings
 # =============================================================================
 [storage]

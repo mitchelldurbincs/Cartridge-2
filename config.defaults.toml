@@ -61,6 +61,11 @@ start_sims = 50           # Simulations for first iteration
 max_sims = 400            # Maximum simulations
 sim_ramp_rate = 20        # Simulations to add per iteration
 
+[logging]
+format = "text"           # "text" or "json" - use "json" for cloud deployments
+include_timestamps = true # Include timestamps in logs (false if cloud adds them)
+include_target = true     # Include module target in logs
+
 [storage]
 model_backend = "filesystem"
 postgres_url = "postgresql://cartridge:cartridge@localhost:5432/cartridge"

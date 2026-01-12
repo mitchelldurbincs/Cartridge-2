@@ -13,6 +13,7 @@ dependencies = [
     "psycopg2-binary>=2.9.0",
     "tomli>=2.0.0;python_version<'3.11'",
     "prometheus-client>=0.20.0",
+    "python-json-logger>=2.0.0",
 ]
 
 [project.optional-dependencies]

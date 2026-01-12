@@ -21,7 +21,7 @@ import argparse
 import logging
 import sys
 
-from .logging_utils import silence_noisy_loggers
+from .structured_logging import setup_logging
 
 
 def cmd_train(args: argparse.Namespace) -> int:
@@ -275,14 +275,10 @@ def main() -> int:
             parser.print_help()
             return 0
 
-        # Configure logging
+        # Configure structured logging (supports JSON for cloud deployments)
         log_level = getattr(args, "log_level", "INFO")
-        logging.basicConfig(
-            level=getattr(logging, log_level),
-            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        silence_noisy_loggers()
+        component = "trainer" if args.command == "train" else args.command
+        setup_logging(level=log_level, component=component)
 
         return args.func(args)
 
@@ -331,12 +327,8 @@ def main() -> int:
 
         args = parser.parse_args()
 
-        logging.basicConfig(
-            level=getattr(logging, args.log_level),
-            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        silence_noisy_loggers()
+        # Configure structured logging (supports JSON for cloud deployments)
+        setup_logging(level=args.log_level, component="trainer")
 
         return cmd_train(args)
 
