@@ -127,6 +127,15 @@ fn d_max_sims() -> u32 {
 fn d_sim_ramp_rate() -> u32 {
     defaults::sim_ramp_rate()
 }
+fn d_logging_format() -> String {
+    defaults::logging_format().into()
+}
+fn d_logging_include_timestamps() -> bool {
+    defaults::logging_include_timestamps()
+}
+fn d_logging_include_target() -> bool {
+    defaults::logging_include_target()
+}
 fn d_model_backend() -> String {
     defaults::model_backend().into()
 }
@@ -162,6 +171,8 @@ pub struct CentralConfig {
     pub web: WebConfig,
     #[serde(default)]
     pub mcts: MctsConfig,
+    #[serde(default)]
+    pub logging: LoggingConfig,
     #[serde(default)]
     pub storage: StorageConfig,
 }
@@ -360,6 +371,38 @@ impl Default for MctsConfig {
             max_sims: defaults::max_sims(),
             sim_ramp_rate: defaults::sim_ramp_rate(),
         }
+    }
+}
+
+/// Logging configuration for structured logging output
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
+pub struct LoggingConfig {
+    /// Log output format: "text" for human-readable, "json" for structured JSON
+    #[serde(default = "d_logging_format")]
+    pub format: String,
+    /// Include timestamps in log output (set false if cloud logging adds them)
+    #[serde(default = "d_logging_include_timestamps")]
+    pub include_timestamps: bool,
+    /// Include module target in log output
+    #[serde(default = "d_logging_include_target")]
+    pub include_target: bool,
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            format: defaults::logging_format().into(),
+            include_timestamps: defaults::logging_include_timestamps(),
+            include_target: defaults::logging_include_target(),
+        }
+    }
+}
+
+impl LoggingConfig {
+    /// Check if JSON format is enabled
+    pub fn is_json(&self) -> bool {
+        self.format.eq_ignore_ascii_case("json")
     }
 }
 

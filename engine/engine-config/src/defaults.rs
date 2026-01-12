@@ -25,6 +25,7 @@ struct DefaultsConfig {
     actor: ActorDefaults,
     web: WebDefaults,
     mcts: MctsDefaults,
+    logging: LoggingDefaults,
     storage: StorageDefaults,
 }
 
@@ -90,6 +91,13 @@ struct MctsDefaults {
     start_sims: u32,
     max_sims: u32,
     sim_ramp_rate: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct LoggingDefaults {
+    format: String,
+    include_timestamps: bool,
+    include_target: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -234,6 +242,17 @@ pub fn sim_ramp_rate() -> u32 {
     DEFAULTS.mcts.sim_ramp_rate
 }
 
+// Logging
+pub fn logging_format() -> &'static str {
+    &DEFAULTS.logging.format
+}
+pub fn logging_include_timestamps() -> bool {
+    DEFAULTS.logging.include_timestamps
+}
+pub fn logging_include_target() -> bool {
+    DEFAULTS.logging.include_target
+}
+
 // Storage
 pub fn model_backend() -> &'static str {
     &DEFAULTS.storage.model_backend
@@ -293,5 +312,12 @@ mod tests {
     fn test_storage_defaults() {
         assert_eq!(model_backend(), "filesystem");
         assert_eq!(pool_max_size(), 16);
+    }
+
+    #[test]
+    fn test_logging_defaults() {
+        assert_eq!(logging_format(), "text");
+        assert!(logging_include_timestamps());
+        assert!(logging_include_target());
     }
 }

@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from ..central_config import get_config as get_central_config
-from ..logging_utils import silence_noisy_loggers
+from ..structured_logging import setup_logging
 from .config import LoopConfig
 
 logger = logging.getLogger(__name__)
@@ -242,13 +242,8 @@ def main() -> int:
 
     config = parse_args()
 
-    # Set up logging
-    logging.basicConfig(
-        level=getattr(logging, config.log_level),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    silence_noisy_loggers()
+    # Set up structured logging (supports JSON for cloud deployments)
+    setup_logging(level=config.log_level, component="orchestrator")
 
     try:
         orchestrator = Orchestrator(config)

@@ -84,8 +84,9 @@ fn configure_cors(allowed_origins: &[String]) -> CorsLayer {
     if allowed_origins.is_empty() {
         // Development mode: allow all origins with a warning
         warn!(
-            "CORS: No allowed_origins configured. Allowing all origins. \
-             This is insecure for production!"
+            component = "web",
+            event = "cors_insecure",
+            "CORS: No allowed_origins configured - allowing all origins (insecure for production)"
         );
         CorsLayer::new()
             .allow_origin(Any)
@@ -98,7 +99,12 @@ fn configure_cors(allowed_origins: &[String]) -> CorsLayer {
             .filter_map(|o| o.parse().ok())
             .collect();
 
-        info!("CORS: Allowing origins: {:?}", allowed_origins);
+        info!(
+            component = "web",
+            event = "cors_configured",
+            origins = ?allowed_origins,
+            "CORS: Allowing configured origins"
+        );
 
         CorsLayer::new()
             .allow_origin(AllowOrigin::list(origins))
@@ -170,41 +176,86 @@ pub fn create_test_state() -> Arc<AppState> {
     })
 }
 
+/// Initialize tracing with optional JSON format for cloud deployments.
+///
+/// Supports CARTRIDGE_LOGGING_FORMAT environment variable override:
+/// - "text" (default): Human-readable format for local development
+/// - "json": Structured JSON format for Google Cloud Logging
+fn init_tracing(logging_config: &engine_config::LoggingConfig) {
+    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"))
+        .add_directive("web=info".parse().unwrap())
+        .add_directive("ort=warn".parse().unwrap())
+        .add_directive("h2=warn".parse().unwrap())
+        .add_directive("hyper=warn".parse().unwrap());
+
+    // Check for environment variable override
+    let json_format = std::env::var("CARTRIDGE_LOGGING_FORMAT")
+        .map(|v| v.eq_ignore_ascii_case("json"))
+        .unwrap_or_else(|_| logging_config.is_json());
+
+    let registry = tracing_subscriber::registry().with(filter);
+
+    if json_format {
+        // JSON format for Google Cloud Logging
+        registry
+            .with(
+                fmt::layer()
+                    .json()
+                    .with_current_span(true)
+                    .with_span_list(false)
+                    .with_file(false)
+                    .with_line_number(false)
+                    .flatten_event(true)
+                    .with_target(logging_config.include_target),
+            )
+            .init();
+    } else {
+        // Human-readable format for local development
+        registry.with(fmt::layer()).init();
+    }
+}
+
 /// Creates a future that completes when a shutdown signal is received.
 /// Handles Ctrl+C on all platforms.
 async fn shutdown_signal() {
     tokio::signal::ctrl_c()
         .await
         .expect("Failed to install Ctrl+C handler");
-    info!("Shutdown signal received, stopping server...");
+    info!(
+        component = "web",
+        event = "shutdown_signal",
+        "Shutdown signal received, stopping server"
+    );
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("web=info".parse().unwrap())
-                .add_directive("ort=warn".parse().unwrap()),
-        )
-        .init();
+    // Load configuration first (needed for logging config)
+    let config = load_config();
+
+    // Initialize tracing with JSON support for cloud deployments
+    init_tracing(&config.logging);
 
     // Initialize Prometheus metrics
     metrics::init_metrics();
-    info!("Prometheus metrics initialized");
+    info!(component = "web", "Prometheus metrics initialized");
 
     // Register all games
     engine_games::register_all_games();
-    info!("Registered all games");
+    info!(component = "web", "Registered all games");
 
-    // Load configuration from config.toml with env var overrides
-    let config = load_config();
     let data_dir = config.common.data_dir.clone();
     let default_game = config.common.env_id.clone();
     info!(
-        "Configuration: data_dir={}, default_game={}",
-        data_dir, default_game
+        component = "web",
+        data_dir = %data_dir,
+        default_game = %default_game,
+        host = %config.web.host,
+        port = config.web.port,
+        "Web server configuration loaded"
     );
 
     // Set up shared evaluator for model hot-reloading
@@ -220,16 +271,19 @@ async fn main() -> anyhow::Result<()> {
         let obs_size = EngineContext::new(&default_game)
             .or_else(|| {
                 warn!(
-                    "Game '{}' not found, falling back to tictactoe for obs_size",
-                    default_game
+                    component = "web",
+                    game = %default_game,
+                    "Game not found, falling back to tictactoe for obs_size"
                 );
                 EngineContext::new("tictactoe")
             })
             .map(|ctx| ctx.metadata().obs_size)
             .expect("At least tictactoe should be registered");
         info!(
-            "Model watcher using obs_size={} from game '{}'",
-            obs_size, default_game
+            component = "web",
+            obs_size = obs_size,
+            game = %default_game,
+            "Model watcher initialized"
         );
 
         // Create model watcher
@@ -244,14 +298,23 @@ async fn main() -> anyhow::Result<()> {
 
         // Try to load existing model
         match model_watcher.try_load_existing() {
-            Ok(true) => info!("Loaded existing model from {}/latest.onnx", model_dir),
+            Ok(true) => info!(
+                component = "web",
+                event = "model_loaded",
+                model_path = %format!("{}/latest.onnx", model_dir),
+                "Loaded existing model"
+            ),
             Ok(false) => info!(
-                "No model found at {}/latest.onnx - bot will play randomly",
-                model_dir
+                component = "web",
+                event = "model_not_found",
+                model_path = %format!("{}/latest.onnx", model_dir),
+                "No model found - bot will play randomly"
             ),
             Err(e) => warn!(
-                "Failed to load existing model: {} - bot will play randomly",
-                e
+                component = "web",
+                event = "model_load_error",
+                error = %e,
+                "Failed to load existing model - bot will play randomly"
             ),
         }
 
@@ -264,7 +327,11 @@ async fn main() -> anyhow::Result<()> {
         // Spawn task to log model updates
         tokio::spawn(async move {
             while model_rx.recv().await.is_some() {
-                info!("Model updated - bot will use new model for future games");
+                info!(
+                    component = "web",
+                    event = "model_updated",
+                    "Model updated - bot will use new model for future games"
+                );
             }
         });
 
@@ -289,14 +356,23 @@ async fn main() -> anyhow::Result<()> {
     let app = create_app_with_cors(state, &config.web.allowed_origins);
 
     let addr = format!("{}:{}", config.web.host, config.web.port);
-    info!("Starting server on {}", addr);
+    info!(
+        component = "web",
+        event = "server_start",
+        address = %addr,
+        "Starting web server"
+    );
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
-    info!("Server shut down gracefully");
+    info!(
+        component = "web",
+        event = "shutdown_complete",
+        "Server shut down gracefully"
+    );
     Ok(())
 }
 
