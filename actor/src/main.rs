@@ -26,6 +26,21 @@ use crate::actor::Actor;
 use crate::config::Config;
 use crate::health::{start_health_server, HealthState};
 
+/// Get trace context from environment variables for distributed tracing.
+///
+/// Reads CARTRIDGE_TRACE_ID and CARTRIDGE_TRACE_PARENT from environment.
+/// These are set by the orchestrator when launching actor processes.
+fn get_trace_context() -> (Option<String>, Option<String>) {
+    let trace_id = std::env::var("CARTRIDGE_TRACE_ID").ok();
+    let parent_span = std::env::var("CARTRIDGE_TRACE_PARENT").ok();
+    (trace_id, parent_span)
+}
+
+/// Generate a span ID for this actor process.
+fn generate_span_id() -> String {
+    uuid::Uuid::new_v4().to_string()[..16].to_string()
+}
+
 /// Initialize tracing with optional JSON format for cloud deployments.
 ///
 /// Supports CARTRIDGE_LOGGING_FORMAT environment variable override:
@@ -82,11 +97,20 @@ async fn main() -> Result<()> {
 
     // Initialize tracing with JSON support for cloud deployments
     init_tracing(&config.log_level, &central_config.logging)?;
+
+    // Get trace context from environment (set by orchestrator)
+    let (trace_id, parent_span) = get_trace_context();
+    let span_id = generate_span_id();
+
+    // Log startup with trace context
     info!(
         log_level = %config.log_level,
         component = "actor",
         env_id = %config.env_id,
         actor_id = %config.actor_id,
+        trace_id = trace_id.as_deref().unwrap_or("none"),
+        span_id = %span_id,
+        parent_span = parent_span.as_deref().unwrap_or("none"),
         "Actor service starting"
     );
 
