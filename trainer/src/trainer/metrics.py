@@ -179,11 +179,13 @@ def set_trainer_info(env_id: str, device: str, batch_size: int) -> None:
         device: Training device (cpu, cuda, mps).
         batch_size: Training batch size.
     """
-    TRAINER_INFO.info({
-        "env_id": env_id,
-        "device": device,
-        "batch_size": str(batch_size),
-    })
+    TRAINER_INFO.info(
+        {
+            "env_id": env_id,
+            "device": device,
+            "batch_size": str(batch_size),
+        }
+    )
 
 
 def record_training_step(
@@ -263,6 +265,7 @@ def update_gpu_memory() -> None:
     """Update GPU memory metrics (if available)."""
     try:
         import torch
+
         if torch.cuda.is_available():
             GPU_MEMORY_USED_BYTES.set(torch.cuda.memory_allocated())
             GPU_MEMORY_CACHED_BYTES.set(torch.cuda.memory_reserved())
