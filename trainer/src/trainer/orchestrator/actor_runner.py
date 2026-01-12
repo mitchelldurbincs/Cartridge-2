@@ -100,12 +100,15 @@ class ActorRunner:
             "Set ACTOR_BINARY environment variable or run 'cd actor && cargo build --release'."
         )
 
-    def run(self, num_episodes: int, iteration: int) -> tuple[bool, float]:
+    def run(
+        self, num_episodes: int, iteration: int, trace_id: str | None = None
+    ) -> tuple[bool, float]:
         """Run actor(s) for a specified number of episodes.
 
         Args:
             num_episodes: Total number of self-play episodes to run.
             iteration: Current training iteration (for simulation ramping).
+            trace_id: Optional trace ID for distributed tracing correlation.
 
         Returns:
             Tuple of (success, elapsed_seconds).
@@ -164,12 +167,19 @@ class ActorRunner:
                 if num_actors == 1:
                     logger.info(f"Command: {' '.join(cmd)}")
 
+                # Build environment with trace context for distributed tracing
+                env = os.environ.copy()
+                if trace_id:
+                    env["CARTRIDGE_TRACE_ID"] = trace_id
+                    env["CARTRIDGE_TRACE_PARENT"] = f"iteration_{iteration}"
+
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
+                    env=env,
                 )
                 processes.append((process, episodes_for_actor, actor_id))
                 logger.info(f"Started {actor_id} for {episodes_for_actor} episodes")

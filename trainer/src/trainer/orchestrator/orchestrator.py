@@ -17,6 +17,11 @@ import time
 from typing import Any
 
 from ..storage import create_replay_buffer
+from ..structured_logging import (
+    generate_span_id,
+    generate_trace_id,
+    set_trace_context,
+)
 from .actor_runner import ActorRunner
 from .config import IterationStats, LoopConfig
 from .eval_runner import EvalRunner
@@ -158,8 +163,20 @@ class Orchestrator:
         """
         iter_start = time.time()
         num_simulations = self.config.get_num_simulations(iteration)
+
+        # Generate trace ID for this iteration (for distributed tracing)
+        trace_id = generate_trace_id()
+        set_trace_context(trace_id=trace_id, span_id=generate_span_id())
+
         logger.info("=" * 60)
-        logger.info(f"ITERATION {iteration} | MCTS simulations: {num_simulations}")
+        logger.info(
+            f"ITERATION {iteration} | MCTS simulations: {num_simulations}",
+            extra={
+                "event": "iteration_start",
+                "iteration": iteration,
+                "trace_id": trace_id,
+            },
+        )
         logger.info("=" * 60)
 
         # Step 1: Clear replay buffer
@@ -174,7 +191,7 @@ class Orchestrator:
             f"Step 2: Running actor for {self.config.episodes_per_iteration} episodes..."
         )
         actor_success, actor_time = self.actor_runner.run(
-            self.config.episodes_per_iteration, iteration
+            self.config.episodes_per_iteration, iteration, trace_id=trace_id
         )
 
         if not actor_success:
