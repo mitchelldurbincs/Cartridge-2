@@ -349,4 +349,267 @@ mod tests {
         let result = policy.random_action(0);
         assert!(result.is_err());
     }
+
+    // ========================================
+    // Temperature scheduling tests
+    // ========================================
+
+    #[test]
+    fn test_temperature_scheduling_disabled() {
+        // With temp_threshold = 0, scheduling is disabled
+        let policy = MctsPolicy::new("tictactoe".into(), 9, 29).with_temp_schedule(0, 0.1);
+
+        // Threshold of 0 means temperature scheduling is disabled
+        assert_eq!(policy.temp_threshold, 0);
+    }
+
+    #[test]
+    fn test_temperature_scheduling_configuration() {
+        let policy = MctsPolicy::new("tictactoe".into(), 9, 29).with_temp_schedule(10, 0.2);
+
+        assert_eq!(policy.temp_threshold, 10);
+        assert!((policy.late_temperature - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_with_config_updates_base_temperature() {
+        let config = MctsConfig::for_training().with_temperature(0.5);
+
+        let policy = MctsPolicy::new("tictactoe".into(), 9, 29).with_config(config);
+
+        assert!((policy.base_temperature - 0.5).abs() < 1e-6);
+    }
+
+    // ========================================
+    // Action byte encoding tests
+    // ========================================
+
+    #[test]
+    fn test_action_byte_encoding_action_0() {
+        let mut policy = MctsPolicy::with_seed("tictactoe".into(), 9, 29, 12345);
+
+        // Force only action 0 to be legal
+        let legal_mask = 0b000000001u64;
+        let result = policy.random_action(legal_mask).unwrap();
+
+        // Action 0 should encode to [0, 0, 0, 0] (little-endian u32)
+        assert_eq!(result.action, vec![0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_action_byte_encoding_action_4() {
+        let mut policy = MctsPolicy::with_seed("tictactoe".into(), 9, 29, 12345);
+
+        // Force only action 4 (center) to be legal
+        let legal_mask = 0b000010000u64;
+        let result = policy.random_action(legal_mask).unwrap();
+
+        // Action 4 should encode to [4, 0, 0, 0] (little-endian u32)
+        assert_eq!(result.action, vec![4, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_action_byte_encoding_action_8() {
+        let mut policy = MctsPolicy::with_seed("tictactoe".into(), 9, 29, 12345);
+
+        // Force only action 8 to be legal
+        let legal_mask = 0b100000000u64;
+        let result = policy.random_action(legal_mask).unwrap();
+
+        // Action 8 should encode to [8, 0, 0, 0] (little-endian u32)
+        assert_eq!(result.action, vec![8, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_action_roundtrip_encoding() {
+        // Test that we can encode and decode all possible TicTacToe actions
+        for action in 0..9u32 {
+            let bytes = action.to_le_bytes().to_vec();
+            let decoded = u32::from_le_bytes(bytes.try_into().unwrap());
+            assert_eq!(action, decoded);
+        }
+    }
+
+    // ========================================
+    // Policy distribution tests
+    // ========================================
+
+    #[test]
+    fn test_policy_distribution_sums_to_one() {
+        let mut policy = MctsPolicy::with_seed("tictactoe".into(), 9, 29, 42);
+
+        // Various legal mask patterns
+        let masks = [
+            0b111111111u64, // All legal
+            0b101010101u64, // Alternating
+            0b000010000u64, // Only center
+            0b100000001u64, // Corners only
+            0b000111000u64, // Middle row
+        ];
+
+        for mask in masks {
+            let result = policy.random_action(mask).unwrap();
+            let sum: f32 = result.policy.iter().sum();
+            assert!(
+                (sum - 1.0).abs() < 1e-5,
+                "Policy sum should be ~1.0, got {}",
+                sum
+            );
+        }
+    }
+
+    #[test]
+    fn test_policy_distribution_uniform_over_legal() {
+        let mut policy = MctsPolicy::with_seed("tictactoe".into(), 9, 29, 42);
+
+        // 3 legal moves
+        let legal_mask = 0b000010101u64; // positions 0, 2, 4
+        let result = policy.random_action(legal_mask).unwrap();
+
+        // Each legal move should have 1/3 probability
+        let expected = 1.0 / 3.0;
+        assert!((result.policy[0] - expected).abs() < 1e-6);
+        assert!((result.policy[2] - expected).abs() < 1e-6);
+        assert!((result.policy[4] - expected).abs() < 1e-6);
+
+        // Illegal moves should have 0 probability
+        assert_eq!(result.policy[1], 0.0);
+        assert_eq!(result.policy[3], 0.0);
+        assert_eq!(result.policy[5], 0.0);
+    }
+
+    // ========================================
+    // Debug trait and evaluator reference tests
+    // ========================================
+
+    #[test]
+    fn test_debug_implementation() {
+        let policy = MctsPolicy::new("tictactoe".into(), 9, 29);
+        let debug_str = format!("{:?}", policy);
+
+        // Should contain key fields
+        assert!(debug_str.contains("MctsPolicy"));
+        assert!(debug_str.contains("tictactoe"));
+        assert!(debug_str.contains("num_actions: 9"));
+        assert!(debug_str.contains("has_model: false"));
+    }
+
+    #[test]
+    fn test_evaluator_ref_returns_valid_arc() {
+        let policy = MctsPolicy::new("tictactoe".into(), 9, 29);
+        let eval_ref = policy.evaluator_ref();
+
+        // Should be able to read the evaluator
+        let guard = eval_ref.read().unwrap();
+        assert!(guard.is_none()); // No model loaded initially
+    }
+
+    #[test]
+    fn test_has_model_returns_false_initially() {
+        let policy = MctsPolicy::new("tictactoe".into(), 9, 29);
+        assert!(!policy.has_model());
+    }
+
+    // ========================================
+    // MCTS stats tests (when model not loaded)
+    // ========================================
+
+    #[test]
+    fn test_random_action_returns_default_stats() {
+        let mut policy = MctsPolicy::with_seed("tictactoe".into(), 9, 29, 42);
+        let legal_mask = 0b111111111u64;
+
+        let result = policy.random_action(legal_mask).unwrap();
+
+        // Without MCTS (no model), stats should be default
+        assert_eq!(result.stats.total_time_us, 0);
+        assert_eq!(result.stats.inference_time_us, 0);
+        assert_eq!(result.stats.num_batches, 0);
+    }
+
+    #[test]
+    fn test_random_action_returns_neutral_value() {
+        let mut policy = MctsPolicy::with_seed("tictactoe".into(), 9, 29, 42);
+        let legal_mask = 0b111111111u64;
+
+        let result = policy.random_action(legal_mask).unwrap();
+
+        // Without a model, value should be neutral (0.0)
+        assert!((result.value - 0.0).abs() < 1e-6);
+    }
+
+    // ========================================
+    // Connect4 tests (different game configuration)
+    // ========================================
+
+    #[test]
+    fn test_mcts_policy_connect4_configuration() {
+        // Connect4 has 7 columns (actions) and different obs size
+        let policy = MctsPolicy::new("connect4".into(), 7, 127);
+
+        assert_eq!(policy.num_actions, 7);
+        assert_eq!(policy.obs_size, 127);
+        assert_eq!(policy.env_id, "connect4");
+    }
+
+    #[test]
+    fn test_random_action_connect4() {
+        let mut policy = MctsPolicy::with_seed("connect4".into(), 7, 127, 42);
+
+        // All 7 columns legal in Connect4
+        let legal_mask = 0b1111111u64;
+        let result = policy.random_action(legal_mask).unwrap();
+
+        let action = u32::from_le_bytes(result.action.try_into().unwrap());
+        assert!(action < 7, "Connect4 action should be 0-6, got {}", action);
+
+        // Policy should sum to 1
+        let sum: f32 = result.policy.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    // ========================================
+    // Seeded determinism tests
+    // ========================================
+
+    #[test]
+    fn test_seeded_policy_is_deterministic() {
+        // Create two policies with the same seed
+        let mut policy1 = MctsPolicy::with_seed("tictactoe".into(), 9, 29, 12345);
+        let mut policy2 = MctsPolicy::with_seed("tictactoe".into(), 9, 29, 12345);
+
+        let legal_mask = 0b111111111u64;
+
+        // They should produce the same sequence of actions
+        for _ in 0..10 {
+            let r1 = policy1.random_action(legal_mask).unwrap();
+            let r2 = policy2.random_action(legal_mask).unwrap();
+            assert_eq!(r1.action, r2.action);
+        }
+    }
+
+    #[test]
+    fn test_different_seeds_produce_different_sequences() {
+        let mut policy1 = MctsPolicy::with_seed("tictactoe".into(), 9, 29, 11111);
+        let mut policy2 = MctsPolicy::with_seed("tictactoe".into(), 9, 29, 22222);
+
+        let legal_mask = 0b111111111u64;
+
+        // Run enough iterations that it's extremely unlikely they match
+        let mut matches = 0;
+        for _ in 0..20 {
+            let r1 = policy1.random_action(legal_mask).unwrap();
+            let r2 = policy2.random_action(legal_mask).unwrap();
+            if r1.action == r2.action {
+                matches += 1;
+            }
+        }
+
+        // With 9 possible actions, expected matches ~= 20/9 ≈ 2.2
+        // Very unlikely to have all 20 match
+        assert!(
+            matches < 20,
+            "Different seeds should produce different sequences"
+        );
+    }
 }
