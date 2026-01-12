@@ -5,8 +5,8 @@
 
 use lazy_static::lazy_static;
 use prometheus::{
-    Encoder, Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
-    Registry, TextEncoder,
+    Encoder, Histogram, HistogramOpts, IntCounter, IntGauge, IntGaugeVec, Opts, Registry,
+    TextEncoder,
 };
 use std::sync::Once;
 

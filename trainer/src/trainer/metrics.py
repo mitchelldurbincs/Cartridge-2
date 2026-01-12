@@ -6,13 +6,13 @@ including loss values, learning rate, throughput, and evaluation results.
 
 import logging
 import threading
+
 from prometheus_client import (
     Counter,
     Gauge,
     Histogram,
     Info,
     start_http_server,
-    REGISTRY,
 )
 
 logger = logging.getLogger(__name__)

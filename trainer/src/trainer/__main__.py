@@ -26,8 +26,8 @@ from .logging_utils import silence_noisy_loggers
 
 def cmd_train(args: argparse.Namespace) -> int:
     """Run the training loop."""
-    from .backoff import WaitTimeout
     from . import metrics as prom_metrics
+    from .backoff import WaitTimeout
     from .trainer import Trainer, TrainerConfig
 
     logger = logging.getLogger(__name__)

@@ -22,6 +22,7 @@ import torch
 import torch.nn.utils as nn_utils
 import torch.optim as optim
 
+from . import metrics as prom_metrics
 from .backoff import LOG_EVERY_N_WAITS, WaitTimeout, wait_with_backoff
 from .checkpoint import (
     cleanup_old_checkpoints,
@@ -34,7 +35,6 @@ from .config import TrainerConfig
 from .evaluator import OnnxPolicy, RandomPolicy, evaluate
 from .game_config import GameConfig, get_config
 from .lr_scheduler import LRConfig, WarmupCosineScheduler
-from . import metrics as prom_metrics
 from .network import AlphaZeroLoss, create_network
 from .stats import EvalStats, TrainerStats, load_stats, write_stats
 from .storage import create_replay_buffer
