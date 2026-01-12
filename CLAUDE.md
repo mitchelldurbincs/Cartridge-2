@@ -79,14 +79,14 @@ npm run build   # Build
 Pure game logic library. No network I/O. Library-only design (no gRPC).
 
 - `engine-core/` - Game trait, erased adapter, registry, EngineContext API, GameMetadata (70 tests)
-- `engine-config/` - Centralized configuration loading from config.toml (13 tests)
+- `engine-config/` - Centralized configuration loading from config.toml (19 tests)
 - `games-tictactoe/` - TicTacToe implementation (26 tests)
 - `games-connect4/` - Connect 4 implementation (20 tests)
-- `mcts/` - Monte Carlo Tree Search implementation (25 tests)
+- `mcts/` - Monte Carlo Tree Search implementation (22 tests)
 - `model-watcher/` - Shared model hot-reload utilities (2 tests)
 
 ### Actor (Rust Binary) - `actor/`
-**Status: COMPLETE (36 tests)**
+**Status: COMPLETE (29 tests)**
 
 Self-play episode runner using engine-core directly:
 - Uses `EngineContext` for game simulation (no gRPC)
@@ -98,15 +98,19 @@ Self-play episode runner using engine-core directly:
 - Auto-derives game configuration from GameMetadata
 
 ### Web Server (Rust Binary) - `web/`
-**Status: COMPLETE (22 tests)**
+**Status: COMPLETE (27 tests)**
 
 Axum HTTP server for frontend interaction:
 - `/health` - Health check
+- `/metrics` - Prometheus metrics
+- `/games` - List available games
+- `/game-info/:id` - Get game metadata
 - `/game/new` - Start new game
 - `/game/state` - Get current board state
 - `/move` - Make player move + bot response
 - `/stats` - Read training stats from stats.json
-- `/selfplay` - Start/stop self-play (placeholder)
+- `/actor-stats` - Read actor self-play stats
+- `/model` - Get info about loaded model
 
 ### Web Frontend (Svelte + TypeScript) - `web/frontend/`
 **Status: COMPLETE**
@@ -358,9 +362,9 @@ cd actor && cargo build --release
 cd web && cargo build --release
 
 # Run all tests
-cd engine && cargo test   # 134 tests (64 + 27 + 21 + 22)
-cd actor && cargo test    # 36 tests
-cd web && cargo test      # 22 tests
+cd engine && cargo test   # 159 tests (70 + 19 + 26 + 20 + 22 + 2)
+cd actor && cargo test    # 29 tests
+cd web && cargo test      # 27 tests
 
 # Format and lint
 cd engine && cargo fmt && cargo clippy
@@ -417,16 +421,16 @@ python -m trainer train --db ./data/replay.db --steps 1000
 
 ## Current Status
 
-- [x] Engine core abstractions (Game trait, adapter, registry, metadata) - 64 tests
+- [x] Engine core abstractions (Game trait, adapter, registry, metadata) - 70 tests
 - [x] EngineContext high-level API
-- [x] TicTacToe game implementation - 27 tests
-- [x] Connect 4 game implementation - 21 tests
+- [x] TicTacToe game implementation - 26 tests
+- [x] Connect 4 game implementation - 20 tests
 - [x] Removed gRPC/proto dependencies (library-only)
-- [x] Actor core (episode runner, pluggable storage backends) - 36 tests
+- [x] Actor core (episode runner, pluggable storage backends) - 29 tests
 - [x] MCTS integration in actor with ONNX evaluation
 - [x] Model hot-reload via file watching (model-watcher crate)
 - [x] Auto-derived game configuration from GameMetadata
-- [x] Web server (Axum, game API) - 22 tests
+- [x] Web server (Axum, game API) - 27 tests
 - [x] Web frontend (Svelte, play UI, stats, loss visualization)
 - [x] MCTS implementation - 22 tests
 - [x] Python trainer (PyTorch, ONNX export, evaluator)
@@ -439,11 +443,15 @@ python -m trainer train --db ./data/replay.db --steps 1000
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
-| `/game/state` | GET | Get current board state |
+| `/metrics` | GET | Prometheus metrics |
+| `/games` | GET | List available games |
+| `/game-info/:id` | GET | Get game metadata |
 | `/game/new` | POST | Start a new game |
+| `/game/state` | GET | Get current board state |
 | `/move` | POST | Make a move (player + bot) |
 | `/stats` | GET | Read training stats |
-| `/selfplay` | POST | Start/stop self-play |
+| `/actor-stats` | GET | Read actor self-play stats |
+| `/model` | GET | Get info about loaded model |
 
 ## Using the Engine
 
