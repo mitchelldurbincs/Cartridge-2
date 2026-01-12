@@ -236,4 +236,258 @@ mod tests {
         let parsed: ActorStatsSnapshot = serde_json::from_str(&content).unwrap();
         assert_eq!(parsed.episodes_completed, 1);
     }
+
+    // ========================================
+    // Edge case tests
+    // ========================================
+
+    #[test]
+    fn test_average_with_zero_episodes() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+
+        // Don't record any episodes
+        let snapshot = stats.snapshot();
+
+        // Averages should be 0.0, not NaN or panic
+        assert_eq!(snapshot.episodes_completed, 0);
+        assert_eq!(snapshot.avg_episode_length, 0.0);
+        assert!(!snapshot.avg_episode_length.is_nan());
+    }
+
+    #[test]
+    fn test_mcts_average_with_zero_searches() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+
+        // Record episode but no MCTS stats
+        stats.record_episode(5, 1.0);
+
+        let snapshot = stats.snapshot();
+
+        // MCTS average should be 0.0 when no searches recorded
+        assert_eq!(snapshot.mcts_avg_inference_us, 0.0);
+        assert!(!snapshot.mcts_avg_inference_us.is_nan());
+    }
+
+    #[test]
+    fn test_outcome_categorization_positive_reward() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+
+        // Any positive reward is a P1 win
+        stats.record_episode(5, 0.001); // Small positive
+        stats.record_episode(5, 1.0); // Normal win
+        stats.record_episode(5, 100.0); // Large positive
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.player1_wins, 3);
+        assert_eq!(snapshot.player2_wins, 0);
+        assert_eq!(snapshot.draws, 0);
+    }
+
+    #[test]
+    fn test_outcome_categorization_negative_reward() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+
+        // Any negative reward is a P2 win
+        stats.record_episode(5, -0.001); // Small negative
+        stats.record_episode(5, -1.0); // Normal loss
+        stats.record_episode(5, -100.0); // Large negative
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.player1_wins, 0);
+        assert_eq!(snapshot.player2_wins, 3);
+        assert_eq!(snapshot.draws, 0);
+    }
+
+    #[test]
+    fn test_outcome_categorization_zero_reward() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+
+        // Exactly zero is a draw
+        stats.record_episode(5, 0.0);
+        stats.record_episode(7, 0.0);
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.player1_wins, 0);
+        assert_eq!(snapshot.player2_wins, 0);
+        assert_eq!(snapshot.draws, 2);
+    }
+
+    #[test]
+    fn test_mcts_stats_accumulation() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+
+        // Record multiple MCTS stats
+        stats.record_mcts_stats(10, 1000); // 10 searches, 1000us
+        stats.record_mcts_stats(20, 3000); // 20 searches, 3000us
+
+        let snapshot = stats.snapshot();
+
+        // Total: 30 searches, 4000us -> avg = 4000/30 ≈ 133.33
+        let expected_avg = 4000.0 / 30.0;
+        assert!((snapshot.mcts_avg_inference_us - expected_avg).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_stats_path_format() {
+        let dir = tempdir().unwrap();
+        let dir_path = dir.path().to_str().unwrap();
+        let stats = ActorStats::new(dir_path, "tictactoe");
+
+        let expected = format!("{}/actor_stats.json", dir_path);
+        assert_eq!(stats.stats_path(), expected);
+    }
+
+    #[test]
+    fn test_env_id_preserved() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "connect4");
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.env_id, "connect4");
+    }
+
+    #[test]
+    fn test_episodes_per_second_calculation() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+
+        // Record episodes (note: there will be some real elapsed time)
+        stats.record_episode(9, 1.0);
+        stats.record_episode(9, 1.0);
+
+        let snapshot = stats.snapshot();
+
+        // Should have positive runtime and rate
+        assert!(snapshot.runtime_seconds > 0.0);
+        assert!(snapshot.episodes_per_second > 0.0);
+
+        // Rate should be episodes / runtime
+        let expected_rate = 2.0 / snapshot.runtime_seconds;
+        assert!((snapshot.episodes_per_second - expected_rate).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_total_steps_accumulation() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+
+        stats.record_episode(5, 1.0);
+        stats.record_episode(9, -1.0);
+        stats.record_episode(7, 0.0);
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.total_steps, 5 + 9 + 7);
+    }
+
+    #[test]
+    fn test_avg_episode_length_calculation() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+
+        stats.record_episode(6, 1.0);
+        stats.record_episode(10, -1.0);
+        stats.record_episode(8, 0.0);
+
+        let snapshot = stats.snapshot();
+        // Average: (6 + 10 + 8) / 3 = 8.0
+        assert!((snapshot.avg_episode_length - 8.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_timestamp_is_recent() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+        stats.record_episode(5, 1.0);
+
+        let snapshot = stats.snapshot();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Timestamp should be within 1 second of now
+        assert!(snapshot.timestamp >= now - 1);
+        assert!(snapshot.timestamp <= now + 1);
+    }
+
+    #[test]
+    fn test_snapshot_serialization_roundtrip() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+
+        stats.record_episode(9, 1.0);
+        stats.record_mcts_stats(100, 50000);
+
+        let snapshot = stats.snapshot();
+
+        // Serialize and deserialize
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let parsed: ActorStatsSnapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.env_id, snapshot.env_id);
+        assert_eq!(parsed.episodes_completed, snapshot.episodes_completed);
+        assert_eq!(parsed.player1_wins, snapshot.player1_wins);
+        assert!((parsed.mcts_avg_inference_us - snapshot.mcts_avg_inference_us).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_write_stats_atomic() {
+        let dir = tempdir().unwrap();
+        let stats = ActorStats::new(dir.path().to_str().unwrap(), "tictactoe");
+
+        // Write initial stats
+        stats.record_episode(5, 1.0);
+        stats.write_stats();
+
+        // Read and verify
+        let path = Path::new(stats.stats_path());
+        let content1 = fs::read_to_string(path).unwrap();
+        let parsed1: ActorStatsSnapshot = serde_json::from_str(&content1).unwrap();
+        assert_eq!(parsed1.episodes_completed, 1);
+
+        // Update and write again
+        stats.record_episode(7, -1.0);
+        stats.write_stats();
+
+        // Should see updated value
+        let content2 = fs::read_to_string(path).unwrap();
+        let parsed2: ActorStatsSnapshot = serde_json::from_str(&content2).unwrap();
+        assert_eq!(parsed2.episodes_completed, 2);
+    }
+
+    #[test]
+    fn test_concurrent_updates() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let dir = tempdir().unwrap();
+        let stats = Arc::new(ActorStats::new(dir.path().to_str().unwrap(), "tictactoe"));
+
+        // Spawn multiple threads recording episodes concurrently
+        let mut handles = vec![];
+        for _ in 0..10 {
+            let stats_clone = Arc::clone(&stats);
+            let handle = thread::spawn(move || {
+                for _ in 0..100 {
+                    stats_clone.record_episode(5, 1.0);
+                }
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all threads
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let snapshot = stats.snapshot();
+        // Should have 10 threads * 100 episodes = 1000 episodes
+        assert_eq!(snapshot.episodes_completed, 1000);
+    }
 }
