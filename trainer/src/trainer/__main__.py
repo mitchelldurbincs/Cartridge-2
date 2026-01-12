@@ -26,12 +26,17 @@ from .logging_utils import silence_noisy_loggers
 
 def cmd_train(args: argparse.Namespace) -> int:
     """Run the training loop."""
+    from . import metrics as prom_metrics
     from .backoff import WaitTimeout
     from .trainer import Trainer, TrainerConfig
 
     logger = logging.getLogger(__name__)
     logger.info("Cartridge2 Trainer starting...")
     logger.info(f"Config: model_dir={args.model_dir}, steps={args.steps}")
+
+    # Start Prometheus metrics server
+    metrics_port = getattr(args, "metrics_port", 9090)
+    prom_metrics.start_metrics_server(port=metrics_port)
 
     config = TrainerConfig.from_args(args)
 
@@ -160,6 +165,12 @@ def setup_train_parser(subparsers: argparse._SubParsersAction) -> None:
         default=cfg.common.log_level.upper(),
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level",
+    )
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=9090,
+        help="Port for Prometheus metrics server",
     )
     parser.set_defaults(func=cmd_train)
 
@@ -310,6 +321,12 @@ def main() -> int:
             default=cfg.common.log_level.upper(),
             choices=["DEBUG", "INFO", "WARNING", "ERROR"],
             help="Logging level",
+        )
+        parser.add_argument(
+            "--metrics-port",
+            type=int,
+            default=9090,
+            help="Port for Prometheus metrics server",
         )
 
         args = parser.parse_args()

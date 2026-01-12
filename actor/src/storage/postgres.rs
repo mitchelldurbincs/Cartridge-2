@@ -8,11 +8,12 @@ use anyhow::Result;
 use async_trait::async_trait;
 use deadpool_postgres::{Config, Pool, Runtime};
 use engine_core::GameMetadata;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio_postgres::types::ToSql;
 use tokio_postgres::NoTls;
 
 use super::{ReplayStore, Transition};
+use crate::metrics;
 
 /// SQL schema embedded at compile time from the shared schema file.
 const SCHEMA_SQL: &str = include_str!("../../../sql/schema.sql");
@@ -246,9 +247,17 @@ impl ReplayStore for PostgresReplayStore {
             return Ok(());
         }
 
+        let start = Instant::now();
+
         // Build single multi-row INSERT statement (reduces N round-trips to 1)
         let sql = build_batch_insert_sql(transitions.len());
         let client = self.pool.get().await?;
+
+        // Update pool metrics
+        let pool_status = self.pool.status();
+        metrics::DB_POOL_SIZE.set(pool_status.size as i64);
+        metrics::DB_POOL_AVAILABLE.set(pool_status.available as i64);
+        metrics::DB_POOL_WAITING.set(pool_status.waiting as i64);
 
         // We need to store converted values (i32, i64) so references remain valid
         let step_numbers: Vec<i32> = transitions.iter().map(|t| t.step_number as i32).collect();
@@ -277,6 +286,12 @@ impl ReplayStore for PostgresReplayStore {
         }
 
         client.execute(&sql as &str, &params).await?;
+
+        // Record metrics
+        let duration = start.elapsed().as_secs_f64();
+        metrics::DB_WRITE_SECONDS.observe(duration);
+        metrics::TRANSITIONS_STORED.inc_by(transitions.len() as u64);
+
         Ok(())
     }
 

@@ -135,6 +135,11 @@ services:
       CARTRIDGE_TRAINING_DEVICE: ${CARTRIDGE_TRAINING_DEVICE:-}
       CARTRIDGE_EVALUATION_INTERVAL: ${CARTRIDGE_EVALUATION_INTERVAL:-}
       CARTRIDGE_EVALUATION_GAMES: ${CARTRIDGE_EVALUATION_GAMES:-}
+    # Metrics ports for Prometheus scraping
+    # Note: Not exposed to host, only accessible within Docker network
+    expose:
+      - "9090"  # Trainer metrics
+      - "9091"  # Actor metrics
     networks:
       - cartridge-net
 
@@ -180,6 +185,32 @@ services:
     networks:
       - cartridge-net
 
+  # ==========================================================================
+  # Prometheus - Metrics collection and monitoring
+  # ==========================================================================
+  # Collects metrics from all components:
+  #   - Actor metrics at http://alphazero:9091/metrics
+  #   - Trainer metrics at http://alphazero:9090/metrics
+  #   - Web server metrics at http://web:8080/metrics
+  #
+  # Access Prometheus UI at http://localhost:9092
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.listen-address=:9092'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9092:9092"
+    networks:
+      - cartridge-net
+
 networks:
   cartridge-net:
     driver: bridge
@@ -187,3 +218,4 @@ networks:
 volumes:
   postgres_data:
   minio_data:
+  prometheus_data:

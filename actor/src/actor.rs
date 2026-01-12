@@ -37,6 +37,7 @@ use crate::config::Config;
 use crate::game_config::{get_config, GameConfig};
 use crate::health::HealthState;
 use crate::mcts_policy::MctsPolicy;
+use crate::metrics;
 use crate::model_watcher::ModelWatcher;
 use crate::stats::ActorStats;
 use crate::storage::{create_replay_store, ReplayStore, StorageConfig, Transition};
@@ -222,11 +223,19 @@ impl Actor {
                 mcts_policy.evaluator_ref(),
             );
             match temp_watcher.try_load_existing() {
-                Ok(true) => info!("Loaded existing model (no-watch mode)"),
-                Ok(false) => {
-                    info!("No existing model found, will use random policy (no-watch mode)")
+                Ok(true) => {
+                    info!("Loaded existing model (no-watch mode)");
+                    metrics::MODEL_LOADED.set(1);
+                    metrics::MODEL_RELOADS.inc();
                 }
-                Err(e) => warn!("Failed to load existing model: {}", e),
+                Ok(false) => {
+                    info!("No existing model found, will use random policy (no-watch mode)");
+                    metrics::MODEL_LOADED.set(0);
+                }
+                Err(e) => {
+                    warn!("Failed to load existing model: {}", e);
+                    metrics::MODEL_LOADED.set(0);
+                }
             }
             None
         } else {
@@ -239,11 +248,19 @@ impl Actor {
                 mcts_policy.evaluator_ref(),
             );
             match watcher.try_load_existing() {
-                Ok(true) => info!("Loaded existing model"),
-                Ok(false) => {
-                    info!("No existing model found, will use random policy until model available")
+                Ok(true) => {
+                    info!("Loaded existing model");
+                    metrics::MODEL_LOADED.set(1);
+                    metrics::MODEL_RELOADS.inc();
                 }
-                Err(e) => warn!("Failed to load existing model: {}", e),
+                Ok(false) => {
+                    info!("No existing model found, will use random policy until model available");
+                    metrics::MODEL_LOADED.set(0);
+                }
+                Err(e) => {
+                    warn!("Failed to load existing model: {}", e);
+                    metrics::MODEL_LOADED.set(0);
+                }
             }
             Some(watcher)
         };
@@ -350,6 +367,9 @@ impl Actor {
 
                     Some(()) = updates.recv() => {
                         info!("Model updated, next episode will use new model");
+                        // Record model reload in Prometheus
+                        metrics::MODEL_RELOADS.inc();
+                        metrics::MODEL_LOADED.set(1);
                         continue;
                     }
 
@@ -388,6 +408,18 @@ impl Actor {
                         episode = new_count,
                         steps, total_reward, duration, "Episode completed"
                     );
+
+                    // Record Prometheus metrics for this episode
+                    metrics::EPISODES_TOTAL.inc();
+                    metrics::EPISODE_DURATION.observe(duration);
+                    metrics::EPISODE_STEPS.observe(steps as f64);
+                    metrics::record_outcome(total_reward);
+
+                    // Update throughput gauge
+                    let elapsed = episode_start.elapsed().as_secs_f64();
+                    if elapsed > 0.0 {
+                        metrics::EPISODES_PER_SECOND.set(new_count as f64 / elapsed);
+                    }
 
                     // Record episode in stats tracker
                     self.stats.record_episode(steps, total_reward);
@@ -531,6 +563,9 @@ impl Actor {
 
                     Some(()) = updates.recv() => {
                         info!("Model updated, next episode will use new model");
+                        // Record model reload in Prometheus
+                        metrics::MODEL_RELOADS.inc();
+                        metrics::MODEL_LOADED.set(1);
                         continue;
                     }
 
@@ -569,6 +604,18 @@ impl Actor {
                         episode = new_count,
                         steps, total_reward, duration, "Episode completed"
                     );
+
+                    // Record Prometheus metrics for this episode
+                    metrics::EPISODES_TOTAL.inc();
+                    metrics::EPISODE_DURATION.observe(duration);
+                    metrics::EPISODE_STEPS.observe(steps as f64);
+                    metrics::record_outcome(total_reward);
+
+                    // Update throughput gauge
+                    let elapsed = episode_start.elapsed().as_secs_f64();
+                    if elapsed > 0.0 {
+                        metrics::EPISODES_PER_SECOND.set(new_count as f64 / elapsed);
+                    }
 
                     // Record episode completion for health tracking
                     health.record_episode_complete();
@@ -778,6 +825,13 @@ impl Actor {
 
             // Accumulate MCTS performance stats
             episode_stats.add(&policy_result.stats);
+
+            // Record Prometheus metrics for this MCTS search
+            metrics::MCTS_SEARCHES_TOTAL.inc();
+            metrics::MCTS_INFERENCE_SECONDS
+                .observe(policy_result.stats.inference_time_us as f64 / 1_000_000.0);
+            metrics::MCTS_SEARCH_SECONDS
+                .observe(policy_result.stats.total_time_us as f64 / 1_000_000.0);
 
             // Take step in environment
             let step_result = {

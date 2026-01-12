@@ -132,9 +132,22 @@ async fn ready_handler(state: HealthState) -> axum::http::StatusCode {
     }
 }
 
-async fn metrics_handler() -> String {
-    // Placeholder for Prometheus metrics
-    "# HELP actor_up Actor is up\n# TYPE actor_up gauge\nactor_up 1\n".to_string()
+async fn metrics_handler() -> (
+    axum::http::StatusCode,
+    [(axum::http::header::HeaderName, &'static str); 1],
+    String,
+) {
+    // Update memory metrics before responding
+    crate::metrics::update_memory_metrics();
+
+    (
+        axum::http::StatusCode::OK,
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        crate::metrics::encode_metrics(),
+    )
 }
 
 #[cfg(test)]

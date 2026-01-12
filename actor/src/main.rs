@@ -17,6 +17,7 @@ mod config;
 mod game_config;
 mod health;
 mod mcts_policy;
+mod metrics;
 mod model_watcher;
 mod stats;
 mod storage;
@@ -51,6 +52,11 @@ async fn main() -> Result<()> {
     // Initialize tracing
     init_tracing(&config.log_level)?;
     info!(log_level = %config.log_level, "Actor service starting");
+
+    // Initialize Prometheus metrics
+    metrics::init_metrics();
+    metrics::set_actor_info(&config.env_id, &config.actor_id);
+    info!("Prometheus metrics initialized");
 
     // Log the max_episodes setting
     let max_episode_description = if config.max_episodes < 0 {

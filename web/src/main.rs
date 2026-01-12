@@ -31,6 +31,7 @@ use tracing::{info, warn};
 
 mod game;
 mod handlers;
+mod metrics;
 #[cfg(feature = "onnx")]
 mod model_watcher;
 mod types;
@@ -39,7 +40,7 @@ use engine_config::load_config;
 use game::GameSession;
 use handlers::{
     get_actor_stats, get_game_info, get_game_state, get_model_info, get_stats, health, list_games,
-    make_move, new_game,
+    make_move, metrics_handler, new_game,
 };
 #[cfg(feature = "onnx")]
 use model_watcher::{ModelInfo, ModelWatcher};
@@ -114,6 +115,7 @@ pub fn create_app_with_cors(state: Arc<AppState>, allowed_origins: &[String]) ->
 
     Router::new()
         .route("/health", get(health))
+        .route("/metrics", get(metrics_handler))
         .route("/games", get(list_games))
         .route("/game-info/:id", get(get_game_info))
         .route("/game/new", post(new_game))
@@ -137,6 +139,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 
     Router::new()
         .route("/health", get(health))
+        .route("/metrics", get(metrics_handler))
         .route("/games", get(list_games))
         .route("/game-info/:id", get(get_game_info))
         .route("/game/new", post(new_game))
@@ -186,6 +189,10 @@ async fn main() -> anyhow::Result<()> {
                 .add_directive("ort=warn".parse().unwrap()),
         )
         .init();
+
+    // Initialize Prometheus metrics
+    metrics::init_metrics();
+    info!("Prometheus metrics initialized");
 
     // Register all games
     engine_games::register_all_games();
