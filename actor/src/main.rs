@@ -10,7 +10,7 @@ use anyhow::Result;
 use clap::Parser;
 use std::sync::Arc;
 use tokio::signal;
-use tracing::{error, info};
+use tracing::{error, info, info_span, Instrument};
 
 mod actor;
 mod config;
@@ -102,29 +102,44 @@ async fn main() -> Result<()> {
     let (trace_id, parent_span) = get_trace_context();
     let span_id = generate_span_id();
 
-    // Log startup with trace context
-    info!(
-        log_level = %config.log_level,
+    // Create a root span with trace context that wraps all actor execution.
+    // This ensures all subsequent logs include trace_id, span_id, and parent_span
+    // for distributed tracing correlation across the orchestrator and actors.
+    let trace_id_value = trace_id.as_deref().unwrap_or("none");
+    let parent_span_value = parent_span.as_deref().unwrap_or("none");
+
+    let root_span = info_span!(
+        "actor",
         component = "actor",
+        trace_id = trace_id_value,
+        span_id = %span_id,
+        parent_span = parent_span_value,
         env_id = %config.env_id,
         actor_id = %config.actor_id,
-        trace_id = trace_id.as_deref().unwrap_or("none"),
-        span_id = %span_id,
-        parent_span = parent_span.as_deref().unwrap_or("none"),
+    );
+
+    // Run all actor logic within the root span for trace context propagation
+    run_actor(config).instrument(root_span).await
+}
+
+/// Main actor execution logic, instrumented with trace context.
+async fn run_actor(config: Config) -> Result<()> {
+    info!(
+        log_level = %config.log_level,
+        max_episodes = config.max_episodes,
+        num_simulations = config.num_simulations,
+        temp_threshold = config.temp_threshold,
         "Actor service starting"
     );
 
     // Initialize Prometheus metrics
     metrics::init_metrics();
     metrics::set_actor_info(&config.env_id, &config.actor_id);
-    info!(component = "actor", "Prometheus metrics initialized");
+    info!("Prometheus metrics initialized");
 
     // Log the max_episodes setting
     info!(
-        component = "actor",
         max_episodes = config.max_episodes,
-        env_id = %config.env_id,
-        actor_id = %config.actor_id,
         num_simulations = config.num_simulations,
         temp_threshold = config.temp_threshold,
         "Actor configuration loaded"
@@ -139,7 +154,7 @@ async fn main() -> Result<()> {
         let state = health_state.clone();
         tokio::spawn(async move {
             if let Err(e) = start_health_server(health_port, state).await {
-                error!(component = "actor", port = health_port, error = %e, "Health server error");
+                error!(port = health_port, error = %e, "Health server error");
             }
         })
     };
@@ -155,11 +170,10 @@ async fn main() -> Result<()> {
     let shutdown_actor = Arc::clone(&actor);
     let shutdown_handle = tokio::spawn(async move {
         if let Err(e) = signal::ctrl_c().await {
-            error!(component = "actor", error = %e, "Failed to listen for ctrl+c signal");
+            error!(error = %e, "Failed to listen for ctrl+c signal");
             return;
         }
         info!(
-            component = "actor",
             event = "shutdown_signal",
             "Shutdown signal received, stopping actor"
         );
@@ -175,15 +189,11 @@ async fn main() -> Result<()> {
 
     match run_result {
         Ok(_) => {
-            info!(
-                component = "actor",
-                event = "shutdown_complete",
-                "Actor completed successfully"
-            );
+            info!(event = "shutdown_complete", "Actor completed successfully");
             Ok(())
         }
         Err(e) => {
-            error!(component = "actor", event = "actor_failed", error = %e, "Actor failed");
+            error!(event = "actor_failed", error = %e, "Actor failed");
             Err(e)
         }
     }
