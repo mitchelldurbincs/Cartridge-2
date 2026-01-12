@@ -46,6 +46,10 @@ async-trait = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Prometheus metrics
+prometheus = "0.13"
+lazy_static = "1.4"
+
 # Progress bar
 indicatif = "0.17"
 

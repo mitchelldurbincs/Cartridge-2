@@ -1,0 +1,39 @@
+# Prometheus Configuration for Cartridge2
+#
+# Scrape targets:
+#   - Actor:   http://alphazero:9091/metrics (self-play metrics)
+#   - Trainer: http://alphazero:9090/metrics (training metrics)
+#   - Web:     http://web:8080/metrics       (game server metrics)
+#
+# Note: Actor and trainer run in the same container (alphazero),
+# so they expose metrics on different ports.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Actor metrics (self-play, episode generation)
+  - job_name: 'actor'
+    static_configs:
+      - targets: ['alphazero:9091']
+    # Actor may not always be running, so don't alert on scrape failures
+    scrape_timeout: 10s
+
+  # Trainer metrics (training loop, loss values)
+  - job_name: 'trainer'
+    static_configs:
+      - targets: ['alphazero:9090']
+    # Trainer may not always be running, so don't alert on scrape failures
+    scrape_timeout: 10s
+
+  # Web server metrics (game sessions, bot moves)
+  - job_name: 'web'
+    static_configs:
+      - targets: ['web:8080']
+    metrics_path: '/metrics'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9092']

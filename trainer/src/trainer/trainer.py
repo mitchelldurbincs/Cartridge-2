@@ -34,6 +34,7 @@ from .config import TrainerConfig
 from .evaluator import OnnxPolicy, RandomPolicy, evaluate
 from .game_config import GameConfig, get_config
 from .lr_scheduler import LRConfig, WarmupCosineScheduler
+from . import metrics as prom_metrics
 from .network import AlphaZeroLoss, create_network
 from .stats import EvalStats, TrainerStats, load_stats, write_stats
 from .storage import create_replay_buffer
@@ -225,6 +226,13 @@ class Trainer:
         if self.lr_scheduler.config.enabled:
             logger.info(f"LR scheduler: {self.lr_scheduler}")
 
+        # Set Prometheus trainer info
+        prom_metrics.set_trainer_info(
+            env_id=self.config.env_id,
+            device=self.config.device,
+            batch_size=self.config.batch_size,
+        )
+
         replay = self._create_replay_buffer()
         try:
             env_id = self.config.env_id
@@ -312,8 +320,10 @@ class Trainer:
                 observations, policy_targets, value_targets = batch
                 self.samples_seen += len(observations)
 
-                # Train step
+                # Train step with timing
+                step_start = time.time()
                 metrics = self._train_step(observations, policy_targets, value_targets)
+                step_duration = time.time() - step_start
 
                 # Update learning rate (warmup then cosine annealing)
                 self.lr_scheduler.step()
@@ -326,9 +336,22 @@ class Trainer:
                 self.stats.samples_seen = self.samples_seen
                 self.stats.timestamp = time.time()
 
+                # Record Prometheus metrics for this training step
+                prom_metrics.record_training_step(
+                    step=global_step,
+                    total_loss=metrics["loss/total"],
+                    value_loss=metrics["loss/value"],
+                    policy_loss=metrics["loss/policy"],
+                    learning_rate=self.optimizer.param_groups[0]["lr"],
+                    duration_seconds=step_duration,
+                    batch_size=len(observations),
+                )
+
                 # Use cached buffer size (update periodically to avoid expensive count() every step)
                 if step % self._buffer_size_update_interval == 0:
                     self._buffer_size_cache = replay.count(env_id=env_id)
+                    prom_metrics.update_replay_buffer_size(self._buffer_size_cache)
+                    prom_metrics.update_gpu_memory()
                 self.stats.replay_buffer_size = self._buffer_size_cache
 
                 # Track recent losses for rolling average
@@ -389,7 +412,10 @@ class Trainer:
 
                 # Save checkpoint
                 if step % self.config.checkpoint_interval == 0:
+                    ckpt_start = time.time()
                     checkpoint_path = self._save_checkpoint(global_step)
+                    ckpt_duration = time.time() - ckpt_start
+                    prom_metrics.record_checkpoint(ckpt_duration)
                     self.stats.last_checkpoint = str(checkpoint_path)
                     logger.info(f"Saved checkpoint: {checkpoint_path}")
 
@@ -477,6 +503,7 @@ class Trainer:
             f"Running evaluation at step {step} ({self.config.eval_games} games)..."
         )
 
+        eval_start = time.time()
         try:
             model_policy = OnnxPolicy(str(checkpoint_path), temperature=0.0)
             random_policy = RandomPolicy()
@@ -490,6 +517,8 @@ class Trainer:
                 verbose=False,
             )
 
+            eval_duration = time.time() - eval_start
+
             eval_stats = EvalStats(
                 step=step,
                 win_rate=results.player1_win_rate,
@@ -501,6 +530,14 @@ class Trainer:
             )
 
             self.stats.append_eval(eval_stats)
+
+            # Record Prometheus evaluation metrics
+            prom_metrics.record_evaluation(
+                win_rate=results.player1_win_rate,
+                draw_rate=results.draw_rate,
+                games_played=results.games_played,
+                duration_seconds=eval_duration,
+            )
 
             logger.info(
                 f"Evaluation complete: win_rate={eval_stats.win_rate:.1%}, "

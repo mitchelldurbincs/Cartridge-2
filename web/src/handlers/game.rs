@@ -7,8 +7,10 @@ use axum::{
 };
 use engine_core::{create_game, list_registered_games};
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::game::GameSession;
+use crate::metrics;
 use crate::types::{
     GameInfoResponse, GameStateResponse, GamesListResponse, MoveRequest, MoveResponse,
     NewGameRequest,
@@ -55,6 +57,10 @@ pub async fn new_game(
 ) -> Result<Json<GameStateResponse>, (StatusCode, String)> {
     let mut session = state.session.lock().await;
 
+    // Record metrics for new game
+    metrics::GAMES_CREATED.inc();
+    metrics::GAMES_ACTIVE.inc();
+
     // Determine which game to use
     let game_id = if let Some(ref game) = req.game {
         // Update current game if specified (async RwLock)
@@ -78,12 +84,16 @@ pub async fn new_game(
     // If player goes first, human is player 1, bot is player 2
     if req.first == "bot" {
         session.set_human_player(2); // Human plays as O (player 2)
+
+        // Time bot move
+        let bot_start = Instant::now();
         session.bot_move().map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Bot move failed: {}", e),
             )
         })?;
+        metrics::BOT_MOVE_SECONDS.observe(bot_start.elapsed().as_secs_f64());
     } else {
         session.set_human_player(1); // Human plays as X (player 1) - default
     }
@@ -126,19 +136,32 @@ pub async fn make_move(
             format!("Move failed: {}", e),
         )
     })?;
+    metrics::MOVES_PLAYED.inc();
 
     // If game is not over, bot makes a move
     let bot_move = if !session.is_game_over() {
+        let bot_start = Instant::now();
         let pos = session.bot_move().map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Bot move failed: {}", e),
             )
         })?;
+        metrics::BOT_MOVE_SECONDS.observe(bot_start.elapsed().as_secs_f64());
+        metrics::MOVES_PLAYED.inc(); // Count bot move too
         Some(pos)
     } else {
+        // Game ended - record completion
+        metrics::GAMES_COMPLETED.inc();
+        metrics::GAMES_ACTIVE.dec();
         None
     };
+
+    // Check if game is now over after bot move
+    if bot_move.is_some() && session.is_game_over() {
+        metrics::GAMES_COMPLETED.inc();
+        metrics::GAMES_ACTIVE.dec();
+    }
 
     Ok(Json(MoveResponse {
         state: session.to_response(),
