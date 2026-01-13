@@ -41,21 +41,9 @@ storage.
 
 ## Quick Start
 
-### Option 1: Docker (Easiest)
+### Option 1: Local Development (Recommended)
 
-```bash
-# Train a model using synchronized AlphaZero loop
-docker compose up alphazero
-
-# Train Connect4 instead of TicTacToe
-CARTRIDGE_COMMON_ENV_ID=connect4 docker compose up alphazero
-
-# Play against the trained model
-docker compose up web frontend
-# Open http://localhost in browser
-```
-
-### Option 2: Local Development
+Local development offers better performance and faster iteration. PostgreSQL is required for the replay buffer.
 
 **Terminal 0** - Start PostgreSQL:
 ```bash
@@ -82,6 +70,22 @@ python -m trainer loop --iterations 50 --episodes 200 --steps 500
 
 Open http://localhost:5173 to play!
 
+### Option 2: Docker
+
+Docker is convenient for quick testing but may have performance overhead.
+
+```bash
+# Train a model using synchronized AlphaZero loop
+docker compose up alphazero
+
+# Train Connect4 instead of TicTacToe
+CARTRIDGE_COMMON_ENV_ID=connect4 docker compose up alphazero
+
+# Play against the trained model
+docker compose up web frontend
+# Open http://localhost in browser
+```
+
 ## Project Structure
 
 ```
@@ -92,13 +96,16 @@ cartridge2/
 |   |   |-- actor.rs           # Episode loop
 |   |   |-- config.rs          # CLI configuration
 |   |   |-- game_config.rs     # Game-specific config from metadata
+|   |   |-- health.rs          # Health check endpoint
 |   |   |-- mcts_policy.rs     # MCTS policy implementation
+|   |   |-- metrics.rs         # Prometheus metrics
 |   |   |-- model_watcher.rs   # ONNX model hot-reload
-|   |   |-- replay.rs          # Replay buffer interface
+|   |   |-- stats.rs           # Self-play statistics
 |   |   +-- storage/           # Storage backends (PostgreSQL)
 |   +-- tests/
 |
 |-- engine/                    # Rust workspace
+|   |-- engine-config/         # Centralized configuration loading
 |   |-- engine-core/           # Game trait + registry
 |   |   +-- src/
 |   |       |-- typed.rs       # Game trait definition
@@ -107,6 +114,7 @@ cartridge2/
 |   |       |-- context.rs     # EngineContext API
 |   |       |-- metadata.rs    # GameMetadata for game configuration
 |   |       +-- registry.rs    # Static game registry
+|   |-- engine-games/          # Game registration utilities
 |   |-- games-tictactoe/       # TicTacToe implementation
 |   |-- games-connect4/        # Connect 4 implementation
 |   |-- mcts/                  # Monte Carlo Tree Search
@@ -114,10 +122,12 @@ cartridge2/
 |
 |-- web/                       # HTTP server + frontend
 |   |-- src/
-|   |   |-- main.rs            # Axum endpoints
+|   |   |-- main.rs            # Axum server setup
 |   |   |-- game.rs            # Session management
-|   |   |-- central_config.rs  # Central config.toml loading
-|   |   +-- model_watcher.rs   # ONNX model hot-reload
+|   |   |-- metrics.rs         # Prometheus metrics
+|   |   |-- model_watcher.rs   # ONNX model hot-reload
+|   |   |-- handlers/          # HTTP endpoint handlers
+|   |   +-- types/             # Request/response types
 |   +-- frontend/              # Svelte application
 |       +-- src/
 |           |-- App.svelte
@@ -131,26 +141,22 @@ cartridge2/
 |   +-- src/trainer/
 |       |-- __main__.py        # CLI entrypoint
 |       |-- trainer.py         # Training loop
-|       |-- orchestrator.py    # Synchronized AlphaZero orchestrator
 |       |-- network.py         # Neural network (MLP)
 |       |-- resnet.py          # ResNet architecture
-|       |-- replay.py          # Replay buffer interface
 |       |-- evaluator.py       # Model evaluation
 |       |-- game_config.py     # Game-specific configurations
 |       |-- stats.py           # Training statistics
 |       |-- config.py          # TrainerConfig dataclass
 |       |-- checkpoint.py      # Checkpoint utilities
 |       |-- central_config.py  # Central config.toml loading
+|       |-- games/             # Game-specific neural network configs
+|       |-- orchestrator/      # Synchronized AlphaZero orchestrator
+|       |-- policies/          # Policy implementations (ONNX, random)
 |       +-- storage/           # Storage backends (PostgreSQL, S3, filesystem)
 |
 |-- data/                      # Runtime data (gitignored)
 |   |-- models/                # ONNX checkpoints
 |   +-- stats.json             # Training telemetry
-|
-|-- docs/
-|   |-- MVP.md                 # Design document
-|   |-- claude-k8s-ideas.md    # K8s migration roadmap
-|   +-- codex-k8s-ideas.md     # K8s adoption checklist
 |
 |-- config.toml                # Central configuration
 |-- docker-compose.yml         # Local mode services
@@ -207,11 +213,14 @@ Axum HTTP server with endpoints:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
-| `/game/state` | GET | Get current board state |
+| `/metrics` | GET | Prometheus metrics |
+| `/games` | GET | List available games |
+| `/game-info/:id` | GET | Get game metadata |
 | `/game/new` | POST | Start a new game |
+| `/game/state` | GET | Get current board state |
 | `/move` | POST | Make player move + get bot response |
 | `/stats` | GET | Read training telemetry |
-| `/selfplay` | POST | Start/stop self-play |
+| `/model` | GET | Get info about loaded model |
 
 ### Python Trainer (`trainer/`)
 
@@ -354,9 +363,9 @@ cd trainer && pip install -e .
 ### Test
 
 ```bash
-cd engine && cargo test    # 134 tests
-cd actor && cargo test     # 46 tests
-cd web && cargo test       # 22 tests
+cd engine && cargo test    # ~172 tests
+cd actor && cargo test     # 69 tests
+cd web && cargo test       # 27 tests
 cd trainer && pytest       # Python tests
 ```
 
